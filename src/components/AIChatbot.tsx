@@ -64,46 +64,46 @@ const QUICK_SUGGESTIONS: QuickSuggestion[] = [
 // Markdown components for beautiful rendering
 const MarkdownComponents = {
   h1: ({ children }: any) => (
-    <h1 className="text-lg font-bold text-gray-900 mt-4 mb-2 first:mt-0">{children}</h1>
+    <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-4 mb-2 first:mt-0">{children}</h1>
   ),
   h2: ({ children }: any) => (
-    <h2 className="text-base font-semibold text-gray-800 mt-3 mb-2 first:mt-0">{children}</h2>
+    <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-3 mb-2 first:mt-0">{children}</h2>
   ),
   h3: ({ children }: any) => (
-    <h3 className="text-sm font-semibold text-gray-800 mt-2 mb-1 first:mt-0">{children}</h3>
+    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mt-2 mb-1 first:mt-0">{children}</h3>
   ),
   p: ({ children }: any) => (
-    <p className="text-sm text-gray-700 leading-relaxed mb-2 last:mb-0">{children}</p>
+    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mb-2 last:mb-0">{children}</p>
   ),
   ul: ({ children }: any) => (
     <ul className="list-none space-y-1.5 my-2">{children}</ul>
   ),
   ol: ({ children }: any) => (
-    <ol className="list-decimal list-inside space-y-1.5 my-2 text-sm text-gray-700">{children}</ol>
+    <ol className="list-decimal list-inside space-y-1.5 my-2 text-sm text-gray-700 dark:text-gray-300">{children}</ol>
   ),
   li: ({ children }: any) => (
-    <li className="text-sm text-gray-700 flex items-start gap-2">
-      <span className="text-[#0046AD] mt-1.5">•</span>
+    <li className="text-sm text-gray-700 dark:text-gray-300 flex items-start gap-2">
+      <span className="text-[#0046AD] dark:text-[#00A5B5] mt-1.5">•</span>
       <span className="flex-1">{children}</span>
     </li>
   ),
   strong: ({ children }: any) => (
-    <strong className="font-semibold text-gray-900">{children}</strong>
+    <strong className="font-semibold text-gray-900 dark:text-gray-100">{children}</strong>
   ),
   em: ({ children }: any) => (
-    <em className="italic text-gray-600">{children}</em>
+    <em className="italic text-gray-600 dark:text-gray-400">{children}</em>
   ),
   code: ({ children, className }: any) => {
     const isInline = !className;
     if (isInline) {
       return (
-        <code className="px-1.5 py-0.5 bg-[#0046AD]/10 text-[#0046AD] rounded text-xs font-mono">
+        <code className="px-1.5 py-0.5 bg-[#0046AD]/10 dark:bg-[#00A5B5]/20 text-[#0046AD] dark:text-[#00A5B5] rounded text-xs font-mono">
           {children}
         </code>
       );
     }
     return (
-      <code className="block p-3 bg-gray-900 text-gray-100 rounded-lg text-xs font-mono overflow-x-auto my-2">
+      <code className="block p-3 bg-gray-900 dark:bg-gray-950 text-gray-100 rounded-lg text-xs font-mono overflow-x-auto my-2">
         {children}
       </code>
     );
@@ -112,7 +112,7 @@ const MarkdownComponents = {
     <pre className="my-2">{children}</pre>
   ),
   blockquote: ({ children }: any) => (
-    <blockquote className="border-l-3 border-[#00A5B5] pl-3 my-2 text-gray-600 italic bg-[#00A5B5]/5 py-2 rounded-r-lg">
+    <blockquote className="border-l-3 border-[#00A5B5] pl-3 my-2 text-gray-600 dark:text-gray-400 italic bg-[#00A5B5]/5 dark:bg-[#00A5B5]/10 py-2 rounded-r-lg">
       {children}
     </blockquote>
   ),
@@ -128,23 +128,23 @@ const MarkdownComponents = {
   ),
   table: ({ children }: any) => (
     <div className="overflow-x-auto my-2">
-      <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+      <table className="min-w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         {children}
       </table>
     </div>
   ),
   th: ({ children }: any) => (
-    <th className="px-3 py-2 bg-gray-50 text-left font-semibold text-gray-700 border-b">
+    <th className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-left font-semibold text-gray-700 dark:text-gray-300 border-b dark:border-gray-700">
       {children}
     </th>
   ),
   td: ({ children }: any) => (
-    <td className="px-3 py-2 border-b border-gray-100 text-gray-600">
+    <td className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-400">
       {children}
     </td>
   ),
   hr: () => (
-    <hr className="my-3 border-gray-200" />
+    <hr className="my-3 border-gray-200 dark:border-gray-700" />
   )
 };
 
@@ -305,17 +305,17 @@ const AIChatbot = () => {
         <div className="absolute inset-0 rounded-full bg-gradient-to-r from-[#0046AD] to-[#00A5B5] opacity-20 animate-ping" />
         
         {/* Main button - Glassy */}
-        <div className="relative w-14 h-14 rounded-full bg-gradient-to-br from-white/90 to-white/60 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#0046AD]/20 flex items-center justify-center transform transition-all duration-300 hover:scale-110 hover:shadow-xl hover:shadow-[#0046AD]/30">
-          <Sparkles className="w-6 h-6 text-[#0046AD]" />
+        <div className="relative w-14 h-14 rounded-full bg-gradient-to-br from-white/90 to-white/60 dark:from-slate-800/90 dark:to-slate-900/60 backdrop-blur-xl border border-white/60 dark:border-slate-700/60 shadow-lg shadow-[#0046AD]/20 dark:shadow-[#00A5B5]/20 flex items-center justify-center transform transition-all duration-300 hover:scale-110 hover:shadow-xl hover:shadow-[#0046AD]/30 dark:hover:shadow-[#00A5B5]/30">
+          <Sparkles className="w-6 h-6 text-[#0046AD] dark:text-[#00A5B5]" />
           
           {/* Notification badge */}
           {hasNewMessage && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-[#0046AD] to-[#00A5B5] rounded-full border-2 border-white animate-bounce" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-[#0046AD] to-[#00A5B5] rounded-full border-2 border-white dark:border-slate-800 animate-bounce" />
           )}
         </div>
         
         {/* Tooltip */}
-        <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-white/90 backdrop-blur-lg text-[#0046AD] text-sm font-medium rounded-xl opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap shadow-lg border border-[#0046AD]/10">
+        <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur-lg text-[#0046AD] dark:text-[#00A5B5] text-sm font-medium rounded-xl opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap shadow-lg border border-[#0046AD]/10 dark:border-slate-700">
           AI Assistentti
         </div>
       </button>
@@ -332,31 +332,31 @@ const AIChatbot = () => {
       style={{ contain: 'layout' }}
     >
       {/* Glassy container */}
-      <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-2xl shadow-[#0046AD]/15">
+      <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-2xl shadow-[#0046AD]/15 dark:shadow-black/30">
         {/* Gradient background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0046AD]/10 via-white/80 to-[#00A5B5]/10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-white/95 via-white/70 to-white/50" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0046AD]/10 via-white/80 to-[#00A5B5]/10 dark:from-[#0046AD]/20 dark:via-slate-900/80 dark:to-[#00A5B5]/20" />
+        <div className="absolute inset-0 bg-gradient-to-t from-white/95 via-white/70 to-white/50 dark:from-slate-900/95 dark:via-slate-900/70 dark:to-slate-900/50" />
         
         {/* Decorative blobs */}
-        <div className="absolute -top-20 -left-20 w-64 h-64 bg-[#0046AD]/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-[#00A5B5]/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#0046AD]/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-20 -left-20 w-64 h-64 bg-[#0046AD]/15 dark:bg-[#0046AD]/25 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-[#00A5B5]/15 dark:bg-[#00A5B5]/25 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#0046AD]/5 dark:bg-[#0046AD]/10 rounded-full blur-3xl pointer-events-none" />
         
         {/* Glass panel */}
-        <div className="relative w-full h-full backdrop-blur-xl bg-white/30 border border-white/50 flex flex-col overflow-hidden">
+        <div className="relative w-full h-full backdrop-blur-xl bg-white/30 dark:bg-slate-900/30 border border-white/50 dark:border-slate-700/50 flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="relative px-5 py-4 border-b border-white/30 flex-shrink-0">
+          <div className="relative px-5 py-4 border-b border-white/30 dark:border-slate-700/30 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0046AD]/15 to-[#00A5B5]/15 backdrop-blur-sm border border-[#0046AD]/20 flex items-center justify-center">
-                    <Sparkles className="w-5 h-5 text-[#0046AD]" />
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0046AD]/15 to-[#00A5B5]/15 dark:from-[#0046AD]/25 dark:to-[#00A5B5]/25 backdrop-blur-sm border border-[#0046AD]/20 dark:border-[#00A5B5]/30 flex items-center justify-center">
+                    <Sparkles className="w-5 h-5 text-[#0046AD] dark:text-[#00A5B5]" />
                   </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#00A5B5] rounded-full border-2 border-white" />
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#00A5B5] rounded-full border-2 border-white dark:border-slate-800" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-800">AI Assistentti</h3>
-                  <p className="text-xs text-[#0046AD]/60">Valmis auttamaan</p>
+                  <h3 className="font-semibold text-gray-800 dark:text-gray-100">AI Assistentti</h3>
+                  <p className="text-xs text-[#0046AD]/60 dark:text-[#00A5B5]/70">Valmis auttamaan</p>
                 </div>
               </div>
               
@@ -364,7 +364,7 @@ const AIChatbot = () => {
                 {messages.length > 0 && (
                   <button
                     onClick={clearChat}
-                    className="p-2 text-[#0046AD]/50 hover:text-[#0046AD] hover:bg-[#0046AD]/10 rounded-lg transition-all"
+                    className="p-2 text-[#0046AD]/50 dark:text-[#00A5B5]/50 hover:text-[#0046AD] dark:hover:text-[#00A5B5] hover:bg-[#0046AD]/10 dark:hover:bg-[#00A5B5]/10 rounded-lg transition-all"
                     title="Tyhjennä keskustelu"
                   >
                     <RefreshCw size={18} />
@@ -372,14 +372,14 @@ const AIChatbot = () => {
                 )}
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="p-2 text-[#0046AD]/50 hover:text-[#0046AD] hover:bg-[#0046AD]/10 rounded-lg transition-all"
+                  className="p-2 text-[#0046AD]/50 dark:text-[#00A5B5]/50 hover:text-[#0046AD] dark:hover:text-[#00A5B5] hover:bg-[#0046AD]/10 dark:hover:bg-[#00A5B5]/10 rounded-lg transition-all"
                   title={isExpanded ? 'Pienennä' : 'Suurenna'}
                 >
                   {isExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                 </button>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-2 text-[#0046AD]/50 hover:text-[#0046AD] hover:bg-[#0046AD]/10 rounded-lg transition-all"
+                  className="p-2 text-[#0046AD]/50 dark:text-[#00A5B5]/50 hover:text-[#0046AD] dark:hover:text-[#00A5B5] hover:bg-[#0046AD]/10 dark:hover:bg-[#00A5B5]/10 rounded-lg transition-all"
                   title="Sulje"
                 >
                   <X size={18} />
@@ -394,26 +394,26 @@ const AIChatbot = () => {
               <div className="flex-1 flex flex-col items-center justify-center text-center">
                 {/* Sparkle icon */}
                 <div className="mb-4">
-                  <Sparkles className="w-8 h-8 text-[#0046AD]" />
+                  <Sparkles className="w-8 h-8 text-[#0046AD] dark:text-[#00A5B5]" />
                 </div>
                 
                 {/* Title */}
-                <h2 className="text-xl font-medium text-gray-800 mb-8">
+                <h2 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-8">
                   Kysy AI:lta mitä vain
                 </h2>
                 
                 {/* Suggestions */}
                 <div className="w-full max-w-sm space-y-3">
-                  <p className="text-sm text-[#0046AD]/60 text-left">Ehdotuksia mitä kysyä</p>
+                  <p className="text-sm text-[#0046AD]/60 dark:text-[#00A5B5]/70 text-left">Ehdotuksia mitä kysyä</p>
                   <div className="space-y-2">
                     {QUICK_SUGGESTIONS.slice(0, 2).map((suggestion) => (
                       <button
                         key={suggestion.id}
                         onClick={() => handleSuggestion(suggestion)}
-                        className="w-full text-left px-4 py-3 bg-white/70 hover:bg-white/90 backdrop-blur-sm border border-[#0046AD]/10 hover:border-[#0046AD]/25 rounded-xl text-sm text-gray-700 transition-all hover:shadow-md group flex items-center justify-between"
+                        className="w-full text-left px-4 py-3 bg-white/70 dark:bg-slate-800/70 hover:bg-white/90 dark:hover:bg-slate-700/90 backdrop-blur-sm border border-[#0046AD]/10 dark:border-slate-600/30 hover:border-[#0046AD]/25 dark:hover:border-[#00A5B5]/40 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition-all hover:shadow-md dark:hover:shadow-slate-900/50 group flex items-center justify-between"
                       >
                         <span>{suggestion.label}</span>
-                        <ChevronRight size={16} className="text-[#0046AD]/40 group-hover:text-[#0046AD] transition-colors" />
+                        <ChevronRight size={16} className="text-[#0046AD]/40 dark:text-[#00A5B5]/40 group-hover:text-[#0046AD] dark:group-hover:text-[#00A5B5] transition-colors" />
                       </button>
                     ))}
                   </div>
@@ -431,10 +431,10 @@ const AIChatbot = () => {
                     <div className={`max-w-[90%] ${message.role === 'user' ? 'order-2' : 'order-1'}`}>
                       {message.role === 'assistant' && (
                         <div className="flex items-center gap-2 mb-2">
-                          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#0046AD]/15 to-[#00A5B5]/15 flex items-center justify-center">
-                            <Sparkles size={12} className="text-[#0046AD]" />
+                          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#0046AD]/15 to-[#00A5B5]/15 dark:from-[#0046AD]/25 dark:to-[#00A5B5]/25 flex items-center justify-center">
+                            <Sparkles size={12} className="text-[#0046AD] dark:text-[#00A5B5]" />
                           </div>
-                          <span className="text-xs font-medium text-[#0046AD]/60">AI Assistentti</span>
+                          <span className="text-xs font-medium text-[#0046AD]/60 dark:text-[#00A5B5]/70">AI Assistentti</span>
                         </div>
                       )}
                       
@@ -442,11 +442,11 @@ const AIChatbot = () => {
                         className={`rounded-2xl ${
                         message.role === 'user'
                           ? 'bg-gradient-to-br from-[#0046AD] to-[#003485] text-white px-4 py-3 rounded-tr-md'
-                          : 'bg-white/80 backdrop-blur-sm border border-[#0046AD]/10 text-gray-800 rounded-tl-md px-4 py-3 shadow-sm'
+                          : 'bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-[#0046AD]/10 dark:border-slate-600/30 text-gray-800 dark:text-gray-200 rounded-tl-md px-4 py-3 shadow-sm dark:shadow-slate-900/30'
                       }`}
                     >
                       {message.role === 'assistant' ? (
-                        <div className="prose prose-sm max-w-none">
+                        <div className="prose prose-sm max-w-none dark:prose-invert">
                           <ReactMarkdown 
                             remarkPlugins={[remarkGfm]}
                             components={MarkdownComponents}
@@ -460,13 +460,13 @@ const AIChatbot = () => {
                     </div>
                     
                     <div className={`flex items-center mt-1.5 gap-2 ${message.role === 'user' ? 'justify-end' : ''}`}>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-400 dark:text-gray-500">
                         {format(message.timestamp, 'HH:mm', { locale: fi })}
                       </span>
                       {message.role === 'assistant' && (
                         <button
                           onClick={() => handleCopy(message.content, message.id)}
-                          className="p-1 text-gray-400 hover:text-gray-600 transition-colors rounded"
+                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors rounded"
                         >
                           {copied === message.id ? (
                             <Check size={12} className="text-green-500" />
@@ -482,14 +482,14 @@ const AIChatbot = () => {
                 
                 {isLoading && (
                   <div className="flex justify-start animate-fade-in">
-                    <div className="bg-white/80 backdrop-blur-sm border border-[#0046AD]/10 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm">
+                    <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-[#0046AD]/10 dark:border-slate-600/30 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm dark:shadow-slate-900/30">
                       <div className="flex items-center gap-3">
                         <div className="flex gap-1">
-                          <span className="w-2 h-2 bg-[#0046AD] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-2 h-2 bg-[#0046AD] dark:bg-[#00A5B5] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                           <span className="w-2 h-2 bg-[#00A5B5] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                          <span className="w-2 h-2 bg-[#0046AD] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                          <span className="w-2 h-2 bg-[#0046AD] dark:bg-[#00A5B5] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                         </div>
-                        <span className="text-xs text-[#0046AD]/50">Mietin...</span>
+                        <span className="text-xs text-[#0046AD]/50 dark:text-[#00A5B5]/60">Mietin...</span>
                       </div>
                     </div>
                   </div>
@@ -500,7 +500,7 @@ const AIChatbot = () => {
           </div>
 
           {/* Input Area */}
-          <div className="p-4 border-t border-[#0046AD]/10 flex-shrink-0 bg-white/30">
+          <div className="p-4 border-t border-[#0046AD]/10 dark:border-slate-700/30 flex-shrink-0 bg-white/30 dark:bg-slate-900/30">
             <div className="relative">
               <input
                 ref={inputRef}
@@ -509,12 +509,12 @@ const AIChatbot = () => {
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Kysy mitä vain projekteistasi..."
-                className="w-full px-4 py-3.5 pr-14 bg-white/70 backdrop-blur-sm rounded-xl border border-[#0046AD]/15 focus:outline-none focus:ring-2 focus:ring-[#0046AD]/30 focus:border-[#0046AD]/30 transition-all text-sm placeholder-gray-400 text-gray-700"
+                className="w-full px-4 py-3.5 pr-14 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-xl border border-[#0046AD]/15 dark:border-slate-600/30 focus:outline-none focus:ring-2 focus:ring-[#0046AD]/30 dark:focus:ring-[#00A5B5]/30 focus:border-[#0046AD]/30 dark:focus:border-[#00A5B5]/30 transition-all text-sm placeholder-gray-400 dark:placeholder-gray-500 text-gray-700 dark:text-gray-200"
               />
               <button
                 onClick={handleSend}
                 disabled={!inputValue.trim() || isLoading}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-gradient-to-r from-[#0046AD] to-[#0046AD]/90 hover:from-[#003485] hover:to-[#0046AD] text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all transform hover:scale-105 disabled:hover:scale-100 shadow-lg shadow-[#0046AD]/25"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-gradient-to-r from-[#0046AD] to-[#0046AD]/90 dark:from-[#00A5B5] dark:to-[#00A5B5]/90 hover:from-[#003485] hover:to-[#0046AD] dark:hover:from-[#008A98] dark:hover:to-[#00A5B5] text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all transform hover:scale-105 disabled:hover:scale-100 shadow-lg shadow-[#0046AD]/25 dark:shadow-[#00A5B5]/25"
               >
                 {isLoading ? (
                   <Loader2 size={18} className="animate-spin" />
