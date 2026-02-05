@@ -41,6 +41,8 @@ import {
   Smartphone
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
+import { DemoBanner } from '../components/DemoTooltip';
 
 // Custom Tooth Icon Component
 const ToothIcon = ({ size = 24, className = '' }: { size?: number; className?: string }) => (
@@ -1127,11 +1129,43 @@ const CampaignCreate = () => {
   const handleSubmit = async () => {
     if (!validateCurrentStep()) return;
 
+    const isDemo = isDemoMode();
     setSaving(true);
+    
     try {
       // Generate campaign name if empty
       const campaignName = formData.name || 
         `${getServiceName(selectedService)} - ${selectedBranch?.city} ${format(new Date(), 'MM/yyyy')}`;
+
+      // Demo mode - simulate campaign creation
+      if (isDemo) {
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Create demo campaign object
+        const demoCampaign = {
+          id: `demo-created-${Date.now()}`,
+          name: campaignName,
+          status: 'active',
+          service: getServiceName(selectedService),
+          city: selectedBranch?.city || 'Helsinki',
+          budget: formData.total_budget || 500,
+          spent: 0,
+          impressions: 0,
+          clicks: 0,
+          ctr: 0,
+          startDate: formData.start_date,
+          endDate: formData.end_date,
+          created_at: new Date().toISOString()
+        };
+        
+        // Save to demo created campaigns
+        addDemoCreatedCampaign(demoCampaign);
+        
+        toast.success('🎉 Demo-kampanja luotu onnistuneesti!');
+        navigate('/campaigns');
+        return;
+      }
 
       const campaign = await createCampaign({
         ...formData,
@@ -1169,19 +1203,22 @@ const CampaignCreate = () => {
 
   return (
     <div className="max-w-5xl mx-auto animate-fade-in pb-8">
+      {/* Demo Banner */}
+      {isDemoMode() && <DemoBanner message="Demo-tila: Kampanja luodaan vain simulaationa. Oikeassa tilissä kampanja lähetetään mediajärjestelmiin." />}
+      
       {/* Header */}
       <div className="mb-6">
         <button
           onClick={() => navigate('/campaigns')}
-          className="flex items-center text-gray-500 hover:text-gray-700 mb-4 group"
+          className="flex items-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-4 group"
         >
           <ArrowLeft size={18} className="mr-2 group-hover:-translate-x-1 transition-transform" />
           Takaisin kampanjoihin
         </button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Luo uusi kampanja</h1>
-            <p className="text-gray-500 mt-1">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Luo uusi kampanja</h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1">
               Vaihe {currentStep + 1}/{steps.length} • {steps[currentStep].name}
             </p>
           </div>

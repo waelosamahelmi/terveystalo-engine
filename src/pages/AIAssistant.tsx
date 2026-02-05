@@ -38,6 +38,8 @@ import {
   PieChart
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { isDemoMode, getDemoAIResponse } from '../lib/demoService';
+import { DemoBanner } from '../components/DemoTooltip';
 
 // Suggested prompts
 const SUGGESTED_PROMPTS = [
@@ -159,6 +161,7 @@ const InsightCard = ({ insight, onDismiss, onClick }: InsightCardProps) => {
 };
 
 const AIAssistant = () => {
+  const isDemo = isDemoMode();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [config, setConfig] = useState<AIConfig | null>(null);
@@ -220,8 +223,17 @@ const AIAssistant = () => {
     setSending(true);
 
     try {
-      // Use askAI which includes database context
-      const response = await askAI(inputValue.trim());
+      let response: string;
+      
+      // Demo mode - use pre-defined responses
+      if (isDemo) {
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+        response = getDemoAIResponse(inputValue.trim());
+      } else {
+        // Use askAI which includes database context
+        response = await askAI(inputValue.trim());
+      }
       
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
@@ -232,8 +244,10 @@ const AIAssistant = () => {
 
       setMessages(prev => [...prev, assistantMessage]);
 
-      // Save to history
-      await saveChatHistory([userMessage, assistantMessage]);
+      // Save to history (skip in demo mode)
+      if (!isDemo) {
+        await saveChatHistory([userMessage, assistantMessage]);
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -286,24 +300,29 @@ const AIAssistant = () => {
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] flex gap-6 animate-fade-in">
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col card overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00A5B5] to-[#1B365D] flex items-center justify-center">
-              <Bot size={20} className="text-white" />
+    <div className="h-[calc(100vh-120px)] flex flex-col gap-4 animate-fade-in">
+      {/* Demo Banner */}
+      {isDemo && <DemoBanner message="Demo-tila: AI assistentti vastaa esimerkki-vastauksilla. Oikeassa tilissä AI:lla on pääsy kampanjatietoihisi!" />}
+      
+      <div className="flex-1 flex gap-6 min-h-0">
+        {/* Main Chat Area */}
+        <div className="flex-1 flex flex-col card overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-slate-700">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00A5B5] to-[#1B365D] flex items-center justify-center">
+                <Bot size={20} className="text-white" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-gray-900 dark:text-white">AI Assistentti</h2>
+                {isDemo && <span className="text-xs text-[#00A5B5]">Demo-tila</span>}
+              </div>
             </div>
-            <div>
-              <h2 className="font-semibold text-gray-900">AI Assistentti</h2>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={clearHistory}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
-              title="Tyhjennä historia"
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={clearHistory}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                title="Tyhjennä historia"
             >
               <Trash2 size={18} />
             </button>
@@ -449,18 +468,19 @@ const AIAssistant = () => {
               <button
                 key={index}
                 onClick={() => handleSuggestedPrompt(prompt.text)}
-                className="w-full flex items-center space-x-3 p-3 rounded-xl hover:bg-gray-50 text-left transition-colors"
+                className="w-full flex items-center space-x-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 text-left transition-colors"
               >
-                <div className="p-2 rounded-lg bg-gray-100">
-                  <prompt.icon size={14} className="text-gray-600" />
+                <div className="p-2 rounded-lg bg-gray-100 dark:bg-slate-600">
+                  <prompt.icon size={14} className="text-gray-600 dark:text-gray-300" />
                 </div>
-                <span className="text-sm text-gray-700 flex-1">{prompt.text}</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{prompt.text}</span>
                 <ChevronRight size={14} className="text-gray-400" />
               </button>
             ))}
           </div>
         </div>
 
+      </div>
       </div>
     </div>
   );

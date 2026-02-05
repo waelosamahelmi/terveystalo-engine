@@ -355,7 +355,7 @@ const AIChatbot = () => {
                   <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#00A5B5] rounded-full border-2 border-white dark:border-slate-800" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-800 dark:text-gray-100">AI Assistentti</h3>
+                  <h3 className="font-semibold text-gray-800 dark:text-gray-100">NørrAI</h3>
                   <p className="text-xs text-[#0046AD]/60 dark:text-[#00A5B5]/70">Valmis auttamaan</p>
                 </div>
               </div>

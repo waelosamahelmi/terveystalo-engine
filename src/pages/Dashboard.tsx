@@ -8,10 +8,12 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getDashboardStats, getRecentAnalytics } from '../lib/analyticsService';
 import { getAIInsights, sendAIMessage, getAISuggestions, generateAndSaveAISuggestions, shouldRefreshSuggestions, getAISuggestionsStatus, dismissAISuggestion } from '../lib/aiService';
+import { isDemoMode, DEMO_DASHBOARD_STATS, DEMO_ANALYTICS, DEMO_CAMPAIGNS as DEMO_CAMPAIGNS_DATA } from '../lib/demoService';
 import type { AIMessage, AISuggestion as AISuggestionType } from '../types';
 import { useStore } from '../lib/store';
 import { format } from 'date-fns';
 import { fi } from 'date-fns/locale';
+import DemoTooltip, { DemoBanner } from '../components/DemoTooltip';
 import {
   TrendingUp,
   TrendingDown,
@@ -446,14 +448,20 @@ const InsightCard = ({ insight, onDismiss }: InsightCardProps) => {
 };
 
 const Dashboard = () => {
+  // Check if in demo mode
+  const isDemo = isDemoMode();
+  
   // Get data from global store - instant!
   const { campaigns, branches } = useStore();
   
-  // Computed data from store
-  const activeCampaigns = useMemo(() => 
-    campaigns.filter(c => c.status === 'active').slice(0, 5), 
-    [campaigns]
-  );
+  // Computed data from store (use demo data in demo mode)
+  const activeCampaigns = useMemo(() => {
+    if (isDemo) {
+      return DEMO_CAMPAIGNS_DATA.filter(c => c.status === 'active').slice(0, 5);
+    }
+    return campaigns.filter(c => c.status === 'active').slice(0, 5);
+  }, [campaigns, isDemo]);
+  
   const topBranches = useMemo(() => 
     branches.filter(b => b.active).slice(0, 5), 
     [branches]
@@ -476,6 +484,55 @@ const Dashboard = () => {
   const loadDashboardData = async (forceRefresh = false) => {
     try {
       setLoading(true);
+
+      // In demo mode, use demo data
+      if (isDemo) {
+        setStats({
+          totalImpressions: DEMO_DASHBOARD_STATS.totalImpressions,
+          totalImpressionsMTD: DEMO_DASHBOARD_STATS.totalImpressions,
+          totalClicks: DEMO_DASHBOARD_STATS.totalClicks,
+          totalSpend: DEMO_DASHBOARD_STATS.totalSpent,
+          totalSpendMTD: DEMO_DASHBOARD_STATS.totalSpent,
+          impressionsChange: DEMO_DASHBOARD_STATS.impressionsChange,
+          clicksChange: DEMO_DASHBOARD_STATS.clicksChange,
+          spendChange: DEMO_DASHBOARD_STATS.spentChange,
+          activeCampaigns: DEMO_DASHBOARD_STATS.activeCampaigns,
+        } as DashboardStats);
+        
+        setRecentAnalytics({
+          daily: DEMO_ANALYTICS.weeklyData.map(d => ({
+            date: d.date,
+            impressions: d.impressions,
+            clicks: d.clicks,
+            spend: d.spent,
+          })),
+          byChannel: {
+            dooh: { impressions: 95000, clicks: 2100, spend: 2200 },
+            display: { impressions: 180000, clicks: 4500, spend: 3800 },
+            social: { impressions: 42000, clicks: 1180, spend: 890 },
+          },
+        });
+        
+        setInsights([
+          {
+            id: 'demo-insight-1',
+            title: 'Hammashoito-kampanja toimii erinomaisesti',
+            description: 'CTR on 2.56%, joka on 15% parempi kuin keskiarvo.',
+            severity: 'low',
+            category: 'performance',
+          },
+          {
+            id: 'demo-insight-2',
+            title: 'Budjetti loppumassa pian',
+            description: 'Oikomishoito-kampanjan budjetti on käytetty 51%.',
+            severity: 'medium',
+            category: 'budget',
+          },
+        ] as AIInsight[]);
+        
+        setLoading(false);
+        return;
+      }
 
       // Load analytics data (not in store)
       const [
@@ -601,6 +658,9 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Demo Banner */}
+      {isDemo && <DemoBanner message="Demo-tila: Tämä on esimerkki-dataa. Voit kokeilla kaikkia toimintoja turvallisesti." />}
+      
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -619,28 +679,42 @@ const Dashboard = () => {
           >
             <RefreshCw size={18} className={refreshing || loading ? 'animate-spin' : ''} />
           </button>
-          <Link to="/campaigns/create" className="btn-primary">
-            <Plus size={18} className="mr-2" />
-            Uusi kampanja
-          </Link>
+          <DemoTooltip
+            id="dashboard-create"
+            title="Luo uusi kampanja"
+            description="Klikkaa tästä luodaksesi uuden mainoskampanjan. Ohjattu prosessi auttaa sinua valitsemaan palvelun, sijainnin ja budjetin."
+            position="left"
+          >
+            <Link to="/campaigns/create" className="btn-primary" data-demo-tooltip="create-campaign">
+              <Plus size={18} className="mr-2" />
+              Uusi kampanja
+            </Link>
+          </DemoTooltip>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {loading ? (
-          <>
-            <CardSkeleton />
-            <CardSkeleton />
-            <CardSkeleton />
-            <CardSkeleton />
-          </>
-        ) : (
-          <>
-            <StatCard
-              title="Näyttökerrat"
-              value={stats?.totalImpressions ?? stats?.totalImpressionsMTD ?? 0}
-              change={stats?.impressionsChange}
+      <DemoTooltip
+        id="dashboard-stats"
+        title="Kampanjatilastot"
+        description="Nämä kortit näyttävät kampanjoidesi tärkeimmät mittarit: näyttökerrat, klikkaukset, konversiot ja käytetyn budjetin."
+        position="bottom"
+        delay={1000}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-demo-tooltip="stats">
+          {loading ? (
+            <>
+              <CardSkeleton />
+              <CardSkeleton />
+              <CardSkeleton />
+              <CardSkeleton />
+            </>
+          ) : (
+            <>
+              <StatCard
+                title="Näyttökerrat"
+                value={stats?.totalImpressions ?? stats?.totalImpressionsMTD ?? 0}
+                change={stats?.impressionsChange}
               icon={Eye}
               color="primary"
             />
@@ -660,13 +734,14 @@ const Dashboard = () => {
             />
             <StatCard
               title="Aktiiviset kampanjat"
-              value={stats?.activeCampaigns || 0}
+              value={isDemo ? DEMO_DASHBOARD_STATS.activeCampaigns : (stats?.activeCampaigns || 0)}
               icon={Target}
               color="secondary"
             />
           </>
         )}
-      </div>
+        </div>
+      </DemoTooltip>
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -36,6 +36,8 @@ import {
   Filler,
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
+import { isDemoMode, DEMO_ANALYTICS, DEMO_CAMPAIGNS } from '../lib/demoService';
+import { DemoBanner } from '../components/DemoTooltip';
 
 // Register Chart.js
 ChartJS.register(
@@ -157,6 +159,7 @@ const DateRangeSelector = ({ startDate, endDate, onStartDateChange, onEndDateCha
 };
 
 const Analytics = () => {
+  const isDemo = isDemoMode();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
@@ -182,6 +185,37 @@ const Analytics = () => {
   const loadAnalytics = useCallback(async () => {
     try {
       setLoading(true);
+
+      // Demo mode - use demo data
+      if (isDemo) {
+        setSummary({
+          totalImpressions: 317000,
+          totalClicks: 7780,
+          totalSpend: 12450,
+          avgCtr: 2.45,
+          avgCpm: 39.27,
+          avgCpc: 1.60
+        });
+        setDailyData(DEMO_ANALYTICS.weeklyData);
+        setGeoData(DEMO_ANALYTICS.geoData);
+        setChannelData(DEMO_ANALYTICS.channelData);
+        setBranches([
+          { id: 'demo-1', name: 'Helsinki Kamppi', city: 'Helsinki' },
+          { id: 'demo-2', name: 'Espoo Leppävaara', city: 'Espoo' },
+          { id: 'demo-3', name: 'Tampere Keskusta', city: 'Tampere' }
+        ]);
+        setCampaigns(DEMO_CAMPAIGNS.map(c => ({
+          id: c.id,
+          name: c.name,
+          status: c.status,
+          total_impressions: c.impressions,
+          total_clicks: c.clicks,
+          spent_budget: c.spent,
+          total_budget: c.budget
+        })));
+        setLoading(false);
+        return;
+      }
 
       // Load summary
       const summaryData = await getAnalyticsSummary({ 
@@ -375,6 +409,9 @@ const Analytics = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Demo Banner */}
+      {isDemo && <DemoBanner message="Demo-tila: Nämä ovat esimerkkitietoja analytiikasta. Oikeassa tilissä näet omat kampanjatiedot!" />}
+      
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
@@ -394,7 +431,7 @@ const Analytics = () => {
           <button
             onClick={handleRefresh}
             className="btn-ghost"
-            disabled={refreshing}
+            disabled={refreshing || isDemo}
           >
             <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
           </button>

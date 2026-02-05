@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { supabase } from './supabase';
+import { clearDemoData } from './demoService';
 import type { User, Branch, Service, DentalCampaign } from '../types';
 
 // ============================================================================
@@ -177,6 +178,8 @@ class GlobalStore {
   signOut = async () => {
     this._currentUser = null;
     this._initialDataLoaded = false;
+    // Clear demo data when signing out
+    clearDemoData();
     await supabase.auth.signOut();
     this.notify();
   };

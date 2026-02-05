@@ -8,6 +8,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getBrandAssets } from '../lib/creativeService';
 import { getAppSetting, updateAppSetting } from '../lib/settingsService';
+import { isDemoMode, isDemoUser } from '../lib/demoService';
 import type { User } from '../types';
 import { 
   LayoutDashboard, 
@@ -31,7 +32,8 @@ import {
   HelpCircle,
   Activity,
   Command,
-  Keyboard
+  Keyboard,
+  Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import UserProfileModal from './UserProfileModal';
@@ -318,6 +320,14 @@ const Layout = ({ user, children }: LayoutProps) => {
 
           {/* Right side actions */}
           <div className="flex items-center ml-auto space-x-1">
+            {/* Demo Mode Badge */}
+            {isDemoMode() && isDemoUser(user?.email) && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-[#00A5B5]/10 to-[#0046AD]/10 dark:from-[#00A5B5]/20 dark:to-[#0046AD]/20 border border-[#00A5B5]/30 rounded-full mr-2">
+                <Sparkles size={14} className="text-[#00A5B5]" />
+                <span className="text-xs font-semibold text-[#00A5B5]">DEMO</span>
+              </div>
+            )}
+
             {/* Keyboard shortcuts */}
             <button 
               onClick={() => setShowShortcutsModal(true)}

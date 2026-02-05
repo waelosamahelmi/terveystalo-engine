@@ -8,8 +8,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { pauseCampaign, deleteCampaign, duplicateCampaign } from '../lib/campaignService';
 import { supabase } from '../lib/supabase';
+import { isDemoMode, DEMO_CAMPAIGNS, getDemoCreatedCampaigns, type DemoCampaign } from '../lib/demoService';
 import type { DentalCampaign, CampaignStatus, CampaignFilters, Service, Branch } from '../types';
 import { format } from 'date-fns';
+import { DemoBanner } from '../components/DemoTooltip';
 import {
   Plus,
   Search,
@@ -373,6 +375,9 @@ const FilterModal = ({ isOpen, onClose, filters, onApply, services, branches }: 
 };
 
 const Campaigns = () => {
+  // Check if in demo mode
+  const isDemo = isDemoMode();
+  
   // Get data from global store - instant, no loading
   const { campaigns: allCampaigns, services: allServices, branches: allBranches, refreshCampaigns } = useStore();
   
@@ -383,9 +388,33 @@ const Campaigns = () => {
   const [page, setPage] = useState(1);
   const pageSize = 12;
 
-  // Filter and paginate from store data
+  // Get demo campaigns if in demo mode
+  const demoCampaigns = useMemo(() => {
+    if (!isDemo) return [];
+    const created = getDemoCreatedCampaigns();
+    return [...created, ...DEMO_CAMPAIGNS];
+  }, [isDemo]);
+
+  // Filter and paginate from store data (or demo data)
   const filteredCampaigns = useMemo(() => {
-    let result = [...allCampaigns];
+    // Use demo campaigns in demo mode
+    let result: any[] = isDemo ? demoCampaigns.map(dc => ({
+      id: dc.id,
+      name: dc.name,
+      status: dc.status,
+      total_budget: dc.total_budget,
+      spent_budget: dc.spent_budget,
+      daily_budget: dc.daily_budget,
+      total_impressions: dc.impressions,
+      total_clicks: dc.clicks,
+      ctr: dc.ctr,
+      channels: dc.channels,
+      start_date: dc.start_date,
+      end_date: dc.end_date,
+      created_at: dc.created_at,
+      service: { name: dc.service_name },
+      branch: { name: dc.branch_name },
+    })) : [...allCampaigns];
     
     // Search filter
     if (searchQuery) {
@@ -487,11 +516,14 @@ const Campaigns = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Demo Banner */}
+      {isDemo && <DemoBanner message="Demo-tila: Nämä ovat esimerkkikampanjoita. Voit kokeilla luoda uuden kampanjan!" />}
+      
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Kampanjat</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Kampanjat</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
             {totalCount} kampanjaa yhteensä
           </p>
         </div>
@@ -499,7 +531,7 @@ const Campaigns = () => {
           <button
             onClick={handleRefresh}
             className="btn-ghost"
-            disabled={refreshing}
+            disabled={refreshing || isDemo}
           >
             <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
           </button>

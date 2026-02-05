@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { AdCreative, Campaign, CampaignApartment } from '../types';
-import { Search, Download, Eye, FileText, Copy, RefreshCw, ChevronRight, ChevronDown, FileCode } from 'lucide-react';
+import { Search, Download, Eye, FileText, Copy, RefreshCw, ChevronRight, ChevronDown, FileCode, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
+import { isDemoMode, DEMO_CREATIVES } from '../lib/demoService';
+import { DemoBanner } from '../components/DemoTooltip';
 
 // Suun Terveystalo Creative Sizes - matches reference images in refs/ads/different-sizes/
 // TODO: Update hashes when Creatopy templates for Suun Terveystalo are created
@@ -26,6 +28,7 @@ interface GroupedCreatives {
 }
 
 const AdCreatives = () => {
+  const isDemo = isDemoMode();
   const [creatives, setCreatives] = useState<AdCreative[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +71,37 @@ const AdCreatives = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
+      
+      // Demo mode - use demo creatives
+      if (isDemo) {
+        // Convert demo creatives to AdCreative format
+        const demoCreativeData: AdCreative[] = DEMO_CREATIVES.map((dc, index) => ({
+          id: dc.id,
+          campaign_id: 'demo-campaign-1',
+          apartment_key: 'demo-apt-1',
+          target_id: `demo-target-${index}`,
+          name: dc.name,
+          size: `${dc.width}x${dc.height}`,
+          hash: 'demo-hash',
+          width: dc.width,
+          height: dc.height,
+          created_at: dc.created_at
+        }));
+        
+        const demoCampaignData: Campaign[] = [{
+          id: 'demo-campaign-1',
+          partner_name: 'Demo Hammashoitola',
+          campaign_address: 'Mannerheimintie 1, Helsinki'
+        } as Campaign];
+        
+        setCreatives(demoCreativeData);
+        setCampaigns(demoCampaignData);
+        // Auto-expand the demo campaign
+        setExpandedCampaigns(new Set(['demo-campaign-1']));
+        setExpandedApartments(new Set(['demo-apt-1']));
+        setLoading(false);
+        return;
+      }
       
       // Fetch creatives
       const { data: creativesData, error: creativesError } = await supabase
@@ -361,8 +395,11 @@ var embedConfig = {
 
   return (
     <div className="space-y-6">
+      {/* Demo Banner */}
+      {isDemo && <DemoBanner message="Demo-tila: Nämä ovat esimerkkikreatiiveja. Oikeassa tilissä voit hallita kampanjoidesi mainosmateriaaleja." />}
+      
       <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">Ad Creatives</h1>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Ad Creatives</h1>
         
         <div className="flex flex-wrap items-center gap-2 mt-4 md:mt-0">
           <div className="relative">
@@ -372,16 +409,16 @@ var embedConfig = {
               placeholder="Search campaigns..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-slate-700 dark:border-slate-600 dark:text-white"
             />
           </div>
 
           <button
             onClick={handleSyncCreatives}
-            disabled={syncing}
+            disabled={syncing || isDemo}
             className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
-              syncing
-                ? 'bg-purple-400 text-white cursor-wait'
+              syncing || isDemo
+                ? 'bg-purple-400 text-white cursor-not-allowed'
                 : 'bg-purple-700 text-white hover:bg-purple-800'
             }`}
           >
@@ -390,8 +427,100 @@ var embedConfig = {
           </button>
         </div>
       </div>
-      
-      {/* Split View Layout */}
+
+      {/* Demo Mode: Show creative gallery directly */}
+      {isDemo ? (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-100 dark:border-slate-700 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Mainospohjat ({DEMO_CREATIVES.length} kpl)
+            </h2>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">
+              Nämä ovat valmiita mainospohjia eri kanaville ja kokoihin. Oikeassa tilissä voit luoda ja hallita omia kreatiivejasi.
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {DEMO_CREATIVES.map((creative) => (
+                <div 
+                  key={creative.id}
+                  className="bg-gray-50 dark:bg-slate-700 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-600 hover:shadow-lg transition-shadow"
+                >
+                  {/* Creative Preview */}
+                  <div className="aspect-video bg-gray-100 dark:bg-slate-600 flex items-center justify-center overflow-hidden">
+                    <img 
+                      src={creative.preview_url}
+                      alt={creative.name}
+                      className="max-w-full max-h-full object-contain"
+                      style={{ maxHeight: '200px' }}
+                    />
+                  </div>
+                  
+                  {/* Creative Info */}
+                  <div className="p-4">
+                    <h3 className="font-medium text-gray-900 dark:text-white truncate">
+                      {creative.name}
+                    </h3>
+                    <div className="mt-2 flex items-center justify-between text-sm">
+                      <span className="text-gray-500 dark:text-gray-400">
+                        {creative.width} × {creative.height}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        creative.channel === 'display' 
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                          : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                      }`}>
+                        {creative.channel.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-400">
+                      Palvelu: {creative.service_name}
+                    </div>
+                    
+                    {/* Actions */}
+                    <div className="mt-4 flex items-center justify-end gap-2">
+                      <button
+                        className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                        title="Esikatsele"
+                      >
+                        <Eye size={18} />
+                      </button>
+                      <button
+                        className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors"
+                        title="Lataa"
+                      >
+                        <Download size={18} />
+                      </button>
+                      <button
+                        className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
+                        title="Kopioi koodi"
+                      >
+                        <Copy size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          {/* Info Card */}
+          <div className="bg-gradient-to-r from-[#00A5B5]/10 to-[#1B365D]/10 dark:from-[#00A5B5]/20 dark:to-[#1B365D]/20 rounded-xl p-6 border border-[#00A5B5]/20">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-[#00A5B5] rounded-xl">
+                <Sparkles size={24} className="text-white" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">Kreatiivien hallinta</h3>
+                <p className="text-gray-600 dark:text-gray-300 mt-1">
+                  Oikeassa tilissä voit ladata omia kuvia, luoda uusia mainospohjia ja synkronoida ne automaattisesti kampanjoihin.
+                  Järjestelmä luo mainosmateriaalit kaikissa tarvittavissa ko'oissa DOOH- ja Display-kanaville.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+      /* Regular Mode: Split View Layout */
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left Column: Hierarchical List */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
@@ -549,6 +678,7 @@ var embedConfig = {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

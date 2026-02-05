@@ -3,10 +3,12 @@
 // Clean, fast, stable - using singleton store pattern
 // ============================================================================
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { store, useStore } from './lib/store';
+import { isDemoMode, isDemoWizardCompleted, isDemoUser } from './lib/demoService';
+import DemoWizard from './components/DemoWizard';
 
 // Pages - Direct imports (no lazy loading for instant navigation)
 import Dashboard from './pages/Dashboard';
@@ -49,6 +51,14 @@ const LoadingScreen = () => (
 // ============================================================================
 const ProtectedLayout = () => {
   const { user, authInitialized, isReady } = useStore();
+  const [showDemoWizard, setShowDemoWizard] = useState(false);
+  
+  // Check if we should show demo wizard when user logs in
+  useEffect(() => {
+    if (user && isDemoUser(user.email) && isDemoMode() && !isDemoWizardCompleted()) {
+      setShowDemoWizard(true);
+    }
+  }, [user]);
   
   if (!authInitialized) {
     return <LoadingScreen />;
@@ -60,13 +70,22 @@ const ProtectedLayout = () => {
   
   // Layout renders ONCE - show loading inside if data not ready
   return (
-    <Layout user={user}>
-      {isReady ? <Outlet /> : (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#00A5B5] border-t-transparent"></div>
-        </div>
-      )}
-    </Layout>
+    <>
+      <Layout user={user}>
+        {isReady ? <Outlet /> : (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#00A5B5] border-t-transparent"></div>
+          </div>
+        )}
+      </Layout>
+      
+      {/* Demo Wizard Modal */}
+      <DemoWizard
+        isOpen={showDemoWizard}
+        onClose={() => setShowDemoWizard(false)}
+        onComplete={() => setShowDemoWizard(false)}
+      />
+    </>
   );
 };
 
