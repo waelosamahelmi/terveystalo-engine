@@ -176,7 +176,7 @@ export const defaultShortcuts = (actions: {
   },
   {
     key: 'n',
-    ctrlKey: true,
+    altKey: true,
     action: actions.createCampaign || (() => {}),
     description: 'Luo uusi kampanja',
     category: 'Kampanjat'

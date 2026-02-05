@@ -50,8 +50,7 @@ const KeyboardShortcutsModal = ({ isOpen, onClose }: KeyboardShortcutsModalProps
     {
       name: 'Toiminnot',
       shortcuts: [
-        { keys: [cmdKey, 'N'], description: 'Luo uusi kampanja' },
-        { keys: [cmdKey, 'S'], description: 'Tallenna' },
+        { keys: ['Alt', 'N'], description: 'Luo uusi kampanja' },
         { keys: [cmdKey, '.'], description: 'Avaa AI-chat' },
         { keys: [cmdKey, 'Shift', 'D'], description: 'Vaihda tumma/vaalea tila' }
       ]
