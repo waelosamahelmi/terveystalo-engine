@@ -42,7 +42,7 @@ import AIChatbot from './AIChatbot';
 import CommandPalette from './CommandPalette';
 import KeyboardShortcutsModal from './KeyboardShortcutsModal';
 import Breadcrumbs from './Breadcrumbs';
-import useKeyboardShortcuts, { defaultShortcuts } from '../hooks/useKeyboardShortcuts';
+import useKeyboardShortcuts, { defaultShortcuts, navigationShortcuts, triggerOpenAIChat } from '../hooks/useKeyboardShortcuts';
 import defaultLogo from '../assets/logo.png';
 
 interface LayoutProps {
@@ -81,15 +81,23 @@ const Layout = ({ user, children }: LayoutProps) => {
   const shortcuts = defaultShortcuts({
     openCommandPalette: () => setShowCommandPalette(true),
     showHelp: () => setShowShortcutsModal(true),
-    goToDashboard: () => navigate('/'),
-    goToCampaigns: () => navigate('/campaigns'),
-    goToAnalytics: () => navigate('/analytics'),
-    goToSettings: () => navigate('/settings'),
     toggleDarkMode: () => toggleDarkMode(),
     createCampaign: () => navigate('/campaigns/create'),
+    openAIChat: () => triggerOpenAIChat(),
+  });
+
+  // Navigation shortcuts (G+H, G+C, etc.)
+  const navShortcuts = navigationShortcuts({
+    goToDashboard: () => navigate('/'),
+    goToCampaigns: () => navigate('/campaigns'),
+    goToBranches: () => navigate('/branches'),
+    goToAnalytics: () => navigate('/analytics'),
+    goToReports: () => navigate('/reports'),
+    goToSettings: () => navigate('/settings'),
+    goToCreatives: () => navigate('/creatives'),
   });
   
-  useKeyboardShortcuts(shortcuts);
+  useKeyboardShortcuts(shortcuts, true, navShortcuts);
 
   // Fetch brand logo on mount
   useEffect(() => {

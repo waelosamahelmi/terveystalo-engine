@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { sendAIMessage } from '../lib/aiService';
 import { useStore } from '../lib/store';
+import { registerAIChatCallback, unregisterAIChatCallback } from '../hooks/useKeyboardShortcuts';
 import { format } from 'date-fns';
 import { fi } from 'date-fns/locale';
 import {
@@ -199,6 +200,12 @@ const AIChatbot = () => {
 
     return context;
   }, [location.pathname, campaigns, branches]);
+
+  // Register keyboard shortcut callback for opening chat
+  useEffect(() => {
+    registerAIChatCallback(() => setIsOpen(true));
+    return () => unregisterAIChatCallback();
+  }, []);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
