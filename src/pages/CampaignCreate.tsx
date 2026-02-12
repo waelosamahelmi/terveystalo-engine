@@ -1701,173 +1701,9 @@ const CampaignCreate = () => {
         )}
 
         {/* =============================================================== */}
-        {/* STEP 4: CREATIVE TYPE & SCHEDULE */}
-        {/* =============================================================== */}
-        {currentStep === 3 && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
-                <Layers size={32} className="text-[#00A5B5]" />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900">Luovien tyyppi</h2>
-              <p className="text-gray-500 mt-2 max-w-lg mx-auto">
-                Valitse käytetäänkö valtakunnallisia mainoksia (ilman osoitetta), paikkakuntakohtaisia (toimipisteen osoitteella) vai molempia.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              <CreativeTypeCard
-                type="nationwide"
-                name="Valtakunnallinen"
-                description="Yleinen mainos ilman toimipisteen osoitetta. Sopii brändinrakennukseen."
-                icon={Globe}
-                selected={formData.creative_type === 'nationwide'}
-                onClick={() => setFormData({ 
-                  ...formData, 
-                  creative_type: 'nationwide',
-                  creative_weight_nationwide: 100,
-                  creative_weight_local: 0
-                })}
-              />
-              
-              <CreativeTypeCard
-                type="local"
-                name="Paikkakuntakohtainen"
-                description="Mainos toimipisteen tarkalla osoitteella. Ohjaa asiakkaita suoraan."
-                icon={MapPin}
-                selected={formData.creative_type === 'local'}
-                onClick={() => setFormData({ 
-                  ...formData, 
-                  creative_type: 'local',
-                  creative_weight_nationwide: 0,
-                  creative_weight_local: 100
-                })}
-              />
-              
-              <CreativeTypeCard
-                type="both"
-                name="Molemmat"
-                description="Käytä sekä valtakunnallisia että paikallisia mainoksia säädettävällä painotuksella."
-                icon={Layers}
-                selected={formData.creative_type === 'both'}
-                onClick={() => setFormData({ 
-                  ...formData, 
-                  creative_type: 'both',
-                  creative_weight_nationwide: 50,
-                  creative_weight_local: 50
-                })}
-                weight={formData.creative_weight_nationwide}
-                onWeightChange={(w) => setFormData({
-                  ...formData,
-                  creative_weight_nationwide: w,
-                  creative_weight_local: 100 - w
-                })}
-                showWeight={formData.creative_type === 'both'}
-              />
-            </div>
-
-            {formData.creative_type === 'both' && (
-              <div className="mt-8 max-w-2xl mx-auto">
-                <div className="card p-6 bg-gray-50">
-                  <h4 className="font-medium text-gray-900 mb-4">Painotuksen jakautuminen</h4>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      <Globe size={18} className="text-[#00A5B5]" />
-                      <span className="text-sm">Valtakunnallinen</span>
-                    </div>
-                    <span className="font-bold text-[#00A5B5]">{formData.creative_weight_nationwide}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={formData.creative_weight_nationwide}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value);
-                      setFormData({
-                        ...formData,
-                        creative_weight_nationwide: val,
-                        creative_weight_local: 100 - val
-                      });
-                    }}
-                    className="w-full h-3 rounded-lg appearance-none cursor-pointer"
-                    style={{
-                      background: `linear-gradient(to right, #00A5B5 ${formData.creative_weight_nationwide}%, #1B365D ${formData.creative_weight_nationwide}%)`
-                    }}
-                  />
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center space-x-2">
-                      <MapPin size={18} className="text-[#1B365D]" />
-                      <span className="text-sm">Paikkakuntakohtainen</span>
-                    </div>
-                    <span className="font-bold text-[#1B365D]">{formData.creative_weight_local}%</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Schedule in this step */}
-            <div className="mt-8 max-w-2xl mx-auto">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <Calendar size={20} className="mr-2 text-[#00A5B5]" />
-                Kampanjan aikataulu
-              </h3>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Alkamispäivä
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.start_date}
-                    min={format(new Date(), 'yyyy-MM-dd')}
-                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                    className="input"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Päättymispäivä
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.end_date}
-                    min={formData.start_date}
-                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                    className="input"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2 mt-4">
-                {[
-                  { label: '1 viikko', days: 7 },
-                  { label: '2 viikkoa', days: 14 },
-                  { label: '1 kuukausi', days: 30 },
-                  { label: '3 kuukautta', days: 90 },
-                ].map(({ label, days }) => (
-                  <button
-                    key={days}
-                    onClick={() => setFormData({
-                      ...formData,
-                      start_date: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
-                      end_date: format(addDays(new Date(), days + 1), 'yyyy-MM-dd'),
-                    })}
-                    className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-[#00A5B5]/10 hover:text-[#00A5B5] text-sm font-medium transition-colors"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* =============================================================== */}
         {/* STEP 4: BUDGET & CHANNELS */}
         {/* =============================================================== */}
-        {currentStep === 4 && (
+        {currentStep === 3 && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
               <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
@@ -2168,9 +2004,9 @@ const CampaignCreate = () => {
         )}
 
         {/* =============================================================== */}
-        {/* STEP 6: CREATIVE CONTENT */}
+        {/* STEP 5: CREATIVE CONTENT */}
         {/* =============================================================== */}
-        {currentStep === 5 && (
+        {currentStep === 4 && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
               <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
@@ -2423,9 +2259,9 @@ const CampaignCreate = () => {
         )}
 
         {/* =============================================================== */}
-        {/* STEP 7: SUMMARY */}
+        {/* STEP 6: SUMMARY */}
         {/* =============================================================== */}
-        {currentStep === 6 && (
+        {currentStep === 5 && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
               <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-green-100 to-emerald-100 mb-4">
