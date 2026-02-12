@@ -389,9 +389,111 @@ export async function getTotalBudgetSummary(): Promise<BranchBudgetSummary> {
 }
 
 /**
- * Update branch used budget when campaign is created
+ * Update branch used budget when campaign is created (sets absolute value)
  */
 export async function updateBranchUsedBudget(
+  branchId: string,
+  budgetAmount: number
+): Promise<boolean> {
+  const currentPeriod = new Date().toISOString().slice(0, 7) + '-01';
+
+  // Check if budget record exists for current period
+  const { data: existing } = await supabase
+    .from('branch_budgets')
+    .select('id')
+    .eq('branch_id', branchId)
+    .eq('period_start', currentPeriod)
+    .maybeSingle();
+
+  if (existing) {
+    // Update existing record
+    const { error } = await supabase
+      .from('branch_budgets')
+      .update({
+        used_budget: budgetAmount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existing.id);
+
+    if (error) {
+      console.error('Failed to update branch used budget:', error);
+      return false;
+    }
+  } else {
+    // Create new record with zero allocation
+    const { error } = await supabase
+      .from('branch_budgets')
+      .insert({
+        branch_id: branchId,
+        allocated_budget: 0,
+        used_budget: budgetAmount,
+        period_start: currentPeriod
+      });
+
+    if (error) {
+      console.error('Failed to create branch budget:', error);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Create or update branch allocated budget
+ */
+export async function upsertBranchAllocatedBudget(
+  branchId: string,
+  allocatedBudget: number
+): Promise<boolean> {
+  const currentPeriod = new Date().toISOString().slice(0, 7) + '-01';
+
+  // Check if budget record exists for current period
+  const { data: existing } = await supabase
+    .from('branch_budgets')
+    .select('id')
+    .eq('branch_id', branchId)
+    .eq('period_start', currentPeriod)
+    .maybeSingle();
+
+  if (existing) {
+    // Update existing record
+    const { error } = await supabase
+      .from('branch_budgets')
+      .update({
+        allocated_budget: allocatedBudget,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existing.id);
+
+    if (error) {
+      console.error('Failed to update branch allocated budget:', error);
+      return false;
+    }
+  } else {
+    // Create new record
+    const { error } = await supabase
+      .from('branch_budgets')
+      .insert({
+        branch_id: branchId,
+        allocated_budget: allocatedBudget,
+        used_budget: 0,
+        period_start: currentPeriod
+      });
+
+    if (error) {
+      console.error('Failed to create branch budget:', error);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Update branch used budget when campaign is created (increments)
+ */
+export async function updateBranchUsedBudgetIncrement(
   branchId: string,
   budgetAmount: number
 ): Promise<boolean> {

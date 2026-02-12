@@ -934,8 +934,9 @@ const CampaignCreate = () => {
     }
   };
 
-  // Render preview template - showAddress controls whether to display the address
-  const renderPreviewTemplate = (showAddress: boolean) => (
+  // Render preview template - showAddress controls whether to display the address, showPrice overrides price bubble
+  const renderPreviewTemplate = (showAddress: boolean, showPrice?: boolean) => {
+    return (
     <div 
       className="relative overflow-hidden shadow-2xl text-center"
       style={{
@@ -1046,7 +1047,7 @@ const CampaignCreate = () => {
       </div>
 
       {/* White circular price bubble - conditionally rendered */}
-      {creativeConfig.showPriceBubble && (
+      {(showPrice !== undefined ? showPrice : creativeConfig.showPriceBubble) && (
         <div 
           className="absolute flex flex-col justify-center items-center"
           style={{
@@ -1164,7 +1165,8 @@ const CampaignCreate = () => {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const handleSubmit = async () => {
     if (!validateCurrentStep()) return;
@@ -1325,17 +1327,16 @@ const CampaignCreate = () => {
                 {/* Ad Type Selection */}
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Mainonnan tyyppi</h3>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     {[
                       { id: 'nationwide' as const, label: 'Valtakunnallinen', desc: 'Koko Suomi' },
-                      { id: 'local' as const, label: 'Paikkakuntakohtainen', desc: 'Valittu alue' },
-                      { id: 'both' as const, label: 'Molemmat', desc: 'Yhdistelmä' }
+                      { id: 'local' as const, label: 'Paikkakuntakohtainen', desc: 'Valittu alue' }
                     ].map((type) => (
                       <button
                         key={type.id}
                         type="button"
                         onClick={() => setFormData({ ...formData, ad_type: type.id })}
-                        className={`p-4 rounded-xl border-2 text-center transition-all ${
+                        className={`p-4 rounded-xl border-2 text-left transition-all ${
                           formData.ad_type === type.id
                             ? 'border-[#00A5B5] bg-[#00A5B5]/10 shadow-md'
                             : 'border-gray-200 hover:border-[#00A5B5]/50 hover:bg-gray-50'
@@ -1391,8 +1392,7 @@ const CampaignCreate = () => {
                         <span className="text-gray-600 dark:text-gray-400">Mainonnan tyyppi:</span>
                         <span className="font-medium text-gray-900 dark:text-white">
                           {formData.ad_type === 'nationwide' ? 'Valtakunnallinen' :
-                           formData.ad_type === 'local' ? 'Paikkakuntakohtainen' :
-                           formData.ad_type === 'both' ? 'Molemmat' : '-'}
+                           formData.ad_type === 'local' ? 'Paikkakuntakohtainen' : '-'}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -2223,58 +2223,115 @@ const CampaignCreate = () => {
                   })}
                 </div>
 
-                {/* Preview containers - show two when both types selected */}
-                <div className={`${formData.creative_type === 'both' ? 'grid grid-cols-2 gap-4' : ''}`}>
-                  {/* Local version (with address) - shown for 'local' or 'both' */}
-                  {(formData.creative_type === 'local' || formData.creative_type === 'both') && (
-                    <div>
-                      {formData.creative_type === 'both' && (
-                        <div className="text-center mb-2">
-                          <span className="text-xs font-medium text-[#00A5B5] bg-[#00A5B5]/10 px-3 py-1 rounded-full">
-                            <MapPin size={12} className="inline mr-1" />
-                            Paikkakuntakohtainen
-                          </span>
-                        </div>
-                      )}
-                      <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight: formData.creative_type === 'both' ? '350px' : '450px' }}>
-                        {/* Scaled preview wrapper */}
-                        <div 
-                          className="origin-center"
-                          style={{
-                            transform: `scale(${Math.min(1, (formData.creative_type === 'both' ? 280 : 400) / Math.max(previewSize.width, previewSize.height))})`
-                          }}
-                        >
-                          {renderPreviewTemplate(true)}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                {/* Preview containers - handle both creative_type and include_pricing variations */}
+                {(() => {
+                  const showBothCreativeTypes = formData.creative_type === 'both';
+                  const showBothPricing = formData.include_pricing === 'both';
+                  const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
+                  const showNationwide = formData.creative_type === 'nationwide' || formData.creative_type === 'both';
+                  
+                  // Determine number of columns based on what we're showing
+                  const numColumns = (showBothCreativeTypes ? 2 : 1) * (showBothPricing ? 2 : 1);
+                  const gridClass = numColumns > 1 ? `grid grid-cols-${Math.min(numColumns, 2)} gap-4` : '';
+                  const previewScale = numColumns > 1 ? 280 : 400;
+                  const minHeight = numColumns > 1 ? '350px' : '450px';
+                  
+                  return (
+                    <div className={gridClass}>
+                      {/* If showing both pricing versions */}
+                      {showBothPricing ? (
+                        <>
+                          {/* Version with price */}
+                          <div>
+                            <div className="text-center mb-2">
+                              <span className="text-xs font-medium text-[#00A5B5] bg-[#00A5B5]/10 px-3 py-1 rounded-full">
+                                💰 Hinnalla
+                              </span>
+                            </div>
+                            <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
+                              <div 
+                                className="origin-center"
+                                style={{
+                                  transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
+                                }}
+                              >
+                                {renderPreviewTemplate(showAddress && !showNationwide || formData.creative_type === 'local', true)}
+                              </div>
+                            </div>
+                          </div>
+                          {/* Version without price */}
+                          <div>
+                            <div className="text-center mb-2">
+                              <span className="text-xs font-medium text-[#1B365D] bg-[#1B365D]/10 px-3 py-1 rounded-full">
+                                🚫 Ilman hintaa
+                              </span>
+                            </div>
+                            <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
+                              <div 
+                                className="origin-center"
+                                style={{
+                                  transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
+                                }}
+                              >
+                                {renderPreviewTemplate(showAddress && !showNationwide || formData.creative_type === 'local', false)}
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Local version (with address) - shown for 'local' or 'both' */}
+                          {(formData.creative_type === 'local' || formData.creative_type === 'both') && (
+                            <div>
+                              {formData.creative_type === 'both' && (
+                                <div className="text-center mb-2">
+                                  <span className="text-xs font-medium text-[#00A5B5] bg-[#00A5B5]/10 px-3 py-1 rounded-full">
+                                    <MapPin size={12} className="inline mr-1" />
+                                    Paikkakuntakohtainen
+                                  </span>
+                                </div>
+                              )}
+                              <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
+                                <div 
+                                  className="origin-center"
+                                  style={{
+                                    transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
+                                  }}
+                                >
+                                  {renderPreviewTemplate(true)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
 
-                  {/* Nationwide version (without address) - shown for 'nationwide' or 'both' */}
-                  {(formData.creative_type === 'nationwide' || formData.creative_type === 'both') && (
-                    <div>
-                      {formData.creative_type === 'both' && (
-                        <div className="text-center mb-2">
-                          <span className="text-xs font-medium text-[#1B365D] bg-[#1B365D]/10 px-3 py-1 rounded-full">
-                            <Globe size={12} className="inline mr-1" />
-                            Valtakunnallinen
-                          </span>
-                        </div>
+                          {/* Nationwide version (without address) - shown for 'nationwide' or 'both' */}
+                          {(formData.creative_type === 'nationwide' || formData.creative_type === 'both') && (
+                            <div>
+                              {formData.creative_type === 'both' && (
+                                <div className="text-center mb-2">
+                                  <span className="text-xs font-medium text-[#1B365D] bg-[#1B365D]/10 px-3 py-1 rounded-full">
+                                    <Globe size={12} className="inline mr-1" />
+                                    Valtakunnallinen
+                                  </span>
+                                </div>
+                              )}
+                              <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
+                                <div 
+                                  className="origin-center"
+                                  style={{
+                                    transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
+                                  }}
+                                >
+                                  {renderPreviewTemplate(false)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
-                      <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight: formData.creative_type === 'both' ? '350px' : '450px' }}>
-                        {/* Scaled preview wrapper */}
-                        <div 
-                          className="origin-center"
-                          style={{
-                            transform: `scale(${Math.min(1, (formData.creative_type === 'both' ? 280 : 400) / Math.max(previewSize.width, previewSize.height))})`
-                          }}
-                        >
-                          {renderPreviewTemplate(false)}
-                        </div>
-                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
                 
                 <p className="text-center text-sm text-gray-500 mt-4">
                   {previewSize.name} - {previewSize.label}

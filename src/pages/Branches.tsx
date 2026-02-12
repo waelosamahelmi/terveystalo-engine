@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { createBranch, updateBranch, toggleBranchStatus } from '../lib/branchService';
+import { createBranch, updateBranch, toggleBranchStatus, upsertBranchAllocatedBudget } from '../lib/branchService';
 import { useStore } from '../lib/store';
 import { countScreensInRadius } from '../lib/mediaScreensService';
 import type { Branch } from '../types';
@@ -24,7 +24,8 @@ import {
   Download,
   LayoutGrid,
   List,
-  Monitor
+  Monitor,
+  Euro
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -89,6 +90,14 @@ const BranchCard = ({ branch, onEdit, onToggleStatus, screenCount }: BranchCardP
           <span>{screenCount} näyttöä 5 km säteellä</span>
         </div>
       )}
+      {branch.budget?.allocated_budget !== undefined && branch.budget.allocated_budget > 0 && (
+        <div className="flex items-center text-gray-600 dark:text-gray-300">
+          <Euro size={16} className="mr-2 text-gray-400" />
+          <span>
+            {branch.budget.used_budget?.toLocaleString('fi-FI') || 0} € / {branch.budget.allocated_budget.toLocaleString('fi-FI')} € käytetty
+          </span>
+        </div>
+      )}
     </div>
 
     <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100 dark:border-white/10">
@@ -124,11 +133,13 @@ const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
     longitude: undefined,
     active: true,
   });
+  const [budget, setBudget] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (branch) {
       setFormData(branch);
+      setBudget(branch.budget?.allocated_budget || 0);
     } else {
       setFormData({
         name: '',
@@ -142,6 +153,7 @@ const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
         longitude: undefined,
         active: true,
       });
+      setBudget(0);
     }
   }, [branch, isOpen]);
 
@@ -150,7 +162,7 @@ const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
     setSaving(true);
     
     try {
-      await onSave(formData);
+      await onSave({ ...formData, _budget: budget });
       onClose();
     } catch (error) {
       console.error('Error saving branch:', error);
@@ -283,6 +295,20 @@ const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
             </div>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Kuukausibudjetti (€)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={budget || ''}
+              onChange={(e) => setBudget(parseFloat(e.target.value) || 0)}
+              className="input"
+              placeholder="5000"
+            />
+            <p className="text-xs text-gray-500 mt-1">Kuukausittainen mainosbudjetti tälle pisteelle</p>
+          </div>
+
           <div className="flex items-center space-x-3 pt-2">
             <input
               type="checkbox"
@@ -407,18 +433,29 @@ const Branches = () => {
     setShowModal(true);
   };
 
-  const handleSaveBranch = async (data: Partial<Branch>) => {
+  const handleSaveBranch = async (data: Partial<Branch> & { _budget?: number }) => {
     try {
+      // Extract budget from data (it's passed as _budget to avoid type conflicts)
+      const { _budget, ...branchData } = data;
+      
       if (selectedBranch) {
         // Update existing - realtime will sync the store
-        const updated = await updateBranch(selectedBranch.id, data);
+        const updated = await updateBranch(selectedBranch.id, branchData);
         if (updated) {
+          // Also update budget if provided
+          if (_budget !== undefined) {
+            await upsertBranchAllocatedBudget(selectedBranch.id, _budget);
+          }
           toast.success('Piste päivitetty');
         }
       } else {
         // Create new - realtime will sync the store
-        const created = await createBranch(data as Omit<Branch, 'id' | 'created_at' | 'updated_at'>);
+        const created = await createBranch(branchData as Omit<Branch, 'id' | 'created_at' | 'updated_at'>);
         if (created) {
+          // Also create budget if provided
+          if (_budget !== undefined && _budget > 0) {
+            await upsertBranchAllocatedBudget(created.id, _budget);
+          }
           toast.success('Uusi piste lisätty');
         }
       }
