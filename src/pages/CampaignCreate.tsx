@@ -1598,6 +1598,13 @@ const CampaignCreate = () => {
                       placeholder="Katuosoite"
                       value={formData.campaign_address}
                       onChange={(e) => setFormData({ ...formData, campaign_address: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          // Move focus to postal code input
+                          (document.activeElement as HTMLElement)?.parentElement?.parentElement?.querySelector('input[placeholder*="00100"]')?.focus();
+                        }
+                      }}
                       className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
                     />
                   </div>
@@ -1612,6 +1619,13 @@ const CampaignCreate = () => {
                         placeholder="00100"
                         value={formData.campaign_postal_code}
                         onChange={(e) => setFormData({ ...formData, campaign_postal_code: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            // Move focus to city input
+                            (document.activeElement as HTMLElement)?.parentElement?.nextElementSibling?.querySelector('input')?.focus();
+                          }
+                        }}
                         className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
                       />
                     </div>
@@ -1624,6 +1638,13 @@ const CampaignCreate = () => {
                         placeholder="Helsinki"
                         value={formData.campaign_city}
                         onChange={(e) => setFormData({ ...formData, campaign_city: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            // Move focus to radius slider or blur
+                            (document.activeElement as HTMLElement)?.blur();
+                          }
+                        }}
                         className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
                       />
                     </div>
@@ -1861,7 +1882,7 @@ const CampaignCreate = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Left Column: Branch Budget Card */}
               <div className="lg:col-span-1">
-                {selectedBranch && (
+                {selectedBranch && selectedBranch.budget && (
                   <BudgetCard
                     branchName={selectedBranch.name}
                     allocated={selectedBranch.budget?.allocated_budget || 0}

@@ -22,8 +22,8 @@ export function BudgetCard({
   currency = '€',
   showDetails = true
 }: BudgetCardProps) {
-  // Calculate utilization percentage
-  const utilizationPercentage = allocated > 0 ? (used / allocated) * 100 : 0;
+  // Calculate utilization percentage - handle NaN cases
+  const utilizationPercentage = allocated > 0 ? Math.min(100, (used / allocated) * 100) : 0;
 
   // Determine status color
   const getStatusColor = () => {
@@ -94,7 +94,7 @@ export function BudgetCard({
                 {formatCurrency(used)}
               </p>
               <p className="text-xs text-gray-400 mt-0.5">
-                {((used / allocated) * 100).toFixed(0)}%
+                {allocated > 0 ? ((used / allocated) * 100).toFixed(0) : '0'}%
               </p>
             </div>
 
@@ -109,7 +109,7 @@ export function BudgetCard({
                 {formatCurrency(Math.max(0, available))}
               </p>
               <p className="text-xs text-gray-400 mt-0.5">
-                {((available / allocated) * 100).toFixed(0)}%
+                {allocated > 0 ? ((available / allocated) * 100).toFixed(0) : '0'}%
               </p>
             </div>
           </div>
