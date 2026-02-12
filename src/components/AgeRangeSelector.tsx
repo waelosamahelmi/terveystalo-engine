@@ -3,8 +3,7 @@
 // Dual-handle slider for age range selection
 // ============================================================================
 
-import { useState } from 'react';
-import { RangeSlider } from 'lucide-react';
+import { useState, useCallback } from 'react';
 
 interface AgeRangeSelectorProps {
   minAge: number;
@@ -26,29 +25,32 @@ export function AgeRangeSelector({
   const [localMin, setLocalMin] = useState(minAge);
   const [localMax, setLocalMax] = useState(maxAge);
 
-  const handleMinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = Math.max(minLimit, Math.min(maxLimit, parseInt(e.target.value) || minLimit));
+  const handleMinChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value, 10);
+    // Ensure min doesn't exceed max
+    const newMin = Math.min(value, localMax - 1);
+    setLocalMin(newMin);
+    onChange(newMin, localMax);
+  }, [localMax, onChange]);
+
+  const handleMaxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value, 10);
+    // Ensure max doesn't go below min
+    const newMax = Math.max(value, localMin + 1);
+    setLocalMax(newMax);
+    onChange(localMin, newMax);
+  }, [localMin, onChange]);
+
+  const handleNumberInputMinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Math.max(minLimit, Math.min(localMax - 1, parseInt(e.target.value) || minLimit));
     setLocalMin(value);
-    if (value <= localMax) {
-      onChange(value, localMax);
-    }
+    onChange(value, localMax);
   };
 
-  const handleMaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = Math.max(minLimit, Math.min(maxLimit, parseInt(e.target.value) || maxLimit));
+  const handleNumberInputMaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Math.max(localMin + 1, Math.min(maxLimit, parseInt(e.target.value) || maxLimit));
     setLocalMax(value);
-    if (value >= localMin) {
-      onChange(localMin, value);
-    }
-  };
-
-  const handleSliderChange = (values: number[]) => {
-    if (values.length === 2) {
-      const [newMin, newMax] = values;
-      setLocalMin(newMin);
-      setLocalMax(newMax);
-      onChange(newMin, newMax);
-    }
+    onChange(localMin, value);
   };
 
   const percentageMin = ((localMin - minLimit) / (maxLimit - minLimit)) * 100;
@@ -70,55 +72,90 @@ export function AgeRangeSelector({
         <span className="text-sm text-gray-500 ml-2">vuotta</span>
       </div>
 
-      {/* Custom Dual-Handle Slider */}
-      <div className="relative pt-6 pb-2">
+      {/* Dual Range Slider */}
+      <div className="relative pt-6 pb-2 px-3">
+        {/* Track background */}
         <div className="relative h-2 bg-gray-200 dark:bg-gray-700 rounded-full">
-          {/* Selected range */}
+          {/* Selected range highlight */}
           <div
-            className="absolute h-full bg-[#00A5B5] rounded-full"
+            className="absolute h-full bg-[#00A5B5] rounded-full pointer-events-none"
             style={{
               left: `${percentageMin}%`,
               width: `${percentageMax - percentageMin}%`
             }}
           />
-
-          {/* Min Handle */}
-          <div
-            className="absolute w-6 h-6 bg-white border-2 border-[#00A5B5] rounded-full shadow-lg cursor-pointer hover:scale-110 transition-transform"
-            style={{ left: `calc(${percentageMin}% - 12px)`, top: '-10px' }}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.effectAllowed = 'move';
-            }}
-          >
-            <input
-              type="range"
-              min={minLimit}
-              max={maxLimit}
-              value={localMin}
-              onChange={handleMinChange}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-          </div>
-
-          {/* Max Handle */}
-          <div
-            className="absolute w-6 h-6 bg-white border-2 border-[#00A5B5] rounded-full shadow-lg cursor-pointer hover:scale-110 transition-transform"
-            style={{ left: `calc(${percentageMax}% - 12px)`, top: '-10px' }}
-          >
-            <input
-              type="range"
-              min={minLimit}
-              max={maxLimit}
-              value={localMax}
-              onChange={handleMaxChange}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-          </div>
         </div>
 
+        {/* Min Range Input */}
+        <input
+          type="range"
+          min={minLimit}
+          max={maxLimit}
+          step={1}
+          value={localMin}
+          onChange={handleMinChange}
+          className="absolute top-4 left-0 w-full h-6 appearance-none bg-transparent pointer-events-none z-10
+            [&::-webkit-slider-thumb]:appearance-none
+            [&::-webkit-slider-thumb]:pointer-events-auto
+            [&::-webkit-slider-thumb]:w-6
+            [&::-webkit-slider-thumb]:h-6
+            [&::-webkit-slider-thumb]:rounded-full
+            [&::-webkit-slider-thumb]:bg-white
+            [&::-webkit-slider-thumb]:border-2
+            [&::-webkit-slider-thumb]:border-[#00A5B5]
+            [&::-webkit-slider-thumb]:shadow-lg
+            [&::-webkit-slider-thumb]:cursor-pointer
+            [&::-webkit-slider-thumb]:hover:scale-110
+            [&::-webkit-slider-thumb]:transition-transform
+            [&::-moz-range-thumb]:appearance-none
+            [&::-moz-range-thumb]:pointer-events-auto
+            [&::-moz-range-thumb]:w-6
+            [&::-moz-range-thumb]:h-6
+            [&::-moz-range-thumb]:rounded-full
+            [&::-moz-range-thumb]:bg-white
+            [&::-moz-range-thumb]:border-2
+            [&::-moz-range-thumb]:border-[#00A5B5]
+            [&::-moz-range-thumb]:shadow-lg
+            [&::-moz-range-thumb]:cursor-pointer"
+          style={{ marginLeft: '0px', marginRight: '0px' }}
+        />
+
+        {/* Max Range Input */}
+        <input
+          type="range"
+          min={minLimit}
+          max={maxLimit}
+          step={1}
+          value={localMax}
+          onChange={handleMaxChange}
+          className="absolute top-4 left-0 w-full h-6 appearance-none bg-transparent pointer-events-none z-20
+            [&::-webkit-slider-thumb]:appearance-none
+            [&::-webkit-slider-thumb]:pointer-events-auto
+            [&::-webkit-slider-thumb]:w-6
+            [&::-webkit-slider-thumb]:h-6
+            [&::-webkit-slider-thumb]:rounded-full
+            [&::-webkit-slider-thumb]:bg-white
+            [&::-webkit-slider-thumb]:border-2
+            [&::-webkit-slider-thumb]:border-[#00A5B5]
+            [&::-webkit-slider-thumb]:shadow-lg
+            [&::-webkit-slider-thumb]:cursor-pointer
+            [&::-webkit-slider-thumb]:hover:scale-110
+            [&::-webkit-slider-thumb]:transition-transform
+            [&::-moz-range-thumb]:appearance-none
+            [&::-moz-range-thumb]:pointer-events-auto
+            [&::-moz-range-thumb]:w-6
+            [&::-moz-range-thumb]:h-6
+            [&::-moz-range-thumb]:rounded-full
+            [&::-moz-range-thumb]:bg-white
+            [&::-moz-range-thumb]:border-2
+            [&::-moz-range-thumb]:border-[#00A5B5]
+            [&::-moz-range-thumb]:shadow-lg
+            [&::-moz-range-thumb]:cursor-pointer"
+          style={{ marginLeft: '0px', marginRight: '0px' }}
+        />
+
         {/* Quick Select Buttons */}
-        <div className="flex gap-2 mt-4 justify-center">
+        <div className="flex gap-2 mt-8 justify-center">
           {[
             { min: 18, max: 30, label: '18-30' },
             { min: 25, max: 45, label: '25-45' },
@@ -155,9 +192,9 @@ export function AgeRangeSelector({
             id="minAge"
             type="number"
             min={minLimit}
-            max={maxLimit}
+            max={localMax - 1}
             value={localMin}
-            onChange={handleMinChange}
+            onChange={handleNumberInputMinChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00A5B5] focus:border-transparent dark:bg-gray-800 dark:border-gray-600"
           />
         </div>
@@ -168,10 +205,10 @@ export function AgeRangeSelector({
           <input
             id="maxAge"
             type="number"
-            min={minLimit}
+            min={localMin + 1}
             max={maxLimit}
             value={localMax}
-            onChange={handleMaxChange}
+            onChange={handleNumberInputMaxChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00A5B5] focus:border-transparent dark:bg-gray-800 dark:border-gray-600"
           />
         </div>

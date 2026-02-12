@@ -198,13 +198,21 @@ class GlobalStore {
       // Load all core data in parallel
       const [usersRes, branchesRes, servicesRes, campaignsRes] = await Promise.all([
         supabase.from('users').select('*').order('name'),
-        supabase.from('branches').select('*').order('name'),
+        supabase.from('branches').select('*, budget:branch_budgets(*)').order('name'),
         supabase.from('services').select('*').order('sort_order'),
         supabase.from('dental_campaigns').select('*, service:services(*), branch:branches(*)').order('created_at', { ascending: false }),
       ]);
 
       if (usersRes.data) this._users = usersRes.data;
-      if (branchesRes.data) this._branches = branchesRes.data;
+      if (branchesRes.data) {
+        // Transform branches to extract budget from array to single object
+        this._branches = branchesRes.data.map((branch: any) => ({
+          ...branch,
+          budget: Array.isArray(branch.budget) && branch.budget.length > 0
+            ? branch.budget[0]  // Get the first/latest budget record
+            : branch.budget
+        }));
+      }
       if (servicesRes.data) this._services = servicesRes.data;
       if (campaignsRes.data) this._campaigns = campaignsRes.data;
 
@@ -241,8 +249,17 @@ class GlobalStore {
   };
 
   refreshBranches = async () => {
-    const { data } = await supabase.from('branches').select('*').order('name');
-    if (data) { this._branches = data; this.notify(); }
+    const { data } = await supabase.from('branches').select('*, budget:branch_budgets(*)').order('name');
+    if (data) {
+      // Transform branches to extract budget from array to single object
+      this._branches = data.map((branch: any) => ({
+        ...branch,
+        budget: Array.isArray(branch.budget) && branch.budget.length > 0
+          ? branch.budget[0]  // Get the first/latest budget record
+          : branch.budget
+      }));
+      this.notify();
+    }
   };
 
   refreshServices = async () => {

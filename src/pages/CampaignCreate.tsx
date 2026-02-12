@@ -665,6 +665,23 @@ const CampaignCreate = () => {
     showPriceBubble: true
   });
 
+  // Sync include_pricing choice from step 1 with showPriceBubble in creative config
+  useEffect(() => {
+    if (formData.include_pricing === 'no') {
+      setCreativeConfig(prev => ({ ...prev, showPriceBubble: false }));
+    } else if (formData.include_pricing === 'yes') {
+      setCreativeConfig(prev => ({ ...prev, showPriceBubble: true }));
+    }
+    // 'both' option leaves it as user's choice
+  }, [formData.include_pricing]);
+
+  // Sync ad_type choice from step 1 with creative_type
+  useEffect(() => {
+    if (formData.ad_type) {
+      setFormData(prev => ({ ...prev, creative_type: formData.ad_type as CreativeType }));
+    }
+  }, [formData.ad_type]);
+
   // Preview size state
   const [previewSize, setPreviewSize] = useState<PreviewSize>(PREVIEW_SIZES[2]); // Default to 300x600
 
@@ -989,7 +1006,7 @@ const CampaignCreate = () => {
             marginBottom: previewSize.id === '1080x1920' ? '30px' : previewSize.id === '620x891' ? '20px' : '15px'
           }}
           dangerouslySetInnerHTML={{ 
-            __html: creativeConfig.headline || 'Hymyile.<br/>Olet hyvissä käsissä.' 
+            __html: (creativeConfig.headline || 'Hymyile.<br/>Olet hyvissä käsissä.').replace(/\n/g, '<br/>') 
           }}
         />
         <p 
@@ -999,8 +1016,10 @@ const CampaignCreate = () => {
             maxWidth: '90%',
             margin: previewSize.id === '980x400' ? '0' : '0 auto'
           }}
+          dangerouslySetInnerHTML={{
+            __html: (creativeConfig.subheadline || 'Sujuvampaa suunterveyttä Lahden Suun Terveystalossa.').replace(/\n/g, '<br/>')
+          }}
         >
-          {creativeConfig.subheadline || 'Sujuvampaa suunterveyttä Lahden Suun Terveystalossa.'}
         </p>
         
         {/* CTA button for 980x400 - inline under paragraph */}
@@ -1051,7 +1070,7 @@ const CampaignCreate = () => {
               textAlign: 'center'
             }}
             dangerouslySetInnerHTML={{ 
-              __html: creativeConfig.offerTitle || 'Hammas-<br/>tarkastus' 
+              __html: (creativeConfig.offerTitle || 'Hammas-<br/>tarkastus').replace(/\n/g, '<br/>') 
             }}
           />
           <div 
@@ -1080,7 +1099,7 @@ const CampaignCreate = () => {
               lineHeight: 1.2
             }}
             dangerouslySetInnerHTML={{ 
-              __html: creativeConfig.offerDate || 'Varaa viimeistään<br/>28.10.' 
+              __html: (creativeConfig.offerDate || 'Varaa viimeistään<br/>28.10.').replace(/\n/g, '<br/>') 
             }}
           />
         </div>
@@ -1718,7 +1737,7 @@ const CampaignCreate = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Left Column: Branch Budget Card */}
               <div className="lg:col-span-1">
-                {selectedBranch && selectedBranch.budget && (
+                {selectedBranch && selectedBranch.budget ? (
                   <BudgetCard
                     branchName={selectedBranch.name}
                     allocated={selectedBranch.budget?.allocated_budget || 0}
@@ -1726,7 +1745,14 @@ const CampaignCreate = () => {
                     available={(selectedBranch.budget?.allocated_budget || 0) - (selectedBranch.budget?.used_budget || 0)}
                     currency="€"
                   />
-                )}
+                ) : selectedBranch ? (
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{selectedBranch.name}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      Budjettitietoja ei ole määritelty tälle toimipisteelle.
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               {/* Right Column: Budget Selection */}
