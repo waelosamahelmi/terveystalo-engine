@@ -8,8 +8,9 @@ import { useNavigate } from 'react-router-dom';
 import { createCampaign } from '../lib/campaignService';
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore } from '../lib/store';
+import { getBudgetPresets } from '../lib/settingsService';
 import { loader } from '../lib/googleMapsLoader';
-import type { Service, Branch, CampaignFormData, CreativeType } from '../types';
+import type { Service, Branch, CampaignFormData, CreativeType, AdType, PricingOption } from '../types';
 import { format, addDays, addWeeks, differenceInDays } from 'date-fns';
 import { fi } from 'date-fns/locale';
 import {
@@ -38,11 +39,16 @@ import {
   Square,
   RectangleVertical,
   RectangleHorizontal,
-  Smartphone
+  Smartphone,
+  Users
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
 import { DemoBanner } from '../components/DemoTooltip';
+import { AgeRangeSelector } from '../components/AgeRangeSelector';
+import { GenderSelector } from '../components/GenderSelector';
+import { BudgetCard } from '../components/BudgetCard';
+import { AutoExpandTextarea } from '../components/AutoExpandTextarea';
 
 // Custom Tooth Icon Component
 const ToothIcon = ({ size = 24, className = '' }: { size?: number; className?: string }) => (
@@ -599,6 +605,16 @@ const CampaignCreate = () => {
   });
   const [loadingScreens, setLoadingScreens] = useState(false);
 
+  // Budget presets from settings
+  const [budgetPresets, setBudgetPresets] = useState<number[]>([]);
+  const [customBudget, setCustomBudget] = useState<number | undefined>(undefined);
+  const [selectedBudget, setSelectedBudget] = useState<number | undefined>(undefined);
+
+  // Load budget presets on mount
+  useEffect(() => {
+    getBudgetPresets().then(setBudgetPresets).catch(console.error);
+  }, []);
+
   // Form data
   const [formData, setFormData] = useState<CampaignFormData>({
     name: '',
@@ -627,7 +643,13 @@ const CampaignCreate = () => {
     offer_text: '',
     cta_text: 'Varaa aika',
     background_image_url: undefined,
-    description: ''
+    description: '',
+    // New fields for campaign creation
+    ad_type: undefined,
+    include_pricing: undefined,
+    target_age_min: 18,
+    target_age_max: 80,
+    target_genders: ['all']
   });
 
   // Creative config
@@ -658,10 +680,9 @@ const CampaignCreate = () => {
   );
 
   const steps = [
-    { name: 'Palvelu', icon: ToothIcon },
+    { name: 'Palvelu ja tyyppi', icon: ToothIcon },
     { name: 'Toimipiste', icon: MapPin },
-    { name: 'Alue', icon: Map },
-    { name: 'Luovat', icon: Layers },
+    { name: 'Kohderyhmä', icon: Users },
     { name: 'Budjetti', icon: Euro },
     { name: 'Sisältö', icon: Palette },
     { name: 'Yhteenveto', icon: Check },
@@ -1243,7 +1264,7 @@ const CampaignCreate = () => {
       <div className="card p-8 mb-6 min-h-[500px]">
         
         {/* =============================================================== */}
-        {/* STEP 1: SERVICE SELECTION */}
+        {/* STEP 1: SERVICE & AD TYPE SELECTION */}
         {/* =============================================================== */}
         {currentStep === 0 && (
           <div className="animate-fade-in">
@@ -1251,28 +1272,122 @@ const CampaignCreate = () => {
               <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
                 <ToothIcon size={32} className="text-[#00A5B5]" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Valitse palvelu</h2>
+              <h2 className="text-2xl font-bold text-gray-900">Palvelu ja tyyppi</h2>
               <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Mitä palvelua haluat markkinoida? Valitse alta kampanjan kohdepalvelu.
+                Valitse palvelu, mainonnan tyyppi ja hinnojen näkyvyys
               </p>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
-              {activeServices.length > 0 ? (
-                activeServices.map(service => (
-                  <ServiceCard
-                    key={service.id}
-                    service={service}
-                    selected={formData.service_id === service.id}
-                    onClick={() => setFormData({ ...formData, service_id: service.id })}
-                  />
-                ))
-              ) : (
-                <div className="col-span-2 text-center py-12 text-gray-500">
-                  <AlertCircle size={48} className="mx-auto mb-4 opacity-50" />
-                  <p>Ei aktiivisia palveluita</p>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left Column: Service Selection */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Palvelu</h3>
+                <div className="space-y-4">
+                  {activeServices.length > 0 ? (
+                    activeServices.map(service => (
+                      <ServiceCard
+                        key={service.id}
+                        service={service}
+                        selected={formData.service_id === service.id}
+                        onClick={() => setFormData({ ...formData, service_id: service.id })}
+                      />
+                    ))
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <AlertCircle size={48} className="mx-auto mb-4 opacity-50" />
+                      <p>Ei aktiivisia palveluita</p>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+
+              {/* Right Column: Ad Type & Pricing Options */}
+              <div className="space-y-8">
+                {/* Ad Type Selection */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Mainonnan tyyppi</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { id: 'nationwide' as const, label: 'Valtakunnallinen', desc: 'Koko Suomi' },
+                      { id: 'local' as const, label: 'Paikkakuntakohtainen', desc: 'Valittu alue' },
+                      { id: 'both' as const, label: 'Molemmat', desc: 'Yhdistelmä' }
+                    ].map((type) => (
+                      <button
+                        key={type.id}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, ad_type: type.id })}
+                        className={`p-4 rounded-xl border-2 text-center transition-all ${
+                          formData.ad_type === type.id
+                            ? 'border-[#00A5B5] bg-[#00A5B5]/10 shadow-md'
+                            : 'border-gray-200 hover:border-[#00A5B5]/50 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className={`font-semibold mb-1 ${
+                          formData.ad_type === type.id ? 'text-[#00A5B5]' : 'text-gray-900'
+                        }`}>
+                          {type.label}
+                        </div>
+                        <div className="text-xs text-gray-500">{type.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pricing Option Selection */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Hinnojen näkyvyys</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { id: 'yes' as const, label: 'Näytä hinta', desc: 'Hinnat näkyvillä' },
+                      { id: 'no' as const, label: 'Ilman hintaa', desc: 'Ei hintoja' },
+                      { id: 'both' as const, label: 'Molemmat', desc: 'Yhdistelmä' }
+                    ].map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, include_pricing: option.id })}
+                        className={`p-4 rounded-xl border-2 text-center transition-all ${
+                          formData.include_pricing === option.id
+                            ? 'border-[#00A5B5] bg-[#00A5B5]/10 shadow-md'
+                            : 'border-gray-200 hover:border-[#00A5B5]/50 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className={`font-semibold mb-1 ${
+                          formData.include_pricing === option.id ? 'text-[#00A5B5]' : 'text-gray-900'
+                        }`}>
+                          {option.label}
+                        </div>
+                        <div className="text-xs text-gray-500">{option.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Summary Box */}
+                {(formData.ad_type || formData.include_pricing) && (
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                    <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Valitut asetukset</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Mainonnan tyyppi:</span>
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {formData.ad_type === 'nationwide' ? 'Valtakunnallinen' :
+                           formData.ad_type === 'local' ? 'Paikkakuntakohtainen' :
+                           formData.ad_type === 'both' ? 'Molemmat' : '-'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Hinnojen näkyvyys:</span>
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {formData.include_pricing === 'yes' ? 'Näytä hinta' :
+                           formData.include_pricing === 'no' ? 'Ilman hintaa' :
+                           formData.include_pricing === 'both' ? 'Molemmat' : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1374,22 +1489,22 @@ const CampaignCreate = () => {
         )}
 
         {/* =============================================================== */}
-        {/* STEP 3: RADIUS & MAP */}
+        {/* STEP 3: AUDIENCE SELECTION */}
         {/* =============================================================== */}
-        {currentStep === 2 && selectedBranch && (
+        {currentStep === 2 && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
               <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
-                <Map size={32} className="text-[#00A5B5]" />
+                <Users size={32} className="text-[#00A5B5]" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Kohdealue</h2>
+              <h2 className="text-2xl font-bold text-gray-900">Kohderyhmä</h2>
               <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Määritä kuinka laajalla alueella mainokset näkyvät toimipisteesi ympärillä.
+                Määritä ikäryhmä ja sukupuoli, joille haluat mainostaa.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Map */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Left: Map with screens */}
               <div className="lg:col-span-2">
                 <MapComponent
                   center={formData.campaign_coordinates}
@@ -1399,7 +1514,7 @@ const CampaignCreate = () => {
                 />
               </div>
 
-              {/* Screen info sidebar */}
+              {/* Right: Screen info sidebar */}
               <div className="space-y-4">
                 <div className="card p-5 bg-gradient-to-br from-[#1B365D] to-[#00A5B5] text-white">
                   <div className="flex items-center justify-between mb-3">
@@ -1426,6 +1541,139 @@ const CampaignCreate = () => {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Audience selectors below map */}
+            <div className="max-w-2xl mx-auto mt-8 space-y-8">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Kohderyhmän valinta</h3>
+
+              {/* Age Range Selector */}
+              <div>
+                <AgeRangeSelector
+                  minAge={formData.target_age_min || 18}
+                  maxAge={formData.target_age_max || 80}
+                  onChange={(min, max) => setFormData({ ...formData, target_age_min: min, target_age_max: max })}
+                  minLimit={18}
+                  maxLimit={100}
+                />
+              </div>
+
+              {/* Gender Selector */}
+              <div>
+                <GenderSelector
+                  selected={formData.target_genders || ['all']}
+                  onChange={(genders) => setFormData({ ...formData, target_genders: genders })}
+                />
+              </div>
+
+              {/* Location Targeting (Collapsible - Optional) */}
+              <details className="group">
+                <summary className="cursor-pointer p-4 bg-gray-100 dark:bg-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <MapPin size={20} className="text-gray-600 dark:text-gray-400" />
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        Sijaintiin perustuva kohdistus (valinnainen)
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {formData.campaign_address && (
+                        <span className="text-sm text-gray-500">
+                          {formData.campaign_city || 'Valittu'}
+                        </span>
+                      )}
+                      <ArrowRight size={16} className="text-gray-400 group-open:rotate-90 transition-transform" />
+                    </div>
+                  </div>
+                </summary>
+
+                <div className="mt-4 p-5 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Osoite
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Katuosoite"
+                      value={formData.campaign_address}
+                      onChange={(e) => setFormData({ ...formData, campaign_address: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Postinumero
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="00100"
+                        value={formData.campaign_postal_code}
+                        onChange={(e) => setFormData({ ...formData, campaign_postal_code: e.target.value })}
+                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Kaupunki
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Helsinki"
+                        value={formData.campaign_city}
+                        onChange={(e) => setFormData({ ...formData, campaign_city: e.target.value })}
+                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Säde (km): {formData.campaign_radius}
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="50"
+                      value={formData.campaign_radius}
+                      onChange={(e) => setFormData({ ...formData, campaign_radius: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                      <span>1 km</span>
+                      <span>50 km</span>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              {/* Summary Box */}
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-5 border border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Valittu kohderyhmä</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">Ikäryhmä:</span>
+                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                      {formData.target_age_min || 18}-{formData.target_age_max || 80} vuotta
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">Sukupuoli:</span>
+                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                      {formData.target_genders?.includes('all')
+                        ? 'Kaikki'
+                        : formData.target_genders?.length === 1
+                        ? formData.target_genders[0] === 'male'
+                          ? 'Miehet'
+                          : formData.target_genders[0] === 'female'
+                          ? 'Naiset'
+                          : 'Muut'
+                        : `${formData.target_genders?.length || 0} valittu`}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1596,7 +1844,7 @@ const CampaignCreate = () => {
         )}
 
         {/* =============================================================== */}
-        {/* STEP 5: BUDGET & CHANNELS */}
+        {/* STEP 4: BUDGET & CHANNELS */}
         {/* =============================================================== */}
         {currentStep === 4 && (
           <div className="animate-fade-in">
@@ -1610,52 +1858,114 @@ const CampaignCreate = () => {
               </p>
             </div>
 
-            {/* Total budget */}
-            <div className="max-w-xl mx-auto mb-8">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Kokonaisbudjetti
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={formData.total_budget}
-                  onChange={(e) => updateTotalBudget(parseInt(e.target.value) || 0)}
-                  min={100}
-                  step={100}
-                  className="w-full text-center text-4xl font-bold py-6 rounded-2xl border-2 border-gray-200 focus:border-[#00A5B5] focus:ring-4 focus:ring-[#00A5B5]/20 outline-none transition-all"
-                />
-                <span className="absolute right-6 top-1/2 -translate-y-1/2 text-2xl text-gray-400">€</span>
-              </div>
-              
-              {/* Budget presets */}
-              <div className="flex flex-wrap justify-center gap-2 mt-4">
-                {[500, 1000, 2000, 5000, 10000].map((amount) => (
-                  <button
-                    key={amount}
-                    onClick={() => updateTotalBudget(amount)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                      formData.total_budget === amount
-                        ? 'bg-[#00A5B5] text-white shadow-lg shadow-[#00A5B5]/30'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {amount.toLocaleString('fi-FI')}€
-                  </button>
-                ))}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Left Column: Branch Budget Card */}
+              <div className="lg:col-span-1">
+                {selectedBranch && (
+                  <BudgetCard
+                    branchName={selectedBranch.name}
+                    allocated={selectedBranch.budget?.allocated_budget || 0}
+                    used={selectedBranch.budget?.used_budget || 0}
+                    available={(selectedBranch.budget?.allocated_budget || 0) - (selectedBranch.budget?.used_budget || 0)}
+                    currency="€"
+                  />
+                )}
               </div>
 
-              {/* Daily budget estimate */}
-              <div className="mt-4 p-4 bg-[#00A5B5]/5 rounded-xl text-center">
-                <span className="text-sm text-gray-600">Arvioitu päiväbudjetti: </span>
-                <span className="text-lg font-bold text-[#00A5B5]">
-                  {Math.round(formData.total_budget / campaignDays).toLocaleString('fi-FI')}€
-                </span>
-                <span className="text-sm text-gray-500"> / {campaignDays} päivää</span>
+              {/* Right Column: Budget Selection */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* Budget Presets */}
+                <div>
+                  <label className="block text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                    Valitse kampanjan budjetti
+                  </label>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {budgetPresets.map(amount => {
+                      const available = selectedBranch?.budget
+                        ? (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)
+                        : Infinity;
+                      const isDisabled = amount > available;
+                      return (
+                        <button
+                          key={amount}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => {
+                            setSelectedBudget(amount);
+                            setCustomBudget(undefined);
+                            updateTotalBudget(amount);
+                          }}
+                          className={`p-4 rounded-xl border-2 transition-all ${
+                            selectedBudget === amount || formData.total_budget === amount
+                              ? 'bg-[#00A5B5] text-white border-[#00A5B5] shadow-md'
+                              : isDisabled
+                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-[#00A5B5] hover:bg-[#00A5B5]/10 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600'
+                          }`}
+                        >
+                          <div className="text-lg font-bold">{amount}€</div>
+                          {isDisabled && (
+                            <div className="text-xs mt-1">Ei saatavilla</div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Custom Amount */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Tai oma budjetti
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      max={selectedBranch?.budget
+                        ? (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)
+                        : undefined}
+                      value={customBudget !== undefined ? customBudget : formData.total_budget}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setCustomBudget(val);
+                        setSelectedBudget(undefined);
+                        updateTotalBudget(val || 0);
+                      }}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                      placeholder="Kirjoita oma budjetti..."
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                  </div>
+                  {selectedBranch?.budget && formData.total_budget > (
+                    (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)
+                  ) && (
+                    <p className="mt-2 text-sm text-red-600 dark:text-red-400 flex items-center gap-1">
+                      <AlertCircle size={16} />
+                      Budjetti ylittää saatavilla olevan määrän ({((selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0))}€)
+                    </p>
+                  )}
+                </div>
+
+                {/* Daily budget estimate */}
+                <div className="p-4 bg-[#00A5B5]/5 rounded-xl border border-[#00A5B5]/20">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Arvioitu päiväbudjetti:</span>
+                      <span className="text-lg font-bold text-[#00A5B5] ml-2">
+                        {campaignDays > 0 ? Math.round(formData.total_budget / campaignDays).toLocaleString('fi-FI') : 0}€
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">{campaignDays} päivää</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Channel cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto mt-8">
               <ChannelCard
                 id="meta"
                 name="Meta"
@@ -1857,14 +2167,14 @@ const CampaignCreate = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     <Type size={16} className="inline mr-2" />
-                    Otsikko (käytä &lt;br/&gt; rivinvaihtoon)
+                    Otsikko
                   </label>
-                  <input
-                    type="text"
+                  <AutoExpandTextarea
                     value={creativeConfig.headline}
-                    onChange={(e) => setCreativeConfig({ ...creativeConfig, headline: e.target.value })}
-                    placeholder="Hymyile.<br/>Olet hyvissä käsissä."
-                    className="input"
+                    onChange={(value) => setCreativeConfig({ ...creativeConfig, headline: value })}
+                    placeholder="Hymyile. Olet hyvissä käsissä."
+                    minHeight={44}
+                    maxHeight={200}
                   />
                 </div>
 
@@ -1872,12 +2182,12 @@ const CampaignCreate = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Alaotsikko
                   </label>
-                  <input
-                    type="text"
+                  <AutoExpandTextarea
                     value={creativeConfig.subheadline}
-                    onChange={(e) => setCreativeConfig({ ...creativeConfig, subheadline: e.target.value })}
+                    onChange={(value) => setCreativeConfig({ ...creativeConfig, subheadline: value })}
                     placeholder="Sujuvampaa suunterveyttä Lahden Suun Terveystalossa."
-                    className="input"
+                    minHeight={44}
+                    maxHeight={200}
                   />
                 </div>
 
@@ -1907,34 +2217,34 @@ const CampaignCreate = () => {
                     <div className="space-y-3 pt-3 border-t border-gray-200">
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Otsikko (esim. Hammas-&lt;br/&gt;tarkastus)</label>
-                          <input
-                            type="text"
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Otsikko (esim. Hammas-tarkastus)</label>
+                          <AutoExpandTextarea
                             value={creativeConfig.offerTitle}
-                            onChange={(e) => setCreativeConfig({ ...creativeConfig, offerTitle: e.target.value })}
-                            placeholder="Hammas-<br/>tarkastus"
-                            className="input text-sm"
+                            onChange={(value) => setCreativeConfig({ ...creativeConfig, offerTitle: value })}
+                            placeholder="Hammas-tarkastus"
+                            minHeight={40}
+                            maxHeight={100}
                           />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Hinta (vain numero)</label>
-                          <input
-                            type="text"
+                          <AutoExpandTextarea
                             value={creativeConfig.offer}
-                            onChange={(e) => setCreativeConfig({ ...creativeConfig, offer: e.target.value })}
+                            onChange={(value) => setCreativeConfig({ ...creativeConfig, offer: value })}
                             placeholder="49"
-                            className="input text-sm"
+                            minHeight={40}
+                            maxHeight={100}
                           />
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Voimassaolo (käytä &lt;br/&gt; rivinvaihtoon)</label>
-                        <input
-                          type="text"
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Voimassaolo</label>
+                        <AutoExpandTextarea
                           value={creativeConfig.offerDate}
-                          onChange={(e) => setCreativeConfig({ ...creativeConfig, offerDate: e.target.value })}
-                          placeholder="Varaa viimeistään<br/>28.10."
-                          className="input text-sm"
+                          onChange={(value) => setCreativeConfig({ ...creativeConfig, offerDate: value })}
+                          placeholder="Varaa viimeistään 28.10."
+                          minHeight={40}
+                          maxHeight={100}
                         />
                       </div>
                     </div>
@@ -1945,12 +2255,12 @@ const CampaignCreate = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     CTA (Toimintakehote)
                   </label>
-                  <input
-                    type="text"
+                  <AutoExpandTextarea
                     value={creativeConfig.cta}
-                    onChange={(e) => setCreativeConfig({ ...creativeConfig, cta: e.target.value })}
+                    onChange={(value) => setCreativeConfig({ ...creativeConfig, cta: value })}
                     placeholder="Varaa aika"
-                    className="input"
+                    minHeight={44}
+                    maxHeight={200}
                   />
                 </div>
 

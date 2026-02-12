@@ -67,10 +67,24 @@ export interface Service {
 // BRANCH TYPES
 // ============================================================================
 
+export interface BranchBudget {
+  id: string;
+  branch_id: string;
+  allocated_budget: number;
+  used_budget: number;
+  available_budget: number;
+  period_start: string;
+  period_end: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Branch {
   id: string;
   external_id?: string;
   name: string;
+  short_name?: string;
   address: string;
   postal_code: string;
   city: string;
@@ -85,10 +99,16 @@ export interface Branch {
   phone?: string;
   email?: string;
   opening_hours?: Record<string, string>;
+  services?: string[];
+  features?: Record<string, any>;
   manager_id?: string;
   active: boolean;
   created_at: string;
   updated_at: string;
+  // Budget information (joined from branch_budgets)
+  budget?: BranchBudget;
+  // Creative types supported by this branch
+  creative_types?: string[];
 }
 
 // ============================================================================
@@ -97,7 +117,10 @@ export interface Branch {
 
 export type CampaignStatus = 'draft' | 'pending' | 'active' | 'paused' | 'completed' | 'cancelled';
 export type CreativeType = 'nationwide' | 'local' | 'both';
+export type AdType = 'nationwide' | 'local' | 'both';
+export type PricingOption = 'yes' | 'no' | 'both';
 export type Channel = 'meta' | 'display' | 'pdooh' | 'digital_audio';
+export type GenderOption = 'all' | 'male' | 'female' | 'other';
 
 export interface DentalCampaign {
   id: string;
@@ -146,7 +169,16 @@ export interface DentalCampaign {
   creative_type: CreativeType;
   creative_weight_nationwide: number;
   creative_weight_local: number;
-  
+
+  // Ad type and pricing options
+  ad_type?: AdType;
+  include_pricing?: PricingOption;
+
+  // Audience targeting (age and gender)
+  target_age_min?: number;
+  target_age_max?: number;
+  target_genders?: string[];
+
   // Status
   status: CampaignStatus;
   
@@ -179,13 +211,18 @@ export interface DentalCampaign {
 }
 
 export interface CampaignFormData {
-  // Step 1: Service
+  // Step 1: Service & Ad Type
   service_id: string;
-  
+  ad_type?: AdType;
+  include_pricing?: PricingOption;
+
   // Step 2: Branch
   branch_id: string;
-  
-  // Step 3: Location & Radius
+
+  // Step 3: Audience (Age, Gender, Location)
+  target_age_min?: number;
+  target_age_max?: number;
+  target_genders?: string[];
   campaign_address: string;
   campaign_postal_code: string;
   campaign_city: string;
@@ -194,14 +231,14 @@ export interface CampaignFormData {
     lat: number;
     lng: number;
   };
-  
+
   // Step 4: Creative Type & Schedule
   creative_type: CreativeType;
   creative_weight_nationwide: number;
   creative_weight_local: number;
   start_date: string;
   end_date: string;
-  
+
   // Step 5: Budget & Channels
   total_budget: number;
   channel_meta: boolean;
@@ -212,13 +249,13 @@ export interface CampaignFormData {
   budget_display: number;
   budget_pdooh: number;
   budget_audio: number;
-  
+
   // Step 6: Creative customization
   headline?: string;
   offer_text?: string;
   cta_text?: string;
   background_image_url?: string;
-  
+
   // Step 7: Review (name)
   name: string;
   description?: string;

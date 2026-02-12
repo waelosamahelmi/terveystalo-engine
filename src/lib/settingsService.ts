@@ -256,3 +256,11 @@ export async function getDefaultBudgetSplits(): Promise<Record<string, number>> 
     digital_audio: 5
   };
 }
+
+/**
+ * Get fixed budget amounts for campaign allocation
+ */
+export async function getBudgetPresets(): Promise<number[]> {
+  const presets = await getAppSetting<number[]>('budget_presets');
+  return presets || [84, 168, 337, 505, 672, 842]; // Weekly amounts from user's table
+}

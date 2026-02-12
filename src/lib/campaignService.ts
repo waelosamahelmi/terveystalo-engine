@@ -5,9 +5,10 @@
 
 import { supabase } from './supabase';
 import { sendSlackNotification } from './slackService';
-import type { 
-  DentalCampaign, 
-  CampaignFormData, 
+import { updateBranchUsedBudget } from './branchService';
+import type {
+  DentalCampaign,
+  CampaignFormData,
   CampaignFilters,
   CampaignStatus,
   CampaignSummary
@@ -123,36 +124,43 @@ export async function createCampaign(
     description: formData.description,
     service_id: formData.service_id,
     branch_id: formData.branch_id,
-    
+
     campaign_address: formData.campaign_address,
     campaign_postal_code: formData.campaign_postal_code,
     campaign_city: formData.campaign_city,
     campaign_radius: formData.campaign_radius,
     campaign_coordinates: formData.campaign_coordinates,
-    
+
     start_date: formData.start_date,
     end_date: formData.end_date,
-    
+
     total_budget: formData.total_budget,
     budget_meta: formData.budget_meta,
     budget_display: formData.budget_display,
     budget_pdooh: formData.budget_pdooh,
     budget_audio: formData.budget_audio,
-    
+
     daily_budget_meta: formData.budget_meta / days,
     daily_budget_display: formData.budget_display / days,
     daily_budget_pdooh: formData.budget_pdooh / days,
     daily_budget_audio: formData.budget_audio / days,
-    
+
     channel_meta: formData.channel_meta,
     channel_display: formData.channel_display,
     channel_pdooh: formData.channel_pdooh,
     channel_audio: formData.channel_audio,
-    
+
     creative_type: formData.creative_type,
     creative_weight_nationwide: formData.creative_weight_nationwide,
     creative_weight_local: formData.creative_weight_local,
-    
+
+    // New fields for campaign redesign
+    ad_type: formData.ad_type,
+    include_pricing: formData.include_pricing,
+    target_age_min: formData.target_age_min,
+    target_age_max: formData.target_age_max,
+    target_genders: formData.target_genders,
+
     status: 'draft' as CampaignStatus,
     created_by: userId
   };
@@ -170,6 +178,12 @@ export async function createCampaign(
   if (error) {
     console.error('Failed to create campaign:', error);
     return null;
+  }
+
+  // Update branch used budget after successful campaign creation
+  if (formData.branch_id && formData.total_budget > 0) {
+    updateBranchUsedBudget(formData.branch_id, formData.total_budget)
+      .catch(err => console.error('Failed to update branch budget:', err));
   }
 
   // Send Slack notification for campaign creation

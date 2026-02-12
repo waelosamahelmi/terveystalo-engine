@@ -4,7 +4,23 @@
 // ============================================================================
 
 import { supabase } from './supabase';
-import type { Branch, BranchPerformance } from '../types';
+import type { Branch, BranchBudget, BranchPerformance } from '../types';
+
+// ============================================================================
+// BRANCH BUDGET TYPES
+// ============================================================================
+
+export interface BranchBudgetSummary {
+  total_allocated: number;
+  total_used: number;
+  total_available: number;
+  by_branch: Array<{
+    branch: Branch;
+    allocated: number;
+    used: number;
+    available: number;
+  }>;
+}
 
 /**
  * Get all branches
@@ -260,4 +276,176 @@ export async function toggleBranchStatus(id: string): Promise<Branch | null> {
   }
 
   return data;
+}
+
+// ============================================================================
+// BRANCH BUDGET FUNCTIONS
+// ============================================================================
+
+/**
+ * Get branches with budget information
+ */
+export async function getBranchesWithBudgets(): Promise<Array<Branch & { budget?: BranchBudget }>> {
+  const currentPeriod = new Date().toISOString().slice(0, 7) + '-01';
+
+  const { data, error } = await supabase
+    .from('branches')
+    .select(`
+      *,
+      budget:branch_budgets!left(*)
+    `)
+    .eq('active', true)
+    .order('name');
+
+  if (error) {
+    console.error('Failed to fetch branches with budgets:', error);
+    return [];
+  }
+
+  // Filter budgets for current period
+  return (data || []).map(branch => ({
+    ...branch,
+    budget: (branch as any).budget?.find((b: BranchBudget) => b.period_start === currentPeriod) || undefined
+  }));
+}
+
+/**
+ * Get branch budget summary for a specific branch
+ */
+export async function getBranchBudgetSummary(branchId: string): Promise<BranchBudget | null> {
+  const currentPeriod = new Date().toISOString().slice(0, 7) + '-01';
+
+  const { data, error } = await supabase
+    .from('branch_budgets')
+    .select('*')
+    .eq('branch_id', branchId)
+    .eq('period_start', currentPeriod)
+    .single();
+
+  if (error) {
+    console.error('Failed to fetch branch budget:', error);
+    return null;
+  }
+
+  return data;
+}
+
+/**
+ * Get total budget summary across all branches
+ */
+export async function getTotalBudgetSummary(): Promise<BranchBudgetSummary> {
+  const currentPeriod = new Date().toISOString().slice(0, 7) + '-01';
+
+  const { data: branches, error: branchesError } = await supabase
+    .from('branches')
+    .select('id, name, city')
+    .eq('active', true)
+    .order('name');
+
+  if (branchesError || !branches) {
+    console.error('Failed to fetch branches for budget summary:', branchesError);
+    return {
+      total_allocated: 0,
+      total_used: 0,
+      total_available: 0,
+      by_branch: []
+    };
+  }
+
+  const branchIds = branches.map(b => b.id);
+
+  const { data: budgets, error: budgetsError } = await supabase
+    .from('branch_budgets')
+    .select('*')
+    .in('branch_id', branchIds)
+    .eq('period_start', currentPeriod);
+
+  if (budgetsError) {
+    console.error('Failed to fetch budgets:', budgetsError);
+  }
+
+  const budgetMap = new Map((budgets || []).map(b => [b.branch_id, b]));
+
+  const by_branch = branches.map(branch => {
+    const budget = budgetMap.get(branch.id);
+    return {
+      branch,
+      allocated: budget?.allocated_budget || 0,
+      used: budget?.used_budget || 0,
+      available: (budget?.allocated_budget || 0) - (budget?.used_budget || 0)
+    };
+  });
+
+  const total_allocated = by_branch.reduce((sum, b) => sum + b.allocated, 0);
+  const total_used = by_branch.reduce((sum, b) => sum + b.used, 0);
+  const total_available = total_allocated - total_used;
+
+  return {
+    total_allocated,
+    total_used,
+    total_available,
+    by_branch
+  };
+}
+
+/**
+ * Update branch used budget when campaign is created
+ */
+export async function updateBranchUsedBudget(
+  branchId: string,
+  budgetAmount: number
+): Promise<boolean> {
+  const currentPeriod = new Date().toISOString().slice(0, 7) + '-01';
+
+  // Check if budget record exists for current period
+  const { data: existing } = await supabase
+    .from('branch_budgets')
+    .select('id, used_budget')
+    .eq('branch_id', branchId)
+    .eq('period_start', currentPeriod)
+    .maybeSingle();
+
+  if (existing) {
+    // Update existing record
+    const { error } = await supabase
+      .from('branch_budgets')
+      .update({
+        used_budget: existing.used_budget + budgetAmount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existing.id);
+
+    if (error) {
+      console.error('Failed to update branch budget:', error);
+      return false;
+    }
+  } else {
+    // Create new record with zero allocation
+    const { error } = await supabase
+      .from('branch_budgets')
+      .insert({
+        branch_id: branchId,
+        allocated_budget: 0,
+        used_budget: budgetAmount,
+        period_start: currentPeriod
+      });
+
+    if (error) {
+      console.error('Failed to create branch budget:', error);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Get available budget for a branch
+ */
+export async function getBranchAvailableBudget(branchId: string): Promise<number> {
+  const budget = await getBranchBudgetSummary(branchId);
+  if (!budget) {
+    return 0;
+  }
+  return (budget.allocated_budget || 0) - (budget.used_budget || 0);
 }
