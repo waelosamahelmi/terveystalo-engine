@@ -238,6 +238,7 @@ export interface CampaignFormData {
   creative_weight_local: number;
   start_date: string;
   end_date: string;
+  is_ongoing?: boolean;
 
   // Step 5: Budget & Channels
   total_budget: number;

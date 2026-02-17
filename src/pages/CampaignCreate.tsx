@@ -676,7 +676,8 @@ const CampaignCreate = () => {
     ad_type: undefined,
     target_age_min: 18,
     target_age_max: 80,
-    target_genders: ['all']
+    target_genders: ['all'],
+    is_ongoing: false
   });
 
   // Creative config
@@ -927,6 +928,18 @@ const CampaignCreate = () => {
         }
         break;
       case 3:
+        if (!formData.start_date) {
+          toast.error('Valitse kampanjan alkamispäivä');
+          return false;
+        }
+        if (!formData.is_ongoing && !formData.end_date) {
+          toast.error('Valitse päättymispäivä tai aseta jatkuva kampanja');
+          return false;
+        }
+        if (!formData.is_ongoing && formData.end_date <= formData.start_date) {
+          toast.error('Päättymispäivän tulee olla alkamispäivän jälkeen');
+          return false;
+        }
         if (formData.total_budget < 100) {
           toast.error('Minimibudjetti on 100€');
           return false;
@@ -939,10 +952,6 @@ const CampaignCreate = () => {
       case 4:
         break;
       case 5:
-        if (!formData.start_date || !formData.end_date) {
-          toast.error('Valitse kampanjan ajankohta');
-          return false;
-        }
         break;
     }
     return true;
@@ -1552,8 +1561,103 @@ const CampaignCreate = () => {
               </div>
               <h2 className="text-2xl font-bold text-gray-900">Budjetti ja kanavat</h2>
               <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Määritä kokonaisbudjetti ja valitse käytettävät mainoskanavat.
+                Määritä kampanjan ajankohta, budjetti ja kanavat.
               </p>
+            </div>
+
+            {/* Campaign Schedule Section */}
+            <div className="max-w-4xl mx-auto mb-8">
+              <div className="card p-6 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                    <Calendar size={20} className="text-[#00A5B5]" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Kampanjan aikataulu</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  {/* Start Date */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Alkamispäivä
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.start_date}
+                      min={format(new Date(), 'yyyy-MM-dd')}
+                      onChange={(e) => {
+                        const newStart = e.target.value;
+                        setFormData(prev => {
+                          const updated = { ...prev, start_date: newStart };
+                          // If end_date is before start_date, push it forward
+                          if (!prev.is_ongoing && newStart > prev.end_date) {
+                            updated.end_date = format(addWeeks(new Date(newStart), 4), 'yyyy-MM-dd');
+                          }
+                          return updated;
+                        });
+                      }}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                    />
+                  </div>
+
+                  {/* End Date */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Päättymispäivä
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.is_ongoing ? '' : formData.end_date}
+                      min={formData.start_date}
+                      disabled={formData.is_ongoing}
+                      onChange={(e) => setFormData(prev => ({ ...prev, end_date: e.target.value }))}
+                      className={`w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white dark:border-gray-600 ${
+                        formData.is_ongoing ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''
+                      }`}
+                    />
+                  </div>
+
+                  {/* Ongoing Toggle */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          is_ongoing: !prev.is_ongoing,
+                          // When toggling ongoing ON, set end_date far in the future for calculation purposes
+                          end_date: !prev.is_ongoing 
+                            ? format(addWeeks(new Date(prev.start_date), 52), 'yyyy-MM-dd')
+                            : format(addWeeks(new Date(prev.start_date), 4), 'yyyy-MM-dd'),
+                        }));
+                      }}
+                      className={`w-full px-4 py-3 rounded-xl border-2 font-medium transition-all flex items-center justify-center gap-2 ${
+                        formData.is_ongoing
+                          ? 'bg-[#00A5B5] text-white border-[#00A5B5] shadow-md'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-[#00A5B5] hover:bg-[#00A5B5]/10'
+                      }`}
+                    >
+                      <RefreshCw size={18} />
+                      Jatkuva kampanja
+                    </button>
+                  </div>
+                </div>
+
+                {/* Duration summary */}
+                <div className="mt-4 flex items-center gap-4 text-sm text-gray-600">
+                  <span className="flex items-center gap-1.5">
+                    <Calendar size={14} className="text-[#00A5B5]" />
+                    {formData.is_ongoing ? (
+                      <span>Jatkuva kampanja alkaen <strong>{format(new Date(formData.start_date), 'd.M.yyyy', { locale: fi })}</strong></span>
+                    ) : (
+                      <span>
+                        <strong>{format(new Date(formData.start_date), 'd.M.', { locale: fi })}</strong> – <strong>{format(new Date(formData.end_date), 'd.M.yyyy', { locale: fi })}</strong>
+                        {' '}({campaignDays} päivää)
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -2306,9 +2410,13 @@ const CampaignCreate = () => {
                   <span className="text-sm font-medium text-gray-500">Aikataulu</span>
                 </div>
                 <p className="text-lg font-semibold text-gray-900">
-                  {format(new Date(formData.start_date), 'd.M.', { locale: fi })} - {format(new Date(formData.end_date), 'd.M.yyyy', { locale: fi })}
+                  {formData.is_ongoing ? (
+                    <>Jatkuva – alkaen {format(new Date(formData.start_date), 'd.M.yyyy', { locale: fi })}</>
+                  ) : (
+                    <>{format(new Date(formData.start_date), 'd.M.', { locale: fi })} - {format(new Date(formData.end_date), 'd.M.yyyy', { locale: fi })}</>
+                  )}
                 </p>
-                <p className="text-sm text-gray-500">{campaignDays} päivää</p>
+                <p className="text-sm text-gray-500">{formData.is_ongoing ? 'Jatkuva kampanja' : `${campaignDays} päivää`}</p>
               </div>
 
               <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">

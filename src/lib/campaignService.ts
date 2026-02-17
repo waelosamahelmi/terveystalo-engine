@@ -132,7 +132,10 @@ export async function createCampaign(
     campaign_coordinates: formData.campaign_coordinates,
 
     start_date: formData.start_date,
-    end_date: formData.end_date,
+    end_date: formData.is_ongoing ? null : formData.end_date,
+    campaign_start_date: formData.start_date,
+    campaign_end_date: formData.is_ongoing ? 'ONGOING' : formData.end_date,
+    is_ongoing: formData.is_ongoing || false,
 
     total_budget: formData.total_budget,
     budget_meta: formData.budget_meta,
@@ -140,10 +143,10 @@ export async function createCampaign(
     budget_pdooh: formData.budget_pdooh,
     budget_audio: formData.budget_audio,
 
-    daily_budget_meta: formData.budget_meta / days,
-    daily_budget_display: formData.budget_display / days,
-    daily_budget_pdooh: formData.budget_pdooh / days,
-    daily_budget_audio: formData.budget_audio / days,
+    budget_meta_daily: formData.budget_meta / days,
+    budget_display_daily: formData.budget_display / days,
+    budget_pdooh_daily: formData.budget_pdooh / days,
+    budget_audio_daily: formData.budget_audio / days,
 
     channel_meta: formData.channel_meta,
     channel_display: formData.channel_display,
@@ -151,8 +154,12 @@ export async function createCampaign(
     channel_audio: formData.channel_audio,
 
     creative_type: formData.creative_type,
-    creative_weight_nationwide: formData.creative_weight_nationwide,
-    creative_weight_local: formData.creative_weight_local,
+
+    // Creative content fields
+    headline: formData.headline || null,
+    offer_text: formData.offer_text || null,
+    cta_text: formData.cta_text || null,
+    landing_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
 
     // New fields for campaign redesign
     ad_type: formData.ad_type,
@@ -160,7 +167,6 @@ export async function createCampaign(
     target_age_min: formData.target_age_min,
     target_age_max: formData.target_age_max,
     target_genders: formData.target_genders,
-    landing_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
 
     status: 'draft' as CampaignStatus,
     created_by: userId
