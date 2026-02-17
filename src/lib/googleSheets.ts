@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Campaign, CampaignApartment, Apartment } from '../types';
+import { Campaign, CampaignApartment, Apartment, DentalCampaign } from '../types';
 import { parseISO, format } from 'date-fns';
 
 // Google Sheets API endpoint
@@ -207,6 +207,102 @@ export async function addCampaignToSheet(
   } catch (error) {
     console.error('Error adding campaign to sheet:', error instanceof Error ? error.message : 'Unknown error');
     // Don't throw, just return false to indicate failure
+    return false;
+  }
+}
+
+// Function to add a dental campaign to Google Sheet (one row per campaign, no apartments)
+export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promise<boolean> {
+  try {
+    const accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      console.debug('Google Sheets sync skipped - no access token');
+      return true;
+    }
+
+    // Format dates
+    let startDate = '';
+    let endDate = '';
+
+    if (campaign.campaign_start_date) {
+      try {
+        const parsed = parseISO(campaign.campaign_start_date);
+        startDate = format(parsed, 'dd/MM/yyyy');
+      } catch {
+        startDate = campaign.campaign_start_date;
+      }
+    } else if (campaign.start_date) {
+      try {
+        const parsed = parseISO(campaign.start_date);
+        startDate = format(parsed, 'dd/MM/yyyy');
+      } catch {
+        startDate = campaign.start_date;
+      }
+    }
+
+    if (campaign.campaign_end_date && campaign.campaign_end_date.toUpperCase() !== 'ONGOING') {
+      try {
+        const parsed = parseISO(campaign.campaign_end_date);
+        endDate = format(parsed, 'dd/MM/yyyy');
+      } catch {
+        endDate = campaign.campaign_end_date;
+      }
+    } else if (campaign.is_ongoing || (campaign.campaign_end_date && campaign.campaign_end_date.toUpperCase() === 'ONGOING')) {
+      endDate = 'Ongoing';
+    } else if (campaign.end_date) {
+      try {
+        const parsed = parseISO(campaign.end_date);
+        endDate = format(parsed, 'dd/MM/yyyy');
+      } catch {
+        endDate = campaign.end_date;
+      }
+    }
+
+    const serviceName = campaign.service?.name || '';
+    const branchName = campaign.branch?.name || '';
+
+    const row = [
+      campaign.id,                                          // A: campaign_id
+      campaign.name || '',                                  // B: campaign_name
+      campaign.ad_type || '',                               // C: ad_type
+      serviceName,                                          // D: service
+      branchName,                                           // E: branch
+      campaign.headline || '',                              // F: headline
+      campaign.landing_url || '',                            // G: landing_url
+      campaign.campaign_address || '',                       // H: address
+      campaign.campaign_postal_code || '',                   // I: postal_code
+      campaign.campaign_city || '',                          // J: city
+      (campaign.campaign_radius || 0).toString(),           // K: radius
+      campaign.channel_meta ? 'Yes' : 'No',                 // L: channel_meta
+      campaign.channel_display ? 'Yes' : 'No',              // M: channel_display
+      campaign.channel_pdooh ? 'Yes' : 'No',                // N: channel_pdooh
+      campaign.channel_audio ? 'Yes' : 'No',                // O: channel_audio
+      (campaign.total_budget || 0).toString(),               // P: total_budget
+      (campaign.budget_meta || 0).toString(),                // Q: budget_meta
+      (campaign.budget_display || 0).toString(),             // R: budget_display
+      (campaign.budget_pdooh || 0).toString(),               // S: budget_pdooh
+      (campaign.budget_audio || 0).toString(),               // T: budget_audio
+      startDate,                                             // U: start_date
+      endDate,                                               // V: end_date
+      campaign.status || 'draft',                            // W: status
+    ];
+
+    await axios.post(
+      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A:W:append?valueInputOption=USER_ENTERED`,
+      { values: [row] },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    console.log(`Successfully added dental campaign ${campaign.id} to Google Sheet`);
+    return true;
+  } catch (error) {
+    console.error('Error adding dental campaign to sheet:', error instanceof Error ? error.message : 'Unknown error');
     return false;
   }
 }

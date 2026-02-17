@@ -147,6 +147,9 @@ export interface DentalCampaign {
   // Schedule
   start_date: string;
   end_date?: string;
+  campaign_start_date?: string;
+  campaign_end_date?: string;
+  is_ongoing?: boolean;
   
   // Budget
   total_budget: number;
@@ -173,6 +176,12 @@ export interface DentalCampaign {
   // Ad type and pricing options
   ad_type?: AdType;
   include_pricing?: PricingOption;
+
+  // Creative content
+  headline?: string;
+  offer_text?: string;
+  cta_text?: string;
+  landing_url?: string;
 
   // Audience targeting (age and gender)
   target_age_min?: number;

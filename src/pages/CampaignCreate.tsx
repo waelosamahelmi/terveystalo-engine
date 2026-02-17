@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createCampaign } from '../lib/campaignService';
+import { addDentalCampaignToSheet } from '../lib/googleSheets';
 import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService';
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore } from '../lib/store';
@@ -1109,6 +1110,13 @@ const CampaignCreate = () => {
       }, user?.id || '');
 
       if (campaign) {
+        // Sync to Google Sheets (silent - don't block on failure)
+        try {
+          await addDentalCampaignToSheet(campaign);
+        } catch (e) {
+          console.error('Google Sheets sync failed (non-blocking):', e);
+        }
+
         toast.success('Kampanja luotu onnistuneesti!');
         navigate(`/campaigns/${campaign.id}`);
       } else {
