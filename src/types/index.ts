@@ -255,6 +255,7 @@ export interface CampaignFormData {
   offer_text?: string;
   cta_text?: string;
   background_image_url?: string;
+  landing_url?: string;
 
   // Step 7: Review (name)
   name: string;

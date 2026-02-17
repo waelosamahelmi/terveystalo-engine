@@ -9,6 +9,10 @@ const CREATOPY_API_URL = 'https://api.creatopy.com/v1';
 const CREATOPY_CLIENT_ID = '5b324250-8429-443b-bc11-dff33c472c89';
 const CREATOPY_CLIENT_SECRET = 'eb427fff-2ad7-40fe-b2fd-5c919bc27f4e';
 
+// Suun Terveystalo branding constants
+const ST_CAMPAIGN_NAME_PREFIX = 'ST /'; // Changed from KM to ST for Suun Terveystalo
+const ST_DEFAULT_URL = 'https://terveystalo.com/suunterveystalo'; // Updated target URL
+
 // Axios instance for BidTheatre API
 export const bidTheatreApi = axios.create({
   baseURL: BT_API_URL,
@@ -448,12 +452,12 @@ console.log(`Using advertiser_id: ${advertiserIdInt} for campaign ${campaign.id}
 
     try {
       const campaignPayload = {
-        name: `KM / ${channel} / ${campaign.id}`,
+        name: `${ST_CAMPAIGN_NAME_PREFIX} ${channel} / ${campaign.id}`,
         advertiser: advertiserIdInt, // Use the fetched advertiser_id
         campaignManager: credentials.username,
         campaignKPI: 3,
         defaultLineItem: 295489,
-        targetURL: 'https://www.kiinteistomaailma.fi/',
+        targetURL: ST_DEFAULT_URL,
         defaultGeoTarget: null,
         expectedTotalImps: channel === 'DISPLAY' ? 8422 : 12500,
         deliveryPriority: 'even',
@@ -580,7 +584,7 @@ console.log(`Using advertiser_id: ${advertiserIdInt} for campaign ${campaign.id}
                   name: `${aptKey} - ${size}`,
                   adType: 'HTML banner',
                   adStatus: 'Active',
-                  html: `<script type="text/javascript">var embedConfig = {"hash": "${config.hash}", "width": ${config.width}, "height": ${config.height}, "t": "{timestamp}", "userId": 762652, "network": "STANDARD", "type": "html5", "clickTag": "https://www.kiinteistomaailma.fi/${aptKey}?utm_source=programmatic&utm_medium=display&utm_campaign=marketing-engine&utm_content=${campaign.id}", "targetId": "${campaign.id}-${aptKey}"};</script><script type="text/javascript" src="https://live-tag.creatopy.net/embed/embed.js"></script>`,
+                  html: `<script type="text/javascript">var embedConfig = {"hash": "${config.hash}", "width": ${config.width}, "height": ${config.height}, "t": "{timestamp}", "userId": 762652, "network": "STANDARD", "type": "html5", "clickTag": "${ST_DEFAULT_URL}?utm_source=programmatic&utm_medium=display&utm_campaign=suunterveystalo&utm_content=${campaign.id}", "targetId": "${campaign.id}-${aptKey}"};</script><script type="text/javascript" src="https://live-tag.creatopy.net/embed/embed.js"></script>`,
                   dimension: size === '300x300' ? 10 : size === '300x600' ? 11 : size === '620x891' ? 1888 : 15,
                   isExpandable: false,
                   isInSync: true,
@@ -1077,12 +1081,12 @@ console.log(`Using advertiser_id: ${advertiserIdInt} for campaign update ${campa
     }
 
     const campaignPayload = {
-      name: `KM / ${channel} / ${campaign.id}`,
+      name: `${ST_CAMPAIGN_NAME_PREFIX} ${channel} / ${campaign.id}`,
       advertiser: advertiserIdInt, // Use the fetched advertiser_id
       campaignManager: credentials.username,
       campaignKPI: 3,
       defaultLineItem: 295489,
-      targetURL: 'https://www.kiinteistomaailma.fi/',
+      targetURL: ST_DEFAULT_URL,
       defaultGeoTarget: null,
       expectedTotalImps: channel === 'DISPLAY' ? 8422 : 12500,
       deliveryPriority: 'even',
@@ -1329,7 +1333,7 @@ console.log(`Using advertiser_id: ${advertiserIdInt} for campaign update ${campa
             name: `${aptKey} - ${size}`,
             adType: 'HTML banner',
             adStatus: 'Active',
-            html: `<script type="text/javascript">var embedConfig = {"hash": "${config.hash}", "width": ${config.width}, "height": ${config.height}, "t": "{timestamp}", "userId": 762652, "network": "STANDARD", "type": "html5", "clickTag": "https://www.kiinteistomaailma.fi/${aptKey}?utm_source=programmatic&utm_medium=display&utm_campaign=marketing-engine&utm_content=${campaign.id}", "targetId": "${campaign.id}-${aptKey}"};</script><script type="text/javascript" src="https://live-tag.creatopy.net/embed/embed.js"></script>`,
+            html: `<script type="text/javascript">var embedConfig = {"hash": "${config.hash}", "width": ${config.width}, "height": ${config.height}, "t": "{timestamp}", "userId": 762652, "network": "STANDARD", "type": "html5", "clickTag": "${ST_DEFAULT_URL}?utm_source=programmatic&utm_medium=display&utm_campaign=suunterveystalo&utm_content=${campaign.id}", "targetId": "${campaign.id}-${aptKey}"};</script><script type="text/javascript" src="https://live-tag.creatopy.net/embed/embed.js"></script>`,
             dimension: size === '300x300' ? 10 : size === '300x600' ? 11 : size === '620x891' ? 1888 : 15,
             isExpandable: false,
             isInSync: true,

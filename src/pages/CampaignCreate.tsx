@@ -6,11 +6,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createCampaign } from '../lib/campaignService';
+import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService';
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore } from '../lib/store';
 import { getBudgetPresets } from '../lib/settingsService';
 import { loader } from '../lib/googleMapsLoader';
-import type { Service, Branch, CampaignFormData, CreativeType, AdType, PricingOption } from '../types';
+import type { Service, Branch, CampaignFormData, CreativeType, AdType, PricingOption, CreativeTemplate } from '../types';
 import { format, addDays, addWeeks, differenceInDays } from 'date-fns';
 import { fi } from 'date-fns/locale';
 import {
@@ -40,7 +41,8 @@ import {
   RectangleVertical,
   RectangleHorizontal,
   Smartphone,
-  Users
+  Users,
+  X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
@@ -87,7 +89,10 @@ interface CreativeConfig {
   cta: string;
   backgroundImage: string | null;
   useCustomBackground: boolean;
-  showPriceBubble: boolean;
+  priceBubbleMode: 'price' | 'no-price' | 'both';
+  targetUrl: string;
+  audioFile: File | null;
+  disclaimerText: string;
 }
 
 // Preview size options
@@ -98,16 +103,29 @@ interface PreviewSize {
   height: number;
   icon: React.ElementType;
   label: string;
+  category: 'Display' | 'PDOOH' | 'Meta';
 }
 
 const PREVIEW_SIZES: PreviewSize[] = [
-  { id: '300x300', name: '300×300', width: 300, height: 300, icon: Square, label: 'Neliö' },
-  { id: '300x431', name: '300×431', width: 300, height: 431, icon: RectangleVertical, label: 'Pysty' },
-  { id: '300x600', name: '300×600', width: 300, height: 600, icon: RectangleVertical, label: 'Half-page' },
-  { id: '620x891', name: '620×891', width: 620, height: 891, icon: RectangleVertical, label: 'Iso pysty' },
-  { id: '980x400', name: '980×400', width: 980, height: 400, icon: RectangleHorizontal, label: 'Leaderboard' },
-  { id: '1080x1920', name: '1080×1920', width: 1080, height: 1920, icon: Smartphone, label: 'PDOOH' },
+  // Display
+  { id: '300x300', name: '300×300', width: 300, height: 300, icon: Square, label: 'Neliö', category: 'Display' },
+  { id: '300x431', name: '300×431', width: 300, height: 431, icon: RectangleVertical, label: 'Pysty', category: 'Display' },
+  { id: '300x600', name: '300×600', width: 300, height: 600, icon: RectangleVertical, label: 'Half-page', category: 'Display' },
+  { id: '620x891', name: '620×891', width: 620, height: 891, icon: RectangleVertical, label: 'Iso pysty', category: 'Display' },
+  // Display (horizontal)
+  { id: '980x400', name: '980×400', width: 980, height: 400, icon: RectangleHorizontal, label: 'Vaaka', category: 'Display' },
+  // PDOOH
+  { id: '1080x1920', name: '1080×1920', width: 1080, height: 1920, icon: Smartphone, label: 'Pysty', category: 'PDOOH' },
+  // Meta (under development)
+  { id: '1080x1080', name: '1080×1080', width: 1080, height: 1080, icon: Instagram, label: 'Feed', category: 'Meta' },
+  { id: '1080x1920-meta', name: '1080×1920', width: 1080, height: 1920, icon: Smartphone, label: 'Stories/Reels', category: 'Meta' },
 ];
+
+const PREVIEW_SIZE_CATEGORIES = [
+  { key: 'Display' as const, label: 'Display', icon: Monitor },
+  { key: 'PDOOH' as const, label: 'PDOOH', icon: Tv },
+  { key: 'Meta' as const, label: 'Meta (tulossa)', icon: Instagram },
+] as const;
 
 // ============================================================================
 // STEP INDICATOR COMPONENT
@@ -610,9 +628,19 @@ const CampaignCreate = () => {
   const [customBudget, setCustomBudget] = useState<number | undefined>(undefined);
   const [selectedBudget, setSelectedBudget] = useState<number | undefined>(undefined);
 
-  // Load budget presets on mount
+  // Database creative templates
+  const [dbTemplates, setDbTemplates] = useState<CreativeTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
+  // Load budget presets and templates on mount
   useEffect(() => {
     getBudgetPresets().then(setBudgetPresets).catch(console.error);
+    // Load active templates from database
+    setTemplatesLoading(true);
+    getCreativeTemplates({ active: true })
+      .then(setDbTemplates)
+      .catch(console.error)
+      .finally(() => setTemplatesLoading(false));
   }, []);
 
   // Form data
@@ -630,7 +658,7 @@ const CampaignCreate = () => {
     creative_weight_local: 50,
     start_date: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
     end_date: format(addWeeks(new Date(), 4), 'yyyy-MM-dd'),
-    total_budget: 2000,
+    total_budget: 0,
     channel_meta: true,
     channel_display: true,
     channel_pdooh: true,
@@ -646,7 +674,6 @@ const CampaignCreate = () => {
     description: '',
     // New fields for campaign creation
     ad_type: undefined,
-    include_pricing: undefined,
     target_age_min: 18,
     target_age_max: 80,
     target_genders: ['all']
@@ -662,20 +689,13 @@ const CampaignCreate = () => {
     cta: 'Varaa aika',
     backgroundImage: null,
     useCustomBackground: false,
-    showPriceBubble: true
+    priceBubbleMode: 'price',
+    targetUrl: 'https://terveystalo.com/suunterveystalo',
+    audioFile: null,
+    disclaimerText: 'Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.'
   });
 
-  // Sync include_pricing choice from step 1 with showPriceBubble in creative config
-  useEffect(() => {
-    if (formData.include_pricing === 'no') {
-      setCreativeConfig(prev => ({ ...prev, showPriceBubble: false }));
-    } else if (formData.include_pricing === 'yes') {
-      setCreativeConfig(prev => ({ ...prev, showPriceBubble: true }));
-    }
-    // 'both' option leaves it as user's choice
-  }, [formData.include_pricing]);
-
-  // Sync ad_type choice from step 1 with creative_type
+  // Sync ad_type choice with creative_type
   useEffect(() => {
     if (formData.ad_type) {
       setFormData(prev => ({ ...prev, creative_type: formData.ad_type as CreativeType }));
@@ -684,6 +704,17 @@ const CampaignCreate = () => {
 
   // Preview size state
   const [previewSize, setPreviewSize] = useState<PreviewSize>(PREVIEW_SIZES[2]); // Default to 300x600
+
+  // Auto-set budget to 50% of remaining branch budget when branch is selected
+  useEffect(() => {
+    if (selectedBranch?.budget && formData.total_budget === 0) {
+      const remaining = (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0);
+      const defaultBudget = Math.round(remaining * 0.5);
+      if (defaultBudget > 0) {
+        updateTotalBudget(defaultBudget);
+      }
+    }
+  }, [formData.branch_id]);
 
   // Filter active items
   const activeServices = services.filter(s => s.active);
@@ -878,6 +909,10 @@ const CampaignCreate = () => {
           toast.error('Valitse palvelu');
           return false;
         }
+        if (!formData.ad_type) {
+          toast.error('Valitse mainonnan tyyppi');
+          return false;
+        }
         break;
       case 1:
         if (!formData.branch_id) {
@@ -892,12 +927,6 @@ const CampaignCreate = () => {
         }
         break;
       case 3:
-        if (!formData.creative_type) {
-          toast.error('Valitse luovien tyyppi');
-          return false;
-        }
-        break;
-      case 4:
         if (formData.total_budget < 100) {
           toast.error('Minimibudjetti on 100€');
           return false;
@@ -906,6 +935,8 @@ const CampaignCreate = () => {
           toast.error('Valitse vähintään yksi kanava');
           return false;
         }
+        break;
+      case 4:
         break;
       case 5:
         if (!formData.start_date || !formData.end_date) {
@@ -934,237 +965,86 @@ const CampaignCreate = () => {
     }
   };
 
-  // Render preview template - showAddress controls whether to display the address, showPrice overrides price bubble
-  const renderPreviewTemplate = (showAddress: boolean, showPrice?: boolean) => {
-    return (
-    <div 
-      className="relative overflow-hidden shadow-2xl text-center"
-      style={{
-        width: `${previewSize.width}px`,
-        height: `${previewSize.height}px`,
-        backgroundColor: '#08091A',
-        fontFamily: 'Montserrat, Arial, sans-serif',
-        color: '#ffffff'
-      }}
-    >
-      {/* Main background image with radial fade */}
-      <img 
-        src={creativeConfig.backgroundImage || '/refs/assets/nainen.jpg'}
-        alt=""
-        className="absolute"
-        style={{
-          top: previewSize.id === '300x600' ? '100px' : previewSize.id === '300x431' ? '70px' : previewSize.id === '300x300' ? '50px' : previewSize.id === '620x891' ? '150px' : previewSize.id === '1080x1920' ? '300px' : previewSize.id === '980x400' ? '0' : '100px',
-          left: previewSize.id === '980x400' ? '0' : '0',
-          width: previewSize.id === '980x400' ? '500px' : '100%',
-          height: previewSize.id === '300x600' ? '400px' : previewSize.id === '300x431' ? '280px' : previewSize.id === '300x300' ? '200px' : previewSize.id === '620x891' ? '580px' : previewSize.id === '1080x1920' ? '1100px' : previewSize.id === '980x400' ? '100%' : '60%',
-          objectFit: 'cover',
-          objectPosition: 'center top',
-          zIndex: 1,
-          maskImage: previewSize.id === '980x400' 
-            ? 'radial-gradient(ellipse 100% 90% at 30% 50%, black 40%, transparent 85%)'
-            : 'radial-gradient(ellipse 82% 77% at 50% 45%, black 42%, transparent 82%)',
-          WebkitMaskImage: previewSize.id === '980x400'
-            ? 'radial-gradient(ellipse 100% 90% at 30% 50%, black 40%, transparent 85%)'
-            : 'radial-gradient(ellipse 82% 77% at 50% 45%, black 42%, transparent 82%)'
-        }}
-      />
-      
-      {/* Decorative artwork (blue bubbles) */}
-      <img 
-        src="/refs/assets/terveystalo-artwork.png" 
-        alt="" 
-        className="absolute"
-        style={{
-          right: previewSize.id === '300x300' ? '-55px' : previewSize.id === '300x431' ? '-65px' : previewSize.id === '620x891' ? '-130px' : previewSize.id === '980x400' ? '-100px' : previewSize.id === '1080x1920' ? '-220px' : '-90px',
-          bottom: previewSize.id === '300x300' ? '-45px' : previewSize.id === '300x431' ? '-50px' : previewSize.id === '620x891' ? '-100px' : previewSize.id === '980x400' ? '-80px' : previewSize.id === '1080x1920' ? '-200px' : '-70px',
-          width: previewSize.id === '300x300' ? '180px' : previewSize.id === '300x431' ? '220px' : previewSize.id === '620x891' ? '450px' : previewSize.id === '980x400' ? '350px' : previewSize.id === '1080x1920' ? '800px' : '306px',
-          height: previewSize.id === '300x300' ? '180px' : previewSize.id === '300x431' ? '220px' : previewSize.id === '620x891' ? '450px' : previewSize.id === '980x400' ? '350px' : previewSize.id === '1080x1920' ? '800px' : '306px',
-          objectFit: 'contain',
-          transform: 'rotate(-30deg)',
-          zIndex: 2
-        }}
-      />
-      
-      {/* Text area at TOP */}
-      <div 
-        className="relative text-center"
-        style={{
-          zIndex: 10,
-          paddingTop: previewSize.id === '300x300' ? '20px' : previewSize.id === '300x431' ? '28px' : previewSize.id === '620x891' ? '50px' : previewSize.id === '980x400' ? '0' : previewSize.id === '1080x1920' ? '80px' : '40px',
-          position: previewSize.id === '980x400' ? 'absolute' : 'relative',
-          right: previewSize.id === '980x400' ? '40px' : 'auto',
-          top: previewSize.id === '980x400' ? '50%' : 'auto',
-          transform: previewSize.id === '980x400' ? 'translateY(-50%)' : 'none',
-          width: previewSize.id === '980x400' ? '400px' : '100%',
-          textAlign: previewSize.id === '980x400' ? 'left' : 'center'
-        }}
-      >
-        <h1 
-          style={{ 
-            fontSize: previewSize.id === '300x300' ? '16px' : previewSize.id === '300x431' ? '20px' : previewSize.id === '620x891' ? '44px' : previewSize.id === '980x400' ? '28px' : previewSize.id === '1080x1920' ? '48px' : '24px',
-            fontWeight: 900,
-            lineHeight: 1.1,
-            marginBottom: previewSize.id === '1080x1920' ? '30px' : previewSize.id === '620x891' ? '20px' : '15px'
-          }}
-          dangerouslySetInnerHTML={{ 
-            __html: (creativeConfig.headline || 'Hymyile.<br/>Olet hyvissä käsissä.').replace(/\n/g, '<br/>') 
-          }}
-        />
-        <p 
-          style={{ 
-            fontSize: previewSize.id === '300x300' ? '10px' : previewSize.id === '300x431' ? '13px' : previewSize.id === '620x891' ? '26px' : previewSize.id === '980x400' ? '14px' : previewSize.id === '1080x1920' ? '28px' : '16px',
-            lineHeight: 1.35,
-            maxWidth: '90%',
-            margin: previewSize.id === '980x400' ? '0' : '0 auto'
-          }}
-          dangerouslySetInnerHTML={{
-            __html: (creativeConfig.subheadline || 'Sujuvampaa suunterveyttä Lahden Suun Terveystalossa.').replace(/\n/g, '<br/>')
-          }}
-        >
-        </p>
-        
-        {/* CTA button for 980x400 - inline under paragraph */}
-        {previewSize.id === '980x400' && (
-          <a 
-            href="#"
-            style={{
-              display: 'inline-block',
-              marginTop: '20px',
-              backgroundColor: '#ffffff',
-              color: '#004E9A',
-              textDecoration: 'none',
-              fontWeight: 700,
-              fontSize: '14px',
-              padding: '12px 32px',
-              borderRadius: '25px',
-              whiteSpace: 'nowrap',
-              boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
-            }}
-          >
-            {creativeConfig.cta || 'Varaa aika'}
-          </a>
-        )}
-      </div>
+  // Find the database template matching the current preview size
+  const getTemplateForSize = useCallback((sizeId: string): CreativeTemplate | undefined => {
+    // Handle Meta sizes that have a suffix (e.g. '1080x1920-meta' -> look for type='meta' + size='1080x1920')
+    if (sizeId.endsWith('-meta')) {
+      const baseSize = sizeId.replace('-meta', '');
+      return dbTemplates.find(t => t.size === baseSize && t.type === 'meta');
+    }
+    // For non-meta, find active templates matching the size (excludes meta type to avoid collision)
+    return dbTemplates.find(t => t.size === sizeId && t.type !== 'meta' && t.active);
+  }, [dbTemplates]);
 
-      {/* White circular price bubble - conditionally rendered */}
-      {(showPrice !== undefined ? showPrice : creativeConfig.showPriceBubble) && (
+  // Build template variables from creativeConfig + branch data  
+  const buildTemplateVariables = useCallback((showAddress: boolean): Record<string, string> => {
+    const baseUrl = window.location.origin;
+    return {
+      headline: (creativeConfig.headline || 'Hymyile.<br>Olet hyvissä käsissä.').replace(/\n/g, '<br>'),
+      subheadline: (creativeConfig.subheadline || 'Sujuvampaa suunterveyttä.').replace(/\n/g, '<br>'),
+      offer_title: (creativeConfig.offerTitle || 'Hammas-<br>tarkastus').replace(/\n/g, '<br>'),
+      price: creativeConfig.offer || '49',
+      offer_date: (creativeConfig.offerDate || 'Varaa viimeistään<br>28.10.').replace(/\n/g, '<br>'),
+      cta_text: creativeConfig.cta || 'Varaa aika',
+      branch_address: showAddress ? (selectedBranch?.address || 'Torikatu 1, Lahti') : '',
+      image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen.jpg`,
+      artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
+      logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
+      click_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
+      disclaimer_text: creativeConfig.disclaimerText || '',
+    };
+  }, [creativeConfig, selectedBranch]);
+
+  // Render preview template using database HTML templates in an iframe
+  const renderPreviewTemplate = (showAddress: boolean) => {
+    const template = getTemplateForSize(previewSize.id);
+    
+    if (!template) {
+      // Fallback: no matching template in DB
+      return (
         <div 
-          className="absolute flex flex-col justify-center items-center"
-          style={{
-            top: previewSize.id === '300x300' ? '130px' : previewSize.id === '300x431' ? '175px' : previewSize.id === '980x400' ? '50%' : previewSize.id === '1080x1920' ? '520px' : '260px',
-            left: previewSize.id === '980x400' ? '380px' : previewSize.id === '1080x1920' ? '50px' : previewSize.id === '620x891' ? '25px' : '15px',
-            transform: previewSize.id === '980x400' ? 'translateY(-50%) rotate(-3deg)' : 'rotate(-3deg)',
-            backgroundColor: '#ffffff',
-            color: '#004E9A',
-            width: previewSize.id === '300x300' ? '85px' : previewSize.id === '300x431' ? '100px' : previewSize.id === '980x400' ? '140px' : previewSize.id === '1080x1920' ? '340px' : previewSize.id === '620x891' ? '200px' : '135px',
-            height: previewSize.id === '300x300' ? '85px' : previewSize.id === '300x431' ? '100px' : previewSize.id === '980x400' ? '140px' : previewSize.id === '1080x1920' ? '340px' : previewSize.id === '620x891' ? '200px' : '135px',
-            borderRadius: '50%',
-            boxShadow: '0px 5px 15px rgba(0,0,0,0.3)',
-            zIndex: 15
-          }}
+          className="flex items-center justify-center bg-gray-800 text-white rounded-xl"
+          style={{ width: `${previewSize.width}px`, height: `${previewSize.height}px` }}
         >
-          <span 
-            style={{ 
-              fontSize: previewSize.id === '300x300' ? '8px' : previewSize.id === '300x431' ? '10px' : previewSize.id === '1080x1920' ? '32px' : previewSize.id === '620x891' ? '19px' : '13px',
-              fontWeight: 700,
-              lineHeight: 1.1,
-              textAlign: 'center'
-            }}
-            dangerouslySetInnerHTML={{ 
-              __html: (creativeConfig.offerTitle || 'Hammas-<br/>tarkastus').replace(/\n/g, '<br/>') 
-            }}
-          />
-          <div 
-            style={{ 
-              fontSize: previewSize.id === '300x300' ? '32px' : previewSize.id === '300x431' ? '40px' : previewSize.id === '1080x1920' ? '130px' : previewSize.id === '620x891' ? '80px' : '54px',
-              fontWeight: 900,
-              lineHeight: 0.9,
-              margin: '4px 0',
-              letterSpacing: '-2px',
-              display: 'flex',
-              alignItems: 'flex-start'
-            }}
-          >
-            {creativeConfig.offer || '49'}
-            <span style={{ 
-              fontSize: previewSize.id === '300x300' ? '16px' : previewSize.id === '300x431' ? '20px' : previewSize.id === '1080x1920' ? '65px' : previewSize.id === '620x891' ? '40px' : '28px',
-              marginTop: '4px',
-              marginLeft: '2px'
-            }}>€</span>
+          <div className="text-center p-8">
+            <AlertCircle size={32} className="mx-auto mb-3 opacity-50" />
+            <p className="text-sm opacity-70">
+              {templatesLoading ? 'Ladataan mallipohjaa...' : `Mallipohjaa ei löydy koolle ${previewSize.id}`}
+            </p>
           </div>
-          <span 
-            style={{ 
-              fontSize: previewSize.id === '300x300' ? '6px' : previewSize.id === '300x431' ? '7px' : previewSize.id === '1080x1920' ? '24px' : previewSize.id === '620x891' ? '14px' : '10px',
-              fontWeight: 600,
-              textAlign: 'center',
-              lineHeight: 1.2
-            }}
-            dangerouslySetInnerHTML={{ 
-              __html: (creativeConfig.offerDate || 'Varaa viimeistään<br/>28.10.').replace(/\n/g, '<br/>') 
-            }}
-          />
         </div>
-      )}
+      );
+    }
 
-      {/* White rounded CTA button - hidden for 980x400 (shown inline above) */}
-      {previewSize.id !== '980x400' && (
-        <a 
-          href="#"
-          className="absolute"
-          style={{
-            bottom: previewSize.id === '300x300' ? '55px' : previewSize.id === '300x431' ? '70px' : previewSize.id === '620x891' ? '150px' : previewSize.id === '1080x1920' ? '180px' : '90px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            backgroundColor: '#ffffff',
-            color: '#004E9A',
-            textDecoration: 'none',
-            fontWeight: 700,
-            fontSize: previewSize.id === '300x300' ? '10px' : previewSize.id === '300x431' ? '12px' : previewSize.id === '620x891' ? '24px' : previewSize.id === '1080x1920' ? '28px' : '14px',
-            padding: previewSize.id === '300x300' ? '8px 20px' : previewSize.id === '300x431' ? '10px 24px' : previewSize.id === '620x891' ? '20px 50px' : previewSize.id === '1080x1920' ? '24px 64px' : '12px 32px',
-            borderRadius: '25px',
-            whiteSpace: 'nowrap',
-            boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
-            zIndex: 15
-          }}
-        >
-          {creativeConfig.cta || 'Varaa aika'}
-        </a>
-      )}
+    const variables = buildTemplateVariables(showAddress);
+    
+    // If price bubble is hidden, hide it via CSS override
+    let renderedHtml = renderTemplateHtml(template, variables);
+    
+    if (creativeConfig.priceBubbleMode === 'no-price') {
+      // Inject CSS to hide price bubble
+      renderedHtml = renderedHtml.replace('</head>', '<style>.price-bubble { display: none !important; }</style></head>');
+    }
+    
+    if (!showAddress) {
+      // Inject CSS to hide address
+      renderedHtml = renderedHtml.replace('</head>', '<style>.address { display: none !important; }</style></head>');
+    }
 
-      {/* Logo at BOTTOM center (left for 980x400) */}
-      <img 
-        src="/refs/assets/SuunTerveystalo_logo.png" 
-        alt="Suun Terveystalo" 
-        className="absolute"
+    return (
+      <iframe
+        title={`Preview ${previewSize.id}`}
+        srcDoc={renderedHtml}
         style={{
-          bottom: previewSize.id === '300x300' ? '30px' : previewSize.id === '300x431' ? '40px' : previewSize.id === '620x891' ? '90px' : previewSize.id === '980x400' ? '35px' : previewSize.id === '1080x1920' ? '100px' : '50px',
-          left: previewSize.id === '980x400' ? '30px' : '50%',
-          transform: previewSize.id === '980x400' ? 'none' : 'translateX(-50%)',
-          width: previewSize.id === '300x300' ? '120px' : previewSize.id === '300x431' ? '140px' : previewSize.id === '620x891' ? '300px' : previewSize.id === '980x400' ? '140px' : previewSize.id === '1080x1920' ? '360px' : '180px',
-          maxHeight: previewSize.id === '300x300' ? '24px' : previewSize.id === '300x431' ? '28px' : previewSize.id === '620x891' ? '56px' : previewSize.id === '980x400' ? '26px' : previewSize.id === '1080x1920' ? '64px' : '32px',
-          objectFit: 'contain',
-          zIndex: 10
+          width: `${previewSize.width}px`,
+          height: `${previewSize.height}px`,
+          border: 'none',
+          overflow: 'hidden',
+          borderRadius: '4px',
         }}
+        sandbox="allow-same-origin"
+        scrolling="no"
       />
-      
-      {/* Address at bottom center (left under logo for 980x400) - only shown when showAddress is true */}
-      {showAddress && (
-        <div 
-          className="absolute text-white"
-          style={{
-            bottom: previewSize.id === '300x300' ? '15px' : previewSize.id === '300x431' ? '20px' : previewSize.id === '620x891' ? '45px' : previewSize.id === '980x400' ? '15px' : previewSize.id === '1080x1920' ? '40px' : '30px',
-            left: previewSize.id === '980x400' ? '30px' : '0',
-            width: previewSize.id === '980x400' ? 'auto' : '100%',
-            textAlign: previewSize.id === '980x400' ? 'left' : 'center',
-            fontSize: previewSize.id === '300x300' ? '9px' : previewSize.id === '300x431' ? '11px' : previewSize.id === '620x891' ? '22px' : previewSize.id === '980x400' ? '11px' : previewSize.id === '1080x1920' ? '26px' : '13px',
-            fontWeight: 400,
-            zIndex: 11
-          }}
-        >
-          {selectedBranch?.address || 'Torikatu 1, Lahti'}
-        </div>
-      )}
-    </div>
     );
   };
 
@@ -1216,6 +1096,7 @@ const CampaignCreate = () => {
         offer_text: creativeConfig.offer,
         cta_text: creativeConfig.cta,
         background_image_url: creativeConfig.backgroundImage || undefined,
+        landing_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
       }, user?.id || '');
 
       if (campaign) {
@@ -1285,7 +1166,7 @@ const CampaignCreate = () => {
       <div className="card p-8 mb-6 min-h-[500px]">
         
         {/* =============================================================== */}
-        {/* STEP 1: SERVICE & AD TYPE SELECTION */}
+        {/* STEP 1: SERVICE SELECTION */}
         {/* =============================================================== */}
         {currentStep === 0 && (
           <div className="animate-fade-in">
@@ -1295,117 +1176,58 @@ const CampaignCreate = () => {
               </div>
               <h2 className="text-2xl font-bold text-gray-900">Palvelu ja tyyppi</h2>
               <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Valitse palvelu, mainonnan tyyppi ja hinnojen näkyvyys
+                Valitse markkinoitava palvelu ja mainonnan tyyppi
               </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Left Column: Service Selection */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Palvelu</h3>
-                <div className="space-y-4">
-                  {activeServices.length > 0 ? (
-                    activeServices.map(service => (
-                      <ServiceCard
-                        key={service.id}
-                        service={service}
-                        selected={formData.service_id === service.id}
-                        onClick={() => setFormData({ ...formData, service_id: service.id })}
-                      />
-                    ))
-                  ) : (
-                    <div className="text-center py-12 text-gray-500">
-                      <AlertCircle size={48} className="mx-auto mb-4 opacity-50" />
-                      <p>Ei aktiivisia palveluita</p>
-                    </div>
-                  )}
-                </div>
+            <div className="max-w-lg mx-auto">
+              <div className="space-y-4">
+                {activeServices.length > 0 ? (
+                  activeServices.map(service => (
+                    <ServiceCard
+                      key={service.id}
+                      service={service}
+                      selected={formData.service_id === service.id}
+                      onClick={() => setFormData({ ...formData, service_id: service.id })}
+                    />
+                  ))
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    <AlertCircle size={48} className="mx-auto mb-4 opacity-50" />
+                    <p>Ei aktiivisia palveluita</p>
+                  </div>
+                )}
               </div>
 
-              {/* Right Column: Ad Type & Pricing Options */}
-              <div className="space-y-8">
-                {/* Ad Type Selection */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Mainonnan tyyppi</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { id: 'nationwide' as const, label: 'Valtakunnallinen', desc: 'Koko Suomi' },
-                      { id: 'local' as const, label: 'Paikkakuntakohtainen', desc: 'Valittu alue' }
-                    ].map((type) => (
+              {/* Ad Type Selection */}
+              <div className="mt-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                <h4 className="font-medium text-gray-900 mb-3">Mainonnan tyyppi</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'nationwide' as const, label: 'Valtakunnallinen', icon: Globe },
+                    { id: 'local' as const, label: 'Paikallinen', icon: MapPin }
+                  ].map((type) => {
+                    const TypeIcon = type.icon;
+                    const isSelected = formData.ad_type === type.id;
+                    return (
                       <button
                         key={type.id}
                         type="button"
-                        onClick={() => setFormData({ ...formData, ad_type: type.id })}
-                        className={`p-4 rounded-xl border-2 text-left transition-all ${
-                          formData.ad_type === type.id
-                            ? 'border-[#00A5B5] bg-[#00A5B5]/10 shadow-md'
-                            : 'border-gray-200 hover:border-[#00A5B5]/50 hover:bg-gray-50'
+                        onClick={() => {
+                          setFormData({ ...formData, ad_type: type.id, creative_type: type.id });
+                        }}
+                        className={`p-4 rounded-lg border-2 text-center transition-all ${
+                          isSelected
+                            ? 'border-[#00A5B5] bg-[#00A5B5]/10'
+                            : 'border-gray-200 hover:border-[#00A5B5]/50'
                         }`}
                       >
-                        <div className={`font-semibold mb-1 ${
-                          formData.ad_type === type.id ? 'text-[#00A5B5]' : 'text-gray-900'
-                        }`}>
-                          {type.label}
-                        </div>
-                        <div className="text-xs text-gray-500">{type.desc}</div>
+                        <TypeIcon size={22} className={`mx-auto mb-2 ${isSelected ? 'text-[#00A5B5]' : 'text-gray-400'}`} />
+                        <div className={`text-sm font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>{type.label}</div>
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
-
-                {/* Pricing Option Selection */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Hinnojen näkyvyys</h3>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { id: 'yes' as const, label: 'Näytä hinta', desc: 'Hinnat näkyvillä' },
-                      { id: 'no' as const, label: 'Ilman hintaa', desc: 'Ei hintoja' },
-                      { id: 'both' as const, label: 'Molemmat', desc: 'Yhdistelmä' }
-                    ].map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, include_pricing: option.id })}
-                        className={`p-4 rounded-xl border-2 text-center transition-all ${
-                          formData.include_pricing === option.id
-                            ? 'border-[#00A5B5] bg-[#00A5B5]/10 shadow-md'
-                            : 'border-gray-200 hover:border-[#00A5B5]/50 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className={`font-semibold mb-1 ${
-                          formData.include_pricing === option.id ? 'text-[#00A5B5]' : 'text-gray-900'
-                        }`}>
-                          {option.label}
-                        </div>
-                        <div className="text-xs text-gray-500">{option.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Summary Box */}
-                {(formData.ad_type || formData.include_pricing) && (
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-                    <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Valitut asetukset</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Mainonnan tyyppi:</span>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {formData.ad_type === 'nationwide' ? 'Valtakunnallinen' :
-                           formData.ad_type === 'local' ? 'Paikkakuntakohtainen' : '-'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Hinnojen näkyvyys:</span>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {formData.include_pricing === 'yes' ? 'Näytä hinta' :
-                           formData.include_pricing === 'no' ? 'Ilman hintaa' :
-                           formData.include_pricing === 'both' ? 'Molemmat' : '-'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -2047,6 +1869,7 @@ const CampaignCreate = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
               {/* Form */}
               <div className="space-y-5">
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     <Type size={16} className="inline mr-2" />
@@ -2074,29 +1897,40 @@ const CampaignCreate = () => {
                   />
                 </div>
 
-                {/* Price Bubble Toggle */}
+                {/* Price Bubble Mode */}
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <Euro size={20} className="text-[#004E9A]" />
-                      <div>
-                        <h4 className="font-medium text-gray-900">Tarjouskupla</h4>
-                        <p className="text-xs text-gray-500">Näytä hintakupla mainoksessa</p>
-                      </div>
+                  <div className="flex items-center gap-3 mb-3">
+                    <Euro size={20} className="text-[#004E9A]" />
+                    <div>
+                      <h4 className="font-medium text-gray-900">Tarjouskupla</h4>
+                      <p className="text-xs text-gray-500">Valitse näytetäänkö hintakupla mainoksessa</p>
                     </div>
-                    <button
-                      onClick={() => setCreativeConfig({ ...creativeConfig, showPriceBubble: !creativeConfig.showPriceBubble })}
-                      className={`relative w-12 h-6 rounded-full transition-colors ${
-                        creativeConfig.showPriceBubble ? 'bg-[#00A5B5]' : 'bg-gray-300'
-                      }`}
-                    >
-                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                        creativeConfig.showPriceBubble ? 'translate-x-7' : 'translate-x-1'
-                      }`} />
-                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    {[
+                      { id: 'price' as const, label: 'Hinta' },
+                      { id: 'no-price' as const, label: 'Ilman hintaa' },
+                      { id: 'both' as const, label: 'Molemmat' }
+                    ].map((mode) => {
+                      const isSelected = creativeConfig.priceBubbleMode === mode.id;
+                      return (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() => setCreativeConfig({ ...creativeConfig, priceBubbleMode: mode.id })}
+                          className={`p-3 rounded-lg border-2 text-center transition-all ${
+                            isSelected
+                              ? 'border-[#00A5B5] bg-[#00A5B5]/10'
+                              : 'border-gray-200 hover:border-[#00A5B5]/50'
+                          }`}
+                        >
+                          <div className={`text-xs font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>{mode.label}</div>
+                        </button>
+                      );
+                    })}
                   </div>
                   
-                  {creativeConfig.showPriceBubble && (
+                  {creativeConfig.priceBubbleMode !== 'no-price' && (
                     <div className="space-y-3 pt-3 border-t border-gray-200">
                       <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -2147,6 +1981,85 @@ const CampaignCreate = () => {
                   />
                 </div>
 
+                {/* Target URL */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Globe size={16} className="inline mr-2" />
+                    Kohde-URL
+                  </label>
+                  <input
+                    type="url"
+                    value={creativeConfig.targetUrl}
+                    onChange={(e) => setCreativeConfig({ ...creativeConfig, targetUrl: e.target.value })}
+                    placeholder="https://terveystalo.com/suunterveystalo"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all text-sm"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Mainosta klikkaavan käyttäjän ohjausosoite</p>
+                </div>
+
+                {/* Disclaimer text for PDOOH */}
+                {formData.channel_pdooh && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Vastuuvapauslauseke (PDOOH)
+                    </label>
+                    <AutoExpandTextarea
+                      value={creativeConfig.disclaimerText}
+                      onChange={(value) => setCreativeConfig({ ...creativeConfig, disclaimerText: value })}
+                      placeholder="Tarjous voimassa uusille asiakkaille..."
+                      minHeight={60}
+                      maxHeight={200}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Näytetään vain PDOOH-mainoksissa</p>
+                  </div>
+                )}
+
+                {/* Audio upload when audio channel is enabled */}
+                {formData.channel_audio && (
+                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <div className="flex items-center gap-3 mb-3">
+                      <Volume2 size={20} className="text-[#1DB954]" />
+                      <div>
+                        <h4 className="font-medium text-gray-900">Audio-mainos</h4>
+                        <p className="text-xs text-gray-500">Lataa äänitiedosto (MP3, max 30s)</p>
+                      </div>
+                    </div>
+                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#1DB954] transition-colors">
+                      <Upload size={24} className="text-gray-400 mb-2" />
+                      <span className="text-sm text-gray-600">
+                        {creativeConfig.audioFile ? creativeConfig.audioFile.name : 'Valitse äänitiedosto...'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="audio/mp3,audio/mpeg,audio/wav"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setCreativeConfig({ ...creativeConfig, audioFile: file });
+                            toast.success(`Äänitiedosto "${file.name}" valittu`);
+                          }
+                        }}
+                      />
+                    </label>
+                    {creativeConfig.audioFile && (
+                      <div className="mt-3 flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                        <div className="flex items-center gap-2">
+                          <Volume2 size={16} className="text-[#1DB954]" />
+                          <span className="text-sm text-gray-700">{creativeConfig.audioFile.name}</span>
+                          <span className="text-xs text-gray-400">({(creativeConfig.audioFile.size / 1024).toFixed(0)} KB)</span>
+                        </div>
+                        <button
+                          onClick={() => setCreativeConfig({ ...creativeConfig, audioFile: null })}
+                          className="text-gray-400 hover:text-red-500 transition-colors"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Background images */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -2196,138 +2109,119 @@ const CampaignCreate = () => {
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Esikatselu</h3>
                 
-                {/* Size selector */}
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {PREVIEW_SIZES.map((size) => {
-                    const Icon = size.icon;
-                    const isSelected = previewSize.id === size.id;
+                {/* Size selector grouped by category - filtered by enabled channels */}
+                <div className="space-y-3 mb-4">
+                  {PREVIEW_SIZE_CATEGORIES.map((cat) => {
+                    const CatIcon = cat.icon;
+                    const sizesInCat = PREVIEW_SIZES.filter(s => s.category === cat.key);
+                    const isMeta = cat.key === 'Meta';
+                    // Hide category if its channel is disabled
+                    const isChannelDisabled = 
+                      (cat.key === 'Display' && !formData.channel_display) ||
+                      (cat.key === 'PDOOH' && !formData.channel_pdooh) ||
+                      (cat.key === 'Meta' && !formData.channel_meta);
+                    if (isChannelDisabled && !isMeta) return null;
                     return (
-                      <button
-                        key={size.id}
-                        onClick={() => setPreviewSize(size)}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${
-                          isSelected
-                            ? 'border-[#00A5B5] bg-[#00A5B5]/10 text-[#00A5B5]'
-                            : 'border-gray-200 hover:border-[#00A5B5]/50 text-gray-600 hover:text-[#00A5B5]'
-                        }`}
-                      >
-                        <Icon size={18} className={isSelected ? 'text-[#00A5B5]' : ''} />
-                        <div className="text-left">
-                          <div className={`text-xs font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>
-                            {size.name}
-                          </div>
-                          <div className="text-[10px] text-gray-400">{size.label}</div>
+                      <div key={cat.key}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <CatIcon size={14} className="text-gray-500" />
+                          <span className={`text-xs font-semibold uppercase tracking-wider ${isMeta ? 'text-gray-400' : 'text-gray-600'}`}>
+                            {cat.label}
+                          </span>
                         </div>
-                      </button>
+                        <div className={`flex flex-wrap gap-2 ${isMeta ? 'opacity-50 pointer-events-none' : ''}`}>
+                          {sizesInCat.map((size) => {
+                            const Icon = size.icon;
+                            const isSelected = previewSize.id === size.id;
+                            return (
+                              <button
+                                key={size.id}
+                                onClick={() => setPreviewSize(size)}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${
+                                  isSelected
+                                    ? 'border-[#00A5B5] bg-[#00A5B5]/10 text-[#00A5B5]'
+                                    : 'border-gray-200 hover:border-[#00A5B5]/50 text-gray-600 hover:text-[#00A5B5]'
+                                }`}
+                              >
+                                <Icon size={18} className={isSelected ? 'text-[#00A5B5]' : ''} />
+                                <div className="text-left">
+                                  <div className={`text-xs font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>
+                                    {size.name}
+                                  </div>
+                                  <div className="text-[10px] text-gray-400">{size.label}</div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
 
-                {/* Preview containers - handle both creative_type and include_pricing variations */}
+                {/* Preview containers - handle creative_type and priceBubbleMode for pricing */}
                 {(() => {
                   const showBothCreativeTypes = formData.creative_type === 'both';
-                  const showBothPricing = formData.include_pricing === 'both';
                   const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
                   const showNationwide = formData.creative_type === 'nationwide' || formData.creative_type === 'both';
-                  
+
                   // Determine number of columns based on what we're showing
-                  const numColumns = (showBothCreativeTypes ? 2 : 1) * (showBothPricing ? 2 : 1);
-                  const gridClass = numColumns > 1 ? `grid grid-cols-${Math.min(numColumns, 2)} gap-4` : '';
-                  const previewScale = numColumns > 1 ? 280 : 400;
-                  const minHeight = numColumns > 1 ? '350px' : '450px';
-                  
+                  const numColumns = showBothCreativeTypes ? 2 : 1;
+                  const containerWidth = numColumns > 1 ? 280 : 450;
+                  const containerHeight = numColumns > 1 ? 350 : 500;
+                  const scaleX = containerWidth / previewSize.width;
+                  const scaleY = containerHeight / previewSize.height;
+                  const previewScaleFactor = Math.min(scaleX, scaleY, 1);
+                  const minHeight = `${Math.round(previewSize.height * previewScaleFactor) + 32}px`;
+
                   return (
-                    <div className={gridClass}>
-                      {/* If showing both pricing versions */}
-                      {showBothPricing ? (
-                        <>
-                          {/* Version with price */}
-                          <div>
+                    <div className={numColumns > 1 ? 'grid grid-cols-2 gap-4' : ''}>
+                      {/* Local version (with address) - shown for 'local' or 'both' */}
+                      {(formData.creative_type === 'local' || formData.creative_type === 'both') && (
+                        <div>
+                          {formData.creative_type === 'both' && (
                             <div className="text-center mb-2">
                               <span className="text-xs font-medium text-[#00A5B5] bg-[#00A5B5]/10 px-3 py-1 rounded-full">
-                                💰 Hinnalla
+                                <MapPin size={12} className="inline mr-1" />
+                                Paikkakuntakohtainen
                               </span>
                             </div>
-                            <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
-                              <div 
-                                className="origin-center"
-                                style={{
-                                  transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
-                                }}
-                              >
-                                {renderPreviewTemplate(showAddress && !showNationwide || formData.creative_type === 'local', true)}
-                              </div>
+                          )}
+                          <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight }}>
+                            <div
+                              className="origin-top-center"
+                              style={{
+                                transform: `scale(${previewScaleFactor})`
+                              }}
+                            >
+                              {renderPreviewTemplate(true)}
                             </div>
                           </div>
-                          {/* Version without price */}
-                          <div>
+                        </div>
+                      )}
+
+                      {/* Nationwide version (without address) - shown for 'nationwide' or 'both' */}
+                      {(formData.creative_type === 'nationwide' || formData.creative_type === 'both') && (
+                        <div>
+                          {formData.creative_type === 'both' && (
                             <div className="text-center mb-2">
                               <span className="text-xs font-medium text-[#1B365D] bg-[#1B365D]/10 px-3 py-1 rounded-full">
-                                🚫 Ilman hintaa
+                                <Globe size={12} className="inline mr-1" />
+                                Valtakunnallinen
                               </span>
                             </div>
-                            <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
-                              <div 
-                                className="origin-center"
-                                style={{
-                                  transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
-                                }}
-                              >
-                                {renderPreviewTemplate(showAddress && !showNationwide || formData.creative_type === 'local', false)}
-                              </div>
+                          )}
+                          <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight }}>
+                            <div
+                              className="origin-top-center"
+                              style={{
+                                transform: `scale(${previewScaleFactor})`
+                              }}
+                            >
+                              {renderPreviewTemplate(false)}
                             </div>
                           </div>
-                        </>
-                      ) : (
-                        <>
-                          {/* Local version (with address) - shown for 'local' or 'both' */}
-                          {(formData.creative_type === 'local' || formData.creative_type === 'both') && (
-                            <div>
-                              {formData.creative_type === 'both' && (
-                                <div className="text-center mb-2">
-                                  <span className="text-xs font-medium text-[#00A5B5] bg-[#00A5B5]/10 px-3 py-1 rounded-full">
-                                    <MapPin size={12} className="inline mr-1" />
-                                    Paikkakuntakohtainen
-                                  </span>
-                                </div>
-                              )}
-                              <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
-                                <div 
-                                  className="origin-center"
-                                  style={{
-                                    transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
-                                  }}
-                                >
-                                  {renderPreviewTemplate(true)}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Nationwide version (without address) - shown for 'nationwide' or 'both' */}
-                          {(formData.creative_type === 'nationwide' || formData.creative_type === 'both') && (
-                            <div>
-                              {formData.creative_type === 'both' && (
-                                <div className="text-center mb-2">
-                                  <span className="text-xs font-medium text-[#1B365D] bg-[#1B365D]/10 px-3 py-1 rounded-full">
-                                    <Globe size={12} className="inline mr-1" />
-                                    Valtakunnallinen
-                                  </span>
-                                </div>
-                              )}
-                              <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-auto" style={{ minHeight }}>
-                                <div 
-                                  className="origin-center"
-                                  style={{
-                                    transform: `scale(${Math.min(1, previewScale / Math.max(previewSize.width, previewSize.height))})`
-                                  }}
-                                >
-                                  {renderPreviewTemplate(false)}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </>
+                        </div>
                       )}
                     </div>
                   );
@@ -2425,9 +2319,15 @@ const CampaignCreate = () => {
                   <span className="text-sm font-medium text-gray-500">Luovat</span>
                 </div>
                 <p className="text-lg font-semibold text-gray-900">
-                  {formData.creative_type === 'nationwide' ? 'Valtakunnallinen' : 
-                   formData.creative_type === 'local' ? 'Paikkakuntakohtainen' : 'Molemmat'}
+                  {formData.creative_type === 'nationwide' ? 'Valtakunnallinen' : 'Paikallinen'}
                 </p>
+                {creativeConfig.priceBubbleMode === 'both' ? (
+                  <p className="text-sm text-gray-500">Hinta + Ilman hintaa</p>
+                ) : creativeConfig.priceBubbleMode === 'price' ? (
+                  <p className="text-sm text-gray-500">Hinnalla</p>
+                ) : (
+                  <p className="text-sm text-gray-500">Ilman hintaa</p>
+                )}
                 {formData.creative_type === 'both' && (
                   <p className="text-sm text-gray-500">
                     {formData.creative_weight_nationwide}% / {formData.creative_weight_local}%

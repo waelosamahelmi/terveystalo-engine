@@ -40,15 +40,14 @@ const CREATOPY_API_URL = 'https://api.creatopy.com/v1';
 const CREATOPY_CLIENT_ID = '5b324250-8429-443b-bc11-dff33c472c89';
 const CREATOPY_CLIENT_SECRET = 'eb427fff-2ad7-40fe-b2fd-5c919bc27f4e';
 
-// Backup Content URLs for each ad size
-// TODO: Update URLs with Suun Terveystalo branded backup images
+// Backup Content URLs for each ad size - Suun Terveystalo branded
 const backupContentURLs = {
-  '1080x1920': 'https://norr3.fi/wp-content/uploads/2025/03/KiMa-automated-2025-backup-1080x1920-px.jpg',
-  '980x400': 'https://norr3.fi/wp-content/uploads/2025/03/KiMa-automated-2025-backup-980x400-px.jpg',
-  '620x891': 'https://norr3.fi/wp-content/uploads/2025/03/KiMa-automated-2025-backup-620x891-px.jpg',
-  '300x600': 'https://norr3.fi/wp-content/uploads/2025/03/KiMa-automated-2025-backup-300x600-px.jpg',
-  '300x431': 'https://norr3.fi/wp-content/uploads/2025/03/KiMa-automated-2025-backup-300x431-px.jpg',
-  '300x300': 'https://norr3.fi/wp-content/uploads/2025/03/KiMa-automated-2025-backup-300x300-px.jpg',  // TODO: Create 300x300 backup image
+  '1080x1920': 'https://norr3.fi/ST-backup-1080x1920.jpg',
+  '980x400': 'https://norr3.fi/ST-backup-980x400.jpg',
+  '620x891': 'https://norr3.fi/ST-backup-620x891.jpg',
+  '300x600': 'https://norr3.fi/ST-backup-300x600.jpg',
+  '300x431': 'https://norr3.fi/ST-backup-300x431.jpg',
+  '300x300': 'https://norr3.fi/ST-backup-300x300.jpg',
 };
 
 // Axios instances
@@ -586,12 +585,12 @@ const createBidTheatreCampaign = async (campaign) => {
 
       try {
         const campaignPayload = {
-          name: `KM / ${channel.channel} / ${campaign.id}`,
+          name: `ST / ${channel.channel} / ${campaign.id}`,
           advertiser: advertiserIdInt,
           campaignManager: credentials.username,
           campaignKPI: 3,
           defaultLineItem: 295489,
-          targetURL: 'https://www.kiinteistomaailma.fi/',
+          targetURL: 'https://terveystalo.com/suunterveystalo',
           defaultGeoTarget: null,
           expectedTotalImps: channel.channel === 'DISPLAY' ? 8422 : 12500,
           deliveryPriority: 'even',
@@ -713,7 +712,7 @@ const createBidTheatreCampaign = async (campaign) => {
                     name: `${aptKey} - ${size}`,
                     adType: 'HTML banner',
                     adStatus: 'Active',
-                    html: `<script type="text/javascript">var embedConfig = {"hash": "${config.hash}", "width": ${config.width}, "height": ${config.height}, "t": "{timestamp}", "userId": 762652, "network": "STANDARD", "type": "html5", "clickTag": "{clickurl}https://www.kiinteistomaailma.fi/${aptKey}?utm_source=programmatic&utm_medium=display&utm_campaign=marketing-engine&utm_content=${campaign.id}", "targetId": "${campaign.id}-${aptKey}"};</script><script type="text/javascript" src="https://live-tag.creatopy.net/embed/embed.js"></script>`,
+                    html: `<script type="text/javascript">var embedConfig = {"hash": "${config.hash}", "width": ${config.width}, "height": ${config.height}, "t": "{timestamp}", "userId": 762652, "network": "STANDARD", "type": "html5", "clickTag": "{clickurl}https://terveystalo.com/suunterveystalo?utm_source=programmatic&utm_medium=display&utm_campaign=marketing-engine&utm_content=${campaign.id}", "targetId": "${campaign.id}-${aptKey}"};</script><script type="text/javascript" src="https://live-tag.creatopy.net/embed/embed.js"></script>`,
                     dimension: size === '300x300' ? 10 : size === '300x600' ? 11 : size === '620x891' ? 1888 : 15,
                     isExpandable: false,
                     isInSync: true,

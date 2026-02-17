@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createBranch, updateBranch, toggleBranchStatus, upsertBranchAllocatedBudget } from '../lib/branchService';
+import { getAppSetting, updateAppSetting } from '../lib/settingsService';
 import { useStore } from '../lib/store';
 import { countScreensInRadius } from '../lib/mediaScreensService';
 import type { Branch } from '../types';
@@ -25,7 +26,8 @@ import {
   LayoutGrid,
   List,
   Monitor,
-  Euro
+  Euro,
+  Percent
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -118,9 +120,10 @@ interface BranchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: Partial<Branch>) => void;
+  totalBudget: number;
 }
 
-const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
+const BranchModal = ({ branch, isOpen, onClose, onSave, totalBudget }: BranchModalProps) => {
   const [formData, setFormData] = useState<Partial<Branch>>({
     name: '',
     address: '',
@@ -134,12 +137,18 @@ const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
     active: true,
   });
   const [budget, setBudget] = useState<number>(0);
+  const [budgetMode, setBudgetMode] = useState<'euro' | 'percent'>('euro');
+  const [budgetPercent, setBudgetPercent] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (branch) {
       setFormData(branch);
-      setBudget(branch.budget?.allocated_budget || 0);
+      const allocated = branch.budget?.allocated_budget || 0;
+      setBudget(allocated);
+      if (totalBudget > 0) {
+        setBudgetPercent(Math.round((allocated / totalBudget) * 100));
+      }
     } else {
       setFormData({
         name: '',
@@ -154,8 +163,9 @@ const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
         active: true,
       });
       setBudget(0);
+      setBudgetPercent(0);
     }
-  }, [branch, isOpen]);
+  }, [branch, isOpen, totalBudget]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -296,17 +306,76 @@ const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kuukausibudjetti (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={budget || ''}
-              onChange={(e) => setBudget(parseFloat(e.target.value) || 0)}
-              className="input"
-              placeholder="5000"
-            />
-            <p className="text-xs text-gray-500 mt-1">Kuukausittainen mainosbudjetti tälle pisteelle</p>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Kuukausibudjetti</label>
+            <div className="flex items-center gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => setBudgetMode('euro')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  budgetMode === 'euro' ? 'bg-[#00A5B5] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Euro size={14} /> €
+              </button>
+              <button
+                type="button"
+                onClick={() => setBudgetMode('percent')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  budgetMode === 'percent' ? 'bg-[#00A5B5] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+                disabled={totalBudget <= 0}
+                title={totalBudget <= 0 ? 'Aseta ensin kokonaisbudjetti' : ''}
+              >
+                <Percent size={14} /> %
+              </button>
+              {totalBudget > 0 && (
+                <span className="text-xs text-gray-400 ml-auto">Kokonaisbudjetti: {totalBudget.toLocaleString('fi-FI')}€</span>
+              )}
+            </div>
+            {budgetMode === 'euro' ? (
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={budget || ''}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0;
+                    setBudget(val);
+                    if (totalBudget > 0) {
+                      setBudgetPercent(Math.round((val / totalBudget) * 100));
+                    }
+                  }}
+                  className="input pr-8"
+                  placeholder="5000"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">€</span>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="100"
+                  value={budgetPercent || ''}
+                  onChange={(e) => {
+                    const pct = parseFloat(e.target.value) || 0;
+                    setBudgetPercent(pct);
+                    setBudget(Math.round(totalBudget * pct / 100));
+                  }}
+                  className="input pr-8"
+                  placeholder="10"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+              </div>
+            )}
+            <p className="text-xs text-gray-500 mt-1">
+              {budgetMode === 'euro'
+                ? `${totalBudget > 0 ? `${budgetPercent}% kokonaisbudjetista` : 'Kuukausittainen mainosbudjetti tälle pisteelle'}`
+                : `= ${budget.toLocaleString('fi-FI')}€ / kk`
+              }
+            </p>
           </div>
 
           <div className="flex items-center space-x-3 pt-2">
@@ -356,6 +425,15 @@ const Branches = () => {
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [screenCounts, setScreenCounts] = useState<Record<string, number>>({});
+  const [totalBudget, setTotalBudget] = useState<number>(0);
+  const [editingTotalBudget, setEditingTotalBudget] = useState(false);
+
+  // Load total budget from settings
+  useEffect(() => {
+    getAppSetting<number>('total_monthly_budget').then(val => {
+      if (val) setTotalBudget(val);
+    });
+  }, []);
 
   // Extract unique regions from store data
   const regions = useMemo(() => 
@@ -511,6 +589,41 @@ const Branches = () => {
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          {/* Total Budget */}
+          <div className="flex items-center gap-2 bg-gradient-to-r from-[#00A5B5]/10 to-transparent rounded-xl px-4 py-2 border border-[#00A5B5]/20">
+            <Euro size={16} className="text-[#00A5B5]" />
+            {editingTotalBudget ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={totalBudget || ''}
+                  onChange={(e) => setTotalBudget(parseFloat(e.target.value) || 0)}
+                  className="w-28 px-2 py-1 text-sm rounded border border-[#00A5B5] focus:ring-1 focus:ring-[#00A5B5] outline-none"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      updateAppSetting('total_monthly_budget', totalBudget);
+                      setEditingTotalBudget(false);
+                      toast.success('Kokonaisbudjetti päivitetty');
+                    }
+                    if (e.key === 'Escape') setEditingTotalBudget(false);
+                  }}
+                  onBlur={() => {
+                    updateAppSetting('total_monthly_budget', totalBudget);
+                    setEditingTotalBudget(false);
+                  }}
+                />
+                <span className="text-sm text-gray-500">€/kk</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingTotalBudget(true)}
+                className="text-sm font-semibold text-[#00A5B5] hover:underline"
+              >
+                {totalBudget > 0 ? `${totalBudget.toLocaleString('fi-FI')}€/kk` : 'Aseta budjetti'}
+              </button>
+            )}
+          </div>
           {/* View Mode Toggle */}
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
             <button
@@ -694,6 +807,7 @@ const Branches = () => {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         onSave={handleSaveBranch}
+        totalBudget={totalBudget}
       />
     </div>
   );

@@ -160,6 +160,7 @@ export async function createCampaign(
     target_age_min: formData.target_age_min,
     target_age_max: formData.target_age_max,
     target_genders: formData.target_genders,
+    landing_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
 
     status: 'draft' as CampaignStatus,
     created_by: userId

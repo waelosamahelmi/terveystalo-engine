@@ -7,11 +7,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   getCreativeTemplates, 
+  renderTemplateHtml,
   renderCreativePreview, 
   getCreativeSizes,
   getBrandAssets
 } from '../lib/creativeService';
-import type { Creative, CreativeTemplate, CreativeSize } from '../types';
+import type { Creative, CreativeTemplate } from '../types';
 import { format } from 'date-fns';
 import { fi } from 'date-fns/locale';
 import {
@@ -39,7 +40,7 @@ import {
 import toast from 'react-hot-toast';
 
 type ViewMode = 'grid' | 'list';
-type SizeCategory = 'all' | 'dooh' | 'display' | 'social';
+type SizeCategory = 'all' | 'display' | 'pdooh' | 'meta';
 
 // Creative Card
 interface CreativeCardProps {
@@ -53,12 +54,19 @@ const CreativeCard = ({ creative, onPreview, onDownload }: CreativeCardProps) =>
 
   return (
     <div className="card group relative overflow-hidden">
-      {/* Preview Image */}
+      {/* Preview Image / HTML */}
       <div 
-        className="aspect-video bg-gray-100 relative cursor-pointer"
+        className="aspect-video bg-gray-100 relative cursor-pointer overflow-hidden"
         onClick={onPreview}
       >
-        {creative.preview_url ? (
+        {creative.html_content ? (
+          <iframe
+            srcDoc={creative.html_content}
+            className="w-full h-full border-0 pointer-events-none"
+            title={creative.name}
+            style={{ transform: 'scale(0.25)', transformOrigin: 'top left', width: '400%', height: '400%' }}
+          />
+        ) : creative.preview_url ? (
           <img 
             src={creative.preview_url} 
             alt={creative.name}
@@ -131,11 +139,12 @@ const CreativeCard = ({ creative, onPreview, onDownload }: CreativeCardProps) =>
         {/* Channel badge */}
         <div className="mt-3 flex items-center space-x-2">
           <span className={`badge text-xs ${
-            creative.channel === 'dooh' ? 'badge-primary' :
-            creative.channel === 'display' ? 'badge-secondary' :
-            'badge-accent'
+            creative.type === 'pdooh' ? 'badge-primary' :
+            creative.type === 'display' ? 'badge-secondary' :
+            creative.type === 'meta' ? 'badge-accent' :
+            'badge-gray'
           }`}>
-            {creative.channel?.toUpperCase() || 'DISPLAY'}
+            {(creative as any).category || creative.type?.toUpperCase() || creative.channel?.toUpperCase() || 'DISPLAY'}
           </span>
           {creative.service_name && (
             <span className="badge badge-gray text-xs">{creative.service_name}</span>
@@ -172,8 +181,8 @@ const SizeCategoryBtn = ({ label, value, icon: Icon, active, onClick }: SizeCate
 const Creatives = () => {
   const [loading, setLoading] = useState(true);
   const [creatives, setCreatives] = useState<Creative[]>([]);
-  const [templates, setTemplates] = useState<CreativeTemplate[]>([]);
-  const [sizes, setSizes] = useState<CreativeSize[]>([]);
+  const [templates, setTemplates] = useState<Array<CreativeTemplate & { category?: string }>>([]);
+  const [sizes, setSizes] = useState<Array<{ name: string; width: number; height: number; type: string; category?: string }>>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [sizeCategory, setSizeCategory] = useState<SizeCategory>('all');
@@ -190,26 +199,53 @@ const Creatives = () => {
     try {
       setLoading(true);
 
-      // Load creatives
+      // Load templates (primary source of truth for creative previews)
+      const templatesData = await getCreativeTemplates();
+      setTemplates(templatesData);
+
+      // Build creative items from templates so we always have something to show
+      const templateCreatives: Creative[] = templatesData.map(t => {
+        const renderedHtml = renderTemplateHtml(t, t.default_values as Record<string, string>);
+        return {
+          id: t.id,
+          name: t.name,
+          width: t.width,
+          height: t.height,
+          channel: t.type === 'pdooh' ? 'pdooh' : t.type, // Use pdooh for consistency
+          html_content: renderedHtml,
+          preview_url: t.preview_url || t.preview_image_url || '',
+          template_id: t.id,
+          template_name: t.name,
+          service_name: '',
+          status: t.active ? 'active' : 'inactive',
+          type: t.type,
+          created_at: t.created_at,
+          updated_at: t.updated_at,
+          campaign_id: '',
+          variables: t.default_values,
+          version: 1,
+          category: t.category || (t.type === 'pdooh' ? 'PDOOH' : t.type === 'meta' ? 'Meta' : 'Display'),
+        } as Creative & { category?: string };
+      });
+
+      // Also load any existing creatives from the creatives table
       const { data: creativesData } = await supabase
         .from('creatives')
         .select(`
           *,
-          creative_templates(name),
-          dental_services(name)
+          creative_templates(name)
         `)
         .order('created_at', { ascending: false });
       
-      const mappedCreatives = (creativesData || []).map(c => ({
+      const dbCreatives = (creativesData || []).map(c => ({
         ...c,
         template_name: c.creative_templates?.name,
-        service_name: c.dental_services?.name,
       }));
-      setCreatives(mappedCreatives);
 
-      // Load templates
-      const templatesData = await getCreativeTemplates();
-      setTemplates(templatesData);
+      // Merge: DB creatives first, then template previews for any missing templates
+      const dbTemplateIds = new Set(dbCreatives.map(c => c.template_id));
+      const extraTemplateCreatives = templateCreatives.filter(tc => !dbTemplateIds.has(tc.id));
+      setCreatives([...dbCreatives, ...extraTemplateCreatives]);
 
       // Load sizes
       const sizesData = await getCreativeSizes();
@@ -236,9 +272,11 @@ const Creatives = () => {
         }
       }
 
-      // Size category filter
+      // Size category filter - use category field if available, fallback to channel/type
       if (sizeCategory !== 'all') {
-        if (creative.channel !== sizeCategory) return false;
+        const creativeCategory = (creative as any).category ||
+          (creative.type === 'pdooh' ? 'PDOOH' : creative.type === 'meta' ? 'Meta' : creative.type === 'display' ? 'Display' : creative.channel?.toUpperCase());
+        if (creativeCategory?.toLowerCase() !== sizeCategory) return false;
       }
 
       // Specific size filter
@@ -382,13 +420,6 @@ const Creatives = () => {
             onClick={() => { setSizeCategory('all'); setSelectedSize(''); }}
           />
           <SizeCategoryBtn
-            label="DOOH"
-            value="dooh"
-            icon={Monitor}
-            active={sizeCategory === 'dooh'}
-            onClick={() => { setSizeCategory('dooh'); setSelectedSize(''); }}
-          />
-          <SizeCategoryBtn
             label="Display"
             value="display"
             icon={Square}
@@ -396,11 +427,18 @@ const Creatives = () => {
             onClick={() => { setSizeCategory('display'); setSelectedSize(''); }}
           />
           <SizeCategoryBtn
-            label="Social"
-            value="social"
+            label="PDOOH"
+            value="pdooh"
+            icon={Monitor}
+            active={sizeCategory === 'pdooh'}
+            onClick={() => { setSizeCategory('pdooh'); setSelectedSize(''); }}
+          />
+          <SizeCategoryBtn
+            label="Meta"
+            value="meta"
             icon={Smartphone}
-            active={sizeCategory === 'social'}
-            onClick={() => { setSizeCategory('social'); setSelectedSize(''); }}
+            active={sizeCategory === 'meta'}
+            onClick={() => { setSizeCategory('meta'); setSelectedSize(''); }}
           />
         </div>
 
@@ -412,8 +450,8 @@ const Creatives = () => {
             className="input text-sm py-2 w-auto"
           >
             <option value="">Kaikki koot</option>
-            {filteredSizes.map((size) => (
-              <option key={size.id} value={`${size.width}x${size.height}`}>
+            {filteredSizes.map((size, idx) => (
+              <option key={`${size.width}x${size.height}-${idx}`} value={`${size.width}x${size.height}`}>
                 {size.name} ({size.width}×{size.height})
               </option>
             ))}
@@ -506,11 +544,12 @@ const Creatives = () => {
                   <td className="text-gray-600">{creative.width}×{creative.height}</td>
                   <td>
                     <span className={`badge text-xs ${
-                      creative.channel === 'dooh' ? 'badge-primary' :
-                      creative.channel === 'display' ? 'badge-secondary' :
-                      'badge-accent'
+                      creative.type === 'pdooh' ? 'badge-primary' :
+                      creative.type === 'display' ? 'badge-secondary' :
+                      creative.type === 'meta' ? 'badge-accent' :
+                      'badge-gray'
                     }`}>
-                      {creative.channel?.toUpperCase() || 'DISPLAY'}
+                      {(creative as any).category || creative.type?.toUpperCase() || creative.channel?.toUpperCase() || 'DISPLAY'}
                     </span>
                   </td>
                   <td className="text-gray-600">{creative.service_name || '-'}</td>
@@ -549,7 +588,7 @@ const Creatives = () => {
               <div>
                 <h2 className="font-semibold text-gray-900">{previewCreative.name}</h2>
                 <p className="text-sm text-gray-500">
-                  {previewCreative.width}×{previewCreative.height} • {previewCreative.channel?.toUpperCase()}
+                  {previewCreative.width}×{previewCreative.height} • {(previewCreative as any).category || previewCreative.type?.toUpperCase() || previewCreative.channel?.toUpperCase()}
                 </p>
               </div>
               <div className="flex items-center space-x-2">

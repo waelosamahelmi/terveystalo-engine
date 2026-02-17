@@ -4,10 +4,13 @@ import { parseISO, format } from 'date-fns';
 
 // Google Sheets API endpoint
 const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
-const SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID;
+const SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID || '1c2nbTb3nwwoO3bzQWcxI32F7WiFQ4PgPk16aUF8-Fdk'; // Default to Suun Terveystalo feed sheet
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
 const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
+
+// Sheet name for Suun Terveystalo feed
+const SHEET_NAME = 'FEED';
 
 // Function to get a new access token using the refresh token
 async function getAccessToken() {
@@ -67,7 +70,7 @@ export async function findCampaignRows(campaignId: string) {
     
     // Get all values from the sheet
     const response = await axios.get(
-      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/LIVE!A:W`,
+      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A:W`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -187,7 +190,7 @@ export async function addCampaignToSheet(
     
     // Append rows to the sheet
     await axios.post(
-      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/LIVE!A:W:append?valueInputOption=USER_ENTERED`,
+      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A:W:append?valueInputOption=USER_ENTERED`,
       {
         values: rows,
       },
@@ -261,14 +264,14 @@ export async function deleteCampaignFromSheet(campaignId: string) {
     );
 
     const sheets = spreadsheetResponse.data.sheets || [];
-    const liveSheet = sheets.find((sheet: any) => sheet.properties.title === 'LIVE');
+    const liveSheet = sheets.find((sheet: any) => sheet.properties.title === SHEET_NAME);
     if (!liveSheet) {
-      console.error('Could not find LIVE sheet in spreadsheet');
+      console.error(`Could not find ${SHEET_NAME} sheet in spreadsheet`);
       return false;
     }
     const sheetId = liveSheet.properties.sheetId;
     const columnCount = liveSheet.properties.gridProperties?.columnCount || 23; // Default to 23 (A:W) if not specified
-    console.log(`LIVE sheet column count: ${columnCount}`);
+    console.log(`${SHEET_NAME} sheet column count: ${columnCount}`);
 
     // Sort row indices in descending order to avoid shifting issues when deleting
     const rowIndices = existingRows.map(row => row.rowIndex).sort((a, b) => b - a);
@@ -278,7 +281,7 @@ export async function deleteCampaignFromSheet(campaignId: string) {
       // First, clear the row to ensure no leftover data (use A:W since we know the sheet structure)
       try {
         await axios.put(
-          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/LIVE!A${rowIndex}:W${rowIndex}?valueInputOption=RAW`,
+          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:W${rowIndex}?valueInputOption=RAW`,
           {
             values: [Array(23).fill('')], // Clear exactly 23 columns (A:W)
           },
@@ -352,7 +355,7 @@ export async function updateCampaignStatusInSheet(campaignId: string, active: bo
     
     for (const row of existingRows) {
       await axios.put(
-        `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/LIVE!W${row.rowIndex}?valueInputOption=USER_ENTERED`,
+        `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!W${row.rowIndex}?valueInputOption=USER_ENTERED`,
         {
           values: [[status]],
         },

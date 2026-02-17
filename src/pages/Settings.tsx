@@ -49,8 +49,9 @@ import {
   Send
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import SettingsBidTheatre from '../components/SettingsBidTheatre';
 
-type SettingsTab = 'general' | 'ai' | 'brand' | 'notifications' | 'slack' | 'integrations' | 'database' | 'developer';
+type SettingsTab = 'general' | 'ai' | 'brand' | 'notifications' | 'slack' | 'bidtheatre' | 'integrations' | 'database' | 'developer';
 
 interface DbSetting {
   key: string;
@@ -994,6 +995,13 @@ const Settings = () => {
               onClick={() => setActiveTab('slack')}
             />
             <TabButton
+              tab="bidtheatre"
+              currentTab={activeTab}
+              label="BidTheatre"
+              icon={Monitor}
+              onClick={() => setActiveTab('bidtheatre')}
+            />
+            <TabButton
               tab="integrations"
               currentTab={activeTab}
               label="Integraatiot"
@@ -1790,6 +1798,9 @@ const Settings = () => {
               </div>
             </div>
           )}
+
+          {/* BidTheatre Integration */}
+          {activeTab === 'bidtheatre' && <SettingsBidTheatre />}
 
           {/* Integrations */}
           {activeTab === 'integrations' && (
