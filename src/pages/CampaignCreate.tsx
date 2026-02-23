@@ -51,7 +51,7 @@ import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
 import { DemoBanner } from '../components/DemoTooltip';
 import { AgeRangeSelector } from '../components/AgeRangeSelector';
 import { GenderSelector } from '../components/GenderSelector';
-import { BudgetCard } from '../components/BudgetCard';
+// import { BudgetCard } from '../components/BudgetCard'; // Removed budget card component
 import { AutoExpandTextarea } from '../components/AutoExpandTextarea';
 
 // Custom Tooth Icon Component
@@ -1759,29 +1759,8 @@ const CampaignCreate = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left Column: Branch Budget Card */}
-              <div className="lg:col-span-1">
-                {selectedBranch && selectedBranch.budget ? (
-                  <BudgetCard
-                    branchName={selectedBranch.name}
-                    allocated={selectedBranch.budget?.allocated_budget || 0}
-                    used={selectedBranch.budget?.used_budget || 0}
-                    available={(selectedBranch.budget?.allocated_budget || 0) - (selectedBranch.budget?.used_budget || 0)}
-                    currency="€"
-                  />
-                ) : selectedBranch ? (
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{selectedBranch.name}</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                      Budjettitietoja ei ole määritelty tälle toimipisteelle.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Right Column: Budget Selection */}
-              <div className="lg:col-span-2 space-y-6">
+            {/* Budget Selection */}
+            <div className="space-y-6 max-w-4xl mx-auto">
                 {/* Budget Presets */}
                 <div>
                   <label className="block text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -1870,7 +1849,6 @@ const CampaignCreate = () => {
                   </div>
                 </div>
               </div>
-            </div>
 
             {/* Channel cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto mt-8">
