@@ -44,7 +44,8 @@ import {
   Users,
   X,
   TrendingUp,
-  Play
+  Play,
+  Pause
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
@@ -718,6 +719,10 @@ const CampaignCreate = () => {
 
   // Preview size state
   const [previewSize, setPreviewSize] = useState<PreviewSize>(PREVIEW_SIZES[2]); // Default to 300x600
+
+  // Audio playback state
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Auto-set budget to 50% of remaining branch budget when branch is selected
   useEffect(() => {
@@ -2181,7 +2186,7 @@ const CampaignCreate = () => {
                 </div>
 
                 {/* Disclaimer text for PDOOH (not for 980x400) */}
-                {formData.channel_pdooh && (
+                {formData.channel_pdooh && previewSize.category === 'PDOOH' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Legal (PDOOH)
@@ -2239,12 +2244,28 @@ const CampaignCreate = () => {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const audioEl = new Audio(audio.url);
-                                    audioEl.play().catch(() => toast.error('Ei voitu toistaa'));
+                                    if (playingAudio === audio.url) {
+                                      // Pause
+                                      if (audioRef.current) {
+                                        audioRef.current.pause();
+                                        setPlayingAudio(null);
+                                      }
+                                    } else {
+                                      // Play
+                                      if (audioRef.current) {
+                                        audioRef.current.pause();
+                                      }
+                                      const audioEl = new Audio(audio.url);
+                                      audioEl.onended = () => setPlayingAudio(null);
+                                      audioEl.play().then(() => {
+                                        setPlayingAudio(audio.url);
+                                        audioRef.current = audioEl;
+                                      }).catch(() => toast.error('Ei voitu toistaa'));
+                                    }
                                   }}
                                   className="text-[#1DB954] hover:scale-110 transition-transform"
                                 >
-                                  <Play size={14} />
+                                  {playingAudio === audio.url ? <Pause size={14} /> : <Play size={14} />}
                                 </button>
                               )}
                             </div>
