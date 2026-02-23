@@ -195,10 +195,9 @@ interface BranchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: Partial<Branch>) => void;
-  totalBudget: number;
 }
 
-const BranchModal = ({ branch, isOpen, onClose, onSave, totalBudget }: BranchModalProps) => {
+const BranchModal = ({ branch, isOpen, onClose, onSave }: BranchModalProps) => {
   const [formData, setFormData] = useState<Partial<Branch>>({
     name: '',
     address: '',
@@ -211,19 +210,11 @@ const BranchModal = ({ branch, isOpen, onClose, onSave, totalBudget }: BranchMod
     longitude: undefined,
     active: true,
   });
-  const [budget, setBudget] = useState<number>(0);
-  const [budgetMode, setBudgetMode] = useState<'euro' | 'percent'>('euro');
-  const [budgetPercent, setBudgetPercent] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (branch) {
       setFormData(branch);
-      const allocated = branch.budget?.allocated_budget || 0;
-      setBudget(allocated);
-      if (totalBudget > 0) {
-        setBudgetPercent(Math.round((allocated / totalBudget) * 100));
-      }
     } else {
       setFormData({
         name: '',
@@ -237,17 +228,15 @@ const BranchModal = ({ branch, isOpen, onClose, onSave, totalBudget }: BranchMod
         longitude: undefined,
         active: true,
       });
-      setBudget(0);
-      setBudgetPercent(0);
     }
-  }, [branch, isOpen, totalBudget]);
+  }, [branch, isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    
+
     try {
-      await onSave({ ...formData, _budget: budget });
+      await onSave(formData);
       onClose();
     } catch (error) {
       console.error('Error saving branch:', error);
@@ -888,7 +877,6 @@ const Branches = () => {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         onSave={handleSaveBranch}
-        totalBudget={totalBudget}
       />
     </div>
   );
