@@ -122,12 +122,7 @@ $html$,
   '["headline", "subheadline", "offer_title", "price", "cta_text", "image_url", "disclaimer_text"]'::jsonb,
   true,
   1
-)
-ON CONFLICT (name, size) DO UPDATE SET
-  html_template = EXCLUDED.html_template,
-  default_values = EXCLUDED.default_values,
-  active = EXCLUDED.active,
-  updated_at = NOW();
+);
 
 -- 1080x1920 Meta template (Stories/Reels Portrait)
 INSERT INTO creative_templates (
@@ -259,12 +254,7 @@ $html$,
   '["headline", "subheadline", "offer_title", "price", "cta_text", "image_url", "branch_address", "disclaimer_text"]'::jsonb,
   true,
   2
-)
-ON CONFLICT (name, size) DO UPDATE SET
-  html_template = EXCLUDED.html_template,
-  default_values = EXCLUDED.default_values,
-  active = EXCLUDED.active,
-  updated_at = NOW();
+);
 
 -- Add helpful comments
 COMMENT ON TABLE creative_templates IS 'Stores creative templates for different channels and sizes';
