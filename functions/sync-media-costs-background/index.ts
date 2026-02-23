@@ -269,9 +269,9 @@ export const handler: Handler = async (event, context) => {
     
     // Get all active campaigns
     const { data: campaigns, error: campaignsError } = await supabase
-      .from('campaigns')
+      .from('dental_campaigns')
       .select('*')
-      .eq('active', true);
+      .eq('status', 'active');
 
     if (campaignsError) throw campaignsError;    // Get BT credentials and token
     const btToken = await getBidTheatreToken();
@@ -317,10 +317,10 @@ export const handler: Handler = async (event, context) => {
         };
 
         // Fetch Display channel stats
-        if (campaign.display_bt_id) {
+        if (campaign.bt_campaign_id_display) {
           try {
-            console.log(`Fetching Display stats for campaign ${campaign.id} with BT ID ${campaign.display_bt_id}`);
-            allStats.display = await fetchCampaignStats(btToken, BT_NETWORK_ID, campaign.display_bt_id, startDate, endDate);
+            console.log(`Fetching Display stats for campaign ${campaign.id} with BT ID ${campaign.bt_campaign_id_display}`);
+            allStats.display = await fetchCampaignStats(btToken, BT_NETWORK_ID, campaign.bt_campaign_id_display, startDate, endDate);
             // Add a short delay between channels
             await delay(200);
           } catch (error) {
@@ -329,10 +329,10 @@ export const handler: Handler = async (event, context) => {
         }
 
         // Fetch PDOOH channel stats
-        if (campaign.pdooh_bt_id) {
+        if (campaign.bt_campaign_id_pdooh) {
           try {
-            console.log(`Fetching PDOOH stats for campaign ${campaign.id} with BT ID ${campaign.pdooh_bt_id}`);
-            allStats.pdooh = await fetchCampaignStats(btToken, BT_NETWORK_ID, campaign.pdooh_bt_id, startDate, endDate);
+            console.log(`Fetching PDOOH stats for campaign ${campaign.id} with BT ID ${campaign.bt_campaign_id_pdooh}`);
+            allStats.pdooh = await fetchCampaignStats(btToken, BT_NETWORK_ID, campaign.bt_campaign_id_pdooh, startDate, endDate);
             // Add a short delay after completing a campaign
             await delay(200);
           } catch (error) {

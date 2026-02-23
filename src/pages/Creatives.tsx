@@ -10,7 +10,8 @@ import {
   renderTemplateHtml,
   renderCreativePreview, 
   getCreativeSizes,
-  getBrandAssets
+  getBrandAssets,
+  fixFontUrls
 } from '../lib/creativeService';
 import type { Creative, CreativeTemplate } from '../types';
 import { format } from 'date-fns';
@@ -61,7 +62,7 @@ const CreativeCard = ({ creative, onPreview, onDownload }: CreativeCardProps) =>
       >
         {creative.html_content ? (
           <iframe
-            srcDoc={creative.html_content}
+            srcDoc={fixFontUrls(creative.html_content)}
             className="w-full h-full border-0 pointer-events-none"
             title={creative.name}
             style={{ transform: 'scale(0.25)', transformOrigin: 'top left', width: '400%', height: '400%' }}
@@ -629,7 +630,7 @@ const Creatives = () => {
                     }}
                   >
                     <iframe
-                      srcDoc={previewCreative.html_content}
+                      srcDoc={fixFontUrls(previewCreative.html_content)}
                       className="w-full h-full border-0"
                       title="Creative preview"
                     />

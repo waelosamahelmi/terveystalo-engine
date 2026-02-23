@@ -22,17 +22,17 @@ const SUPABASE_URL = getEnvVar([
   'NETLIFY_SUPABASE_URL'
 ]);
 
-const SUPABASE_ANON_KEY = getEnvVar([
-  'SUPABASE_ANON_KEY',
-  'VITE_SUPABASE_ANON_KEY',
-  'REACT_APP_SUPABASE_ANON_KEY',
-  'NETLIFY_SUPABASE_ANON_KEY'
+const SUPABASE_SERVICE_ROLE_KEY = getEnvVar([
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'VITE_SUPABASE_SERVICE_ROLE_KEY',
+  'REACT_APP_SUPABASE_SERVICE_ROLE_KEY',
+  'NETLIFY_SUPABASE_SERVICE_ROLE_KEY'
 ]);
 
 console.log(`Initializing Supabase with URL: ${SUPABASE_URL}`);
-console.log(`Anon key available: ${SUPABASE_ANON_KEY ? 'Yes (starts with: ' + SUPABASE_ANON_KEY.slice(0, 5) + '...)' : 'No'}`);
+console.log(`Service role key available: ${SUPABASE_SERVICE_ROLE_KEY ? 'Yes (starts with: ' + SUPABASE_SERVICE_ROLE_KEY.slice(0, 5) + '...)' : 'No'}`);
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Constants
 const BT_API_URL = 'https://asx-api.bidtheatre.com/v2.0/api';

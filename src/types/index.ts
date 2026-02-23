@@ -179,9 +179,13 @@ export interface DentalCampaign {
 
   // Creative content
   headline?: string;
+  subheadline?: string;
   offer_text?: string;
   cta_text?: string;
   landing_url?: string;
+  background_image_url?: string;
+  general_brand_message?: string;
+  campaign_objective?: 'traffic' | 'reach';
 
   // Audience targeting (age and gender)
   target_age_min?: number;
@@ -241,6 +245,9 @@ export interface CampaignFormData {
     lng: number;
   };
 
+  // Campaign objective
+  campaign_objective?: 'traffic' | 'reach';
+
   // Step 4: Creative Type & Schedule
   creative_type: CreativeType;
   creative_weight_nationwide: number;
@@ -262,10 +269,12 @@ export interface CampaignFormData {
 
   // Step 6: Creative customization
   headline?: string;
+  subheadline?: string;
   offer_text?: string;
   cta_text?: string;
   background_image_url?: string;
   landing_url?: string;
+  general_brand_message?: string;
 
   // Step 7: Review (name)
   name: string;

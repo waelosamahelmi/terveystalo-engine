@@ -6,7 +6,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createCampaign } from '../lib/campaignService';
-import { addDentalCampaignToSheet } from '../lib/googleSheets';
 import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService';
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore } from '../lib/store';
@@ -43,7 +42,8 @@ import {
   RectangleHorizontal,
   Smartphone,
   Users,
-  X
+  X,
+  TrendingUp
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
@@ -94,6 +94,7 @@ interface CreativeConfig {
   targetUrl: string;
   audioFile: File | null;
   disclaimerText: string;
+  generalBrandMessage: string; // Yleinen brändiviesti
 }
 
 // Preview size options
@@ -207,13 +208,14 @@ const ServiceCard = ({ service, selected, onClick }: ServiceCardProps) => {
   const serviceName = service.name_fi || service.name || 'Nimetön palvelu';
   const serviceDesc = service.description_fi || service.description;
   const servicePrice = service.default_price || (service.price ? `${service.price}€` : null);
-  
+  const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
+
   return (
     <button
       onClick={onClick}
       className={`relative overflow-hidden p-6 rounded-2xl border-2 text-left transition-all duration-300 transform hover:scale-[1.02] ${
-        selected 
-          ? 'border-[#00A5B5] bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/5 shadow-lg shadow-[#00A5B5]/20' 
+        selected
+          ? 'border-[#00A5B5] bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/5 shadow-lg shadow-[#00A5B5]/20'
           : 'border-gray-200 hover:border-[#00A5B5]/50 hover:shadow-md bg-white'
       }`}
     >
@@ -221,16 +223,16 @@ const ServiceCard = ({ service, selected, onClick }: ServiceCardProps) => {
       <div className={`absolute top-0 right-0 w-32 h-32 rounded-full transform translate-x-16 -translate-y-16 transition-colors ${
         selected ? 'bg-[#00A5B5]/10' : 'bg-gray-50'
       }`} />
-      
+
       <div className="relative flex items-start space-x-4">
         <div className={`p-4 rounded-xl transition-colors ${
-          selected 
-            ? 'bg-gradient-to-br from-[#00A5B5] to-[#1B365D] text-white shadow-lg' 
+          selected
+            ? 'bg-gradient-to-br from-[#00A5B5] to-[#1B365D] text-white shadow-lg'
             : 'bg-gray-100 text-gray-500'
         }`}>
-          <ToothIcon size={28} />
+          {isGeneralBrandMessage ? <TrendingUp size={28} /> : <ToothIcon size={28} />}
         </div>
-        
+
         <div className="flex-1 min-w-0">
           <h4 className="text-lg font-semibold text-gray-900">
             {serviceName}
@@ -239,9 +241,14 @@ const ServiceCard = ({ service, selected, onClick }: ServiceCardProps) => {
             <p className="text-sm text-gray-500 mt-1 line-clamp-2">{serviceDesc}</p>
           )}
           <div className="flex items-center mt-3 space-x-4">
-            {servicePrice && (
+            {servicePrice && !isGeneralBrandMessage && (
               <span className={`text-lg font-bold ${selected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>
                 {servicePrice}
+              </span>
+            )}
+            {isGeneralBrandMessage && selected && (
+              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                Ei hintaa
               </span>
             )}
             {service.duration_minutes !== undefined && service.duration_minutes !== null && (
@@ -251,10 +258,10 @@ const ServiceCard = ({ service, selected, onClick }: ServiceCardProps) => {
             )}
           </div>
         </div>
-        
+
         <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-          selected 
-            ? 'border-[#00A5B5] bg-[#00A5B5]' 
+          selected
+            ? 'border-[#00A5B5] bg-[#00A5B5]'
             : 'border-gray-300'
         }`}>
           {selected && <Check size={14} className="text-white" strokeWidth={3} />}
@@ -678,6 +685,7 @@ const CampaignCreate = () => {
     target_age_min: 18,
     target_age_max: 80,
     target_genders: ['all'],
+    campaign_objective: 'traffic',
     is_ongoing: false
   });
 
@@ -694,7 +702,8 @@ const CampaignCreate = () => {
     priceBubbleMode: 'price',
     targetUrl: 'https://terveystalo.com/suunterveystalo',
     audioFile: null,
-    disclaimerText: 'Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.'
+    disclaimerText: 'Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.',
+    generalBrandMessage: 'Hymyile.<br>Olet hyvissä käsissä.'
   });
 
   // Sync ad_type choice with creative_type
@@ -986,15 +995,17 @@ const CampaignCreate = () => {
     return dbTemplates.find(t => t.size === sizeId && t.type !== 'meta' && t.active);
   }, [dbTemplates]);
 
-  // Build template variables from creativeConfig + branch data  
+  // Build template variables from creativeConfig + branch data
   const buildTemplateVariables = useCallback((showAddress: boolean): Record<string, string> => {
     const baseUrl = window.location.origin;
+    const isGeneralBrandMessage = selectedService?.code === 'yleinen-brandiviesti';
+
     return {
-      headline: (creativeConfig.headline || 'Hymyile.<br>Olet hyvissä käsissä.').replace(/\n/g, '<br>'),
+      headline: creativeConfig.generalBrandMessage || 'Hymyile.<br>Olet hyvissä käsissä.',
       subheadline: (creativeConfig.subheadline || 'Sujuvampaa suunterveyttä.').replace(/\n/g, '<br>'),
-      offer_title: (creativeConfig.offerTitle || 'Hammas-<br>tarkastus').replace(/\n/g, '<br>'),
-      price: creativeConfig.offer || '49',
-      offer_date: (creativeConfig.offerDate || 'Varaa viimeistään<br>28.10.').replace(/\n/g, '<br>'),
+      offer_title: isGeneralBrandMessage ? '' : (creativeConfig.offerTitle || 'Hammas-<br>tarkastus').replace(/\n/g, '<br>'),
+      price: isGeneralBrandMessage ? '' : (creativeConfig.offer || '49'),
+      offer_date: isGeneralBrandMessage ? '' : (creativeConfig.offerDate || 'Varaa viimeistään<br>28.10.').replace(/\n/g, '<br>'),
       cta_text: creativeConfig.cta || 'Varaa aika',
       branch_address: showAddress ? (selectedBranch?.address || 'Torikatu 1, Lahti') : '',
       image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen.jpg`,
@@ -1041,6 +1052,8 @@ const CampaignCreate = () => {
       renderedHtml = renderedHtml.replace('</head>', '<style>.address { display: none !important; }</style></head>');
     }
 
+    // Font URL rewriting is handled inside renderTemplateHtml()
+
     return (
       <iframe
         title={`Preview ${previewSize.id}`}
@@ -1052,7 +1065,7 @@ const CampaignCreate = () => {
           overflow: 'hidden',
           borderRadius: '4px',
         }}
-        sandbox="allow-same-origin"
+        sandbox="allow-same-origin allow-scripts"
         scrolling="no"
       />
     );
@@ -1102,21 +1115,17 @@ const CampaignCreate = () => {
       const campaign = await createCampaign({
         ...formData,
         name: campaignName,
-        headline: creativeConfig.headline || getServiceName(selectedService),
+        headline: creativeConfig.generalBrandMessage || 'Hymyile.<br>Olet hyvissä käsissä.',
+        subheadline: creativeConfig.subheadline || 'Sujuvampaa suunterveyttä.',
         offer_text: creativeConfig.offer,
         cta_text: creativeConfig.cta,
         background_image_url: creativeConfig.backgroundImage || undefined,
         landing_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
+        general_brand_message: creativeConfig.generalBrandMessage || 'Hymyile.<br>Olet hyvissä käsissä.',
       }, user?.id || '');
 
       if (campaign) {
-        // Sync to Google Sheets (silent - don't block on failure)
-        try {
-          await addDentalCampaignToSheet(campaign);
-        } catch (e) {
-          console.error('Google Sheets sync failed (non-blocking):', e);
-        }
-
+        // Sheet sync now happens automatically inside createCampaign()
         toast.success('Kampanja luotu onnistuneesti!');
         navigate(`/campaigns/${campaign.id}`);
       } else {
@@ -1553,6 +1562,85 @@ const CampaignCreate = () => {
                     </span>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Campaign Objective Selection */}
+            <div className="max-w-2xl mx-auto mt-8">
+              <div className="card p-6 bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border-2 border-purple-200 dark:border-purple-700">
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 text-white">
+                    <TrendingUp size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Kampanjan tavoite</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Valitse mitä haluat kampanjalla saavuttaa</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-6">
+                  {[
+                    {
+                      id: 'traffic' as const,
+                      label: 'Liikenne',
+                      description: 'Vie käyttäjiä verkkosivustolle',
+                      icon: '🎯',
+                      gradient: 'from-green-500 to-emerald-500'
+                    },
+                    {
+                      id: 'reach' as const,
+                      label: 'Reach',
+                      description: 'Tavoita mahdollisimman monta ihmistä',
+                      icon: '📣',
+                      gradient: 'from-blue-500 to-indigo-500'
+                    }
+                  ].map((objective) => (
+                    <button
+                      key={objective.id}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, campaign_objective: objective.id })}
+                      className={`relative p-5 rounded-xl border-2 text-left transition-all duration-300 transform hover:scale-[1.02] ${
+                        formData.campaign_objective === objective.id
+                          ? 'border-purple-500 bg-white dark:bg-gray-800 shadow-lg shadow-purple-500/20'
+                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-purple-300 dark:hover:border-purple-600'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <span className="text-3xl">{objective.icon}</span>
+                        {formData.campaign_objective === objective.id && (
+                          <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${objective.gradient} flex items-center justify-center`}>
+                            <Check size={14} className="text-white" strokeWidth={3} />
+                          </div>
+                        )}
+                      </div>
+                      <h4 className={`font-semibold mb-1 ${
+                        formData.campaign_objective === objective.id
+                          ? 'text-purple-700 dark:text-purple-400'
+                          : 'text-gray-900 dark:text-white'
+                      }`}>
+                        {objective.label}
+                      </h4>
+                      <p className={`text-sm ${
+                        formData.campaign_objective === objective.id
+                          ? 'text-purple-600 dark:text-purple-300'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }`}>
+                        {objective.description}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+
+                {formData.campaign_objective && (
+                  <div className="mt-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700">
+                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                      <span className="font-medium">Valittu tavoite:</span>{' '}
+                      {formData.campaign_objective === 'traffic'
+                        ? 'Liikenne - Optimoidaan kävijöiden saamiseksi verkkosivustolle'
+                        : 'Reach - Maximoidaan ihmisten tavoittaminen'}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

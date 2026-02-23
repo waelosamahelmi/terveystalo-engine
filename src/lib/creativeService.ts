@@ -114,6 +114,24 @@ export async function getCreativeTemplate(templateId: string): Promise<CreativeT
 }
 
 /**
+ * Rewrite font URLs in creative HTML to use the current origin.
+ * Templates stored in the DB may reference the production Netlify domain
+ * (https://suunterveystalo.netlify.app/font/...) or use root-relative paths
+ * (/font/...). When rendered inside a srcDoc iframe at localhost, these
+ * would fail with CORS errors. This rewrites them to the current origin.
+ */
+export function fixFontUrls(html: string): string {
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+  if (!base) return html;
+
+  return html
+    // Absolute netlify URLs → current origin
+    .replace(/https:\/\/suunterveystalo\.netlify\.app\/font\//g, `${base}/font/`)
+    // Root-relative /font/ paths inside url() → absolute current origin
+    .replace(/url\((['"]?)\/font\//g, `url($1${base}/font/`);
+}
+
+/**
  * Render template HTML with provided variables
  */
 export function renderTemplateHtml(
@@ -133,6 +151,9 @@ export function renderTemplateHtml(
     const regex = new RegExp(`{{${key}}}`, 'g');
     html = html.replace(regex, String(value));
   });
+
+  // Fix font URLs for local dev / cross-origin iframe previews
+  html = fixFontUrls(html);
 
   return html;
 }

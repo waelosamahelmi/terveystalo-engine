@@ -2,6 +2,12 @@
   command = "npm run build"
   publish = "dist"
 
+# CORS headers for font files (needed for srcDoc iframe previews)
+[[headers]]
+  for = "/font/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+
 [functions]
   directory = "functions"
 

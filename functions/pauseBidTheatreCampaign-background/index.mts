@@ -153,8 +153,8 @@ export async function handler(event) {
     let campaignData;
     try {
       const { data, error } = await supabase
-        .from('campaigns')
-        .select('*') // Fetch all fields from campaigns table
+        .from('dental_campaigns')
+        .select('*')
         .eq('id', campaignId)
         .single();
 
@@ -219,7 +219,7 @@ export async function handler(event) {
     // Identify campaigns to pause using bidtheatre_campaigns table
     const campaignIds = bidTheatreCampaigns.map(campaign => ({
       id: campaign.bt_campaign_id,
-      type: campaign.channel === 'DISPLAY' ? 'display_bt_id' : 'pdooh_bt_id',
+      type: campaign.channel === 'DISPLAY' ? 'bt_campaign_id_display' : 'bt_campaign_id_pdooh',
     }));
 
     if (campaignIds.length === 0) {

@@ -1,6 +1,7 @@
 import axios from 'axios';
-import { Campaign, CampaignApartment, Apartment, DentalCampaign } from '../types';
+import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus } from '../types';
 import { parseISO, format } from 'date-fns';
+import { supabase } from './supabase';
 
 // Google Sheets API endpoint
 const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -11,6 +12,31 @@ const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
 
 // Sheet name for Suun Terveystalo feed
 const SHEET_NAME = 'FEED';
+
+// Extended column range (A:BE = 57 columns for new fields)
+const SHEET_RANGE = `${SHEET_NAME}!A:BE`;
+const COLUMN_COUNT = 57;
+
+// ============================================================================
+// SHEET SYNC TRACKING — update sheet_row_id & sheet_last_sync in DB
+// ============================================================================
+
+async function updateSheetSyncTracking(campaignId: string, sheetRowId?: string): Promise<void> {
+  try {
+    const updates: Record<string, unknown> = {
+      sheet_last_sync: new Date().toISOString(),
+    };
+    if (sheetRowId) {
+      updates.sheet_row_id = sheetRowId;
+    }
+    await supabase
+      .from('dental_campaigns')
+      .update(updates)
+      .eq('id', campaignId);
+  } catch (e) {
+    console.error('Failed to update sheet sync tracking:', e);
+  }
+}
 
 // Function to get a new access token using the refresh token
 async function getAccessToken() {
@@ -70,7 +96,7 @@ export async function findCampaignRows(campaignId: string) {
     
     // Get all values from the sheet
     const response = await axios.get(
-      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A:W`,
+      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_RANGE}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -211,6 +237,127 @@ export async function addCampaignToSheet(
   }
 }
 
+// Helper: safely format an ISO date string to dd/MM/yyyy
+function safeFormatDate(raw?: string | null): string {
+  if (!raw) return '';
+  if (raw.toUpperCase() === 'ONGOING') return 'Ongoing';
+  try {
+    return format(parseISO(raw), 'dd/MM/yyyy');
+  } catch {
+    return raw;
+  }
+}
+
+// Helper: strip leading characters that Google Sheets would interpret as formulas (+, -, =, @)
+function sheetSafe(val: string): string {
+  if (val) return val.replace(/^[+=\-@]+/, '');
+  return val;
+}
+
+// Helper to format a dental campaign into a sheet row (50 columns A-AX)
+function formatDentalCampaignRow(campaign: DentalCampaign): string[] {
+  const startDate = safeFormatDate(campaign.campaign_start_date || campaign.start_date);
+  const endDate = (campaign.is_ongoing || campaign.campaign_end_date?.toUpperCase() === 'ONGOING')
+    ? 'Ongoing'
+    : safeFormatDate(campaign.campaign_end_date || campaign.end_date);
+
+  const svc = campaign.service;
+  const br = campaign.branch;
+
+  // Summarise creatives: count per channel + list of sizes
+  const creatives = campaign.creatives || [];
+  const creativeCount = creatives.length;
+  const creativeSizes = [...new Set(creatives.map(c => c.size))].join(', ');
+  const creativeChannels = [...new Set(creatives.map(c => c.channel))].join(', ');
+  const creativeStatuses = [...new Set(creatives.map(c => c.status))].join(', ');
+  // BidTheatre creative IDs
+  const btCreativeIds = creatives
+    .filter(c => c.bt_creative_id)
+    .map(c => c.bt_creative_id)
+    .join(', ');
+
+  return [
+    // ── Core campaign (A-G) ──
+    campaign.id,                                                  // A: campaign_id
+    campaign.name || '',                                          // B: campaign_name
+    campaign.description || '',                                   // C: description
+    campaign.status || 'draft',                                   // D: status
+    campaign.ad_type || '',                                       // E: ad_type
+    campaign.creative_type || '',                                 // F: creative_type
+    campaign.include_pricing || '',                               // G: include_pricing
+
+    // ── Service (H-J) ──
+    svc?.name || '',                                              // H: service_name
+    svc?.code || '',                                              // I: service_code
+    svc?.default_price || '',                                     // J: service_price
+
+    // ── Branch (K-P) ──
+    br?.name || '',                                               // K: branch_name
+    br?.address || '',                                            // L: branch_address
+    br?.postal_code || '',                                        // M: branch_postal_code
+    br?.city || '',                                               // N: branch_city
+    br?.region || '',                                             // O: branch_region
+    sheetSafe(br?.phone || ''),                                  // P: branch_phone
+
+    // ── Location targeting (Q-V) ──
+    campaign.campaign_address || '',                              // Q: target_address
+    campaign.campaign_postal_code || '',                          // R: target_postal_code
+    campaign.campaign_city || '',                                 // S: target_city
+    (campaign.campaign_radius || 0).toString(),                   // T: target_radius
+    campaign.campaign_coordinates?.lat?.toString() || '',         // U: target_lat
+    campaign.campaign_coordinates?.lng?.toString() || '',         // V: target_lng
+
+    // ── Schedule (W-Y) ──
+    startDate,                                                    // W: start_date
+    endDate,                                                      // X: end_date
+    campaign.is_ongoing ? 'Yes' : 'No',                          // Y: is_ongoing
+
+    // ── Channels (Z-AC) ──
+    campaign.channel_meta ? 'Yes' : 'No',                        // Z: channel_meta
+    campaign.channel_display ? 'Yes' : 'No',                     // AA: channel_display
+    campaign.channel_pdooh ? 'Yes' : 'No',                       // AB: channel_pdooh
+    campaign.channel_audio ? 'Yes' : 'No',                       // AC: channel_audio
+
+    // ── Budget (AD-AM) ──
+    (campaign.total_budget || 0).toString(),                      // AD: total_budget
+    (campaign.budget_meta || 0).toString(),                       // AE: budget_meta
+    (campaign.budget_display || 0).toString(),                    // AF: budget_display
+    (campaign.budget_pdooh || 0).toString(),                      // AG: budget_pdooh
+    (campaign.budget_audio || 0).toString(),                      // AH: budget_audio
+    (campaign.daily_budget_meta || 0).toFixed(2),                 // AI: daily_budget_meta
+    (campaign.daily_budget_display || 0).toFixed(2),              // AJ: daily_budget_display
+    (campaign.daily_budget_pdooh || 0).toFixed(2),                // AK: daily_budget_pdooh
+    (campaign.daily_budget_audio || 0).toFixed(2),                // AL: daily_budget_audio
+    (campaign.spent_budget || 0).toString(),                      // AM: spent_budget
+
+    // ── Creative content (AN-AT) ──
+    campaign.headline || '',                                      // AN: headline
+    campaign.subheadline || '',                                   // AO: subheadline
+    campaign.offer_text || '',                                    // AP: offer_text
+    campaign.cta_text || '',                                      // AQ: cta_text
+    campaign.landing_url || '',                                   // AR: landing_url
+    campaign.background_image_url || '',                          // AS: background_image_url
+    campaign.general_brand_message || '',                         // AT: general_brand_message
+    (campaign.target_screens_count || 0).toString(),              // AU: target_screens_count
+
+    // ── Audience (AV-AX) ──
+    (campaign.target_age_min ?? '').toString(),                   // AV: target_age_min
+    (campaign.target_age_max ?? '').toString(),                   // AW: target_age_max
+    (campaign.target_genders || []).join(', '),                   // AX: target_genders
+
+    // ── New fields (AY-BB) ──
+    campaign.campaign_objective || '',                            // AY: campaign_objective
+    campaign.ad_type || '',                                       // AZ: ad_type (for reference)
+    svc?.code === 'yleinen-brandiviesti' ? 'Yes' : 'No',         // BA: is_general_brand_message
+    campaign.include_pricing || '',                               // BB: include_pricing
+
+    // ── Creatives summary (BC-BE) ──
+    creativeCount.toString(),                                     // BC: creatives_count
+    creativeSizes,                                                // BD: creative_sizes
+    creativeChannels,                                             // BE: creative_channels
+  ];
+}
+
 // Function to add a dental campaign to Google Sheet (one row per campaign, no apartments)
 export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promise<boolean> {
   try {
@@ -221,75 +368,10 @@ export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promis
       return true;
     }
 
-    // Format dates
-    let startDate = '';
-    let endDate = '';
+    const row = formatDentalCampaignRow(campaign);
 
-    if (campaign.campaign_start_date) {
-      try {
-        const parsed = parseISO(campaign.campaign_start_date);
-        startDate = format(parsed, 'dd/MM/yyyy');
-      } catch {
-        startDate = campaign.campaign_start_date;
-      }
-    } else if (campaign.start_date) {
-      try {
-        const parsed = parseISO(campaign.start_date);
-        startDate = format(parsed, 'dd/MM/yyyy');
-      } catch {
-        startDate = campaign.start_date;
-      }
-    }
-
-    if (campaign.campaign_end_date && campaign.campaign_end_date.toUpperCase() !== 'ONGOING') {
-      try {
-        const parsed = parseISO(campaign.campaign_end_date);
-        endDate = format(parsed, 'dd/MM/yyyy');
-      } catch {
-        endDate = campaign.campaign_end_date;
-      }
-    } else if (campaign.is_ongoing || (campaign.campaign_end_date && campaign.campaign_end_date.toUpperCase() === 'ONGOING')) {
-      endDate = 'Ongoing';
-    } else if (campaign.end_date) {
-      try {
-        const parsed = parseISO(campaign.end_date);
-        endDate = format(parsed, 'dd/MM/yyyy');
-      } catch {
-        endDate = campaign.end_date;
-      }
-    }
-
-    const serviceName = campaign.service?.name || '';
-    const branchName = campaign.branch?.name || '';
-
-    const row = [
-      campaign.id,                                          // A: campaign_id
-      campaign.name || '',                                  // B: campaign_name
-      campaign.ad_type || '',                               // C: ad_type
-      serviceName,                                          // D: service
-      branchName,                                           // E: branch
-      campaign.headline || '',                              // F: headline
-      campaign.landing_url || '',                            // G: landing_url
-      campaign.campaign_address || '',                       // H: address
-      campaign.campaign_postal_code || '',                   // I: postal_code
-      campaign.campaign_city || '',                          // J: city
-      (campaign.campaign_radius || 0).toString(),           // K: radius
-      campaign.channel_meta ? 'Yes' : 'No',                 // L: channel_meta
-      campaign.channel_display ? 'Yes' : 'No',              // M: channel_display
-      campaign.channel_pdooh ? 'Yes' : 'No',                // N: channel_pdooh
-      campaign.channel_audio ? 'Yes' : 'No',                // O: channel_audio
-      (campaign.total_budget || 0).toString(),               // P: total_budget
-      (campaign.budget_meta || 0).toString(),                // Q: budget_meta
-      (campaign.budget_display || 0).toString(),             // R: budget_display
-      (campaign.budget_pdooh || 0).toString(),               // S: budget_pdooh
-      (campaign.budget_audio || 0).toString(),               // T: budget_audio
-      startDate,                                             // U: start_date
-      endDate,                                               // V: end_date
-      campaign.status || 'draft',                            // W: status
-    ];
-
-    await axios.post(
-      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A:W:append?valueInputOption=USER_ENTERED`,
+    const response = await axios.post(
+      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_RANGE}:append?valueInputOption=USER_ENTERED`,
       { values: [row] },
       {
         headers: {
@@ -299,10 +381,99 @@ export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promis
       }
     );
 
-    console.log(`Successfully added dental campaign ${campaign.id} to Google Sheet`);
+    // Extract appended row range to store as sheet_row_id
+    const updatedRange = response.data?.updates?.updatedRange || '';
+    console.log(`Successfully added dental campaign ${campaign.id} to Google Sheet (${updatedRange})`);
+
+    // Track sync in database
+    await updateSheetSyncTracking(campaign.id, updatedRange);
+
     return true;
   } catch (error) {
     console.error('Error adding dental campaign to sheet:', error instanceof Error ? error.message : 'Unknown error');
+    return false;
+  }
+}
+
+// Function to update a dental campaign in Google Sheet (delete + re-add)
+export async function updateDentalCampaignInSheet(campaign: DentalCampaign): Promise<boolean> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      console.debug('Google Sheets sync skipped - no access token');
+      return true;
+    }
+
+    // Find existing rows for this campaign
+    const existingRows = await findCampaignRows(campaign.id);
+
+    if (existingRows.length > 0) {
+      // Update in place — overwrite the first matching row
+      const rowIndex = existingRows[0].rowIndex;
+      const row = formatDentalCampaignRow(campaign);
+
+      await axios.put(
+        `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:BE${rowIndex}?valueInputOption=USER_ENTERED`,
+        { values: [row] },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      console.log(`Successfully updated dental campaign ${campaign.id} in Google Sheet (row ${rowIndex})`);
+      await updateSheetSyncTracking(campaign.id, `${SHEET_NAME}!A${rowIndex}:BE${rowIndex}`);
+    } else {
+      // No existing row found — append as new
+      return await addDentalCampaignToSheet(campaign);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error updating dental campaign in sheet:', error instanceof Error ? error.message : 'Unknown error');
+    return false;
+  }
+}
+
+// Function to update dental campaign status in Google Sheet (column W only)
+export async function updateDentalCampaignStatusInSheet(
+  campaignId: string,
+  status: CampaignStatus
+): Promise<boolean> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      console.debug('Google Sheets sync skipped - no access token');
+      return true;
+    }
+
+    const existingRows = await findCampaignRows(campaignId);
+    if (existingRows.length === 0) {
+      console.debug(`No sheet row found for campaign ${campaignId} — skipping status update`);
+      return true;
+    }
+
+    // Update status column (D) for each matching row
+    for (const row of existingRows) {
+      await axios.put(
+        `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!D${row.rowIndex}?valueInputOption=USER_ENTERED`,
+        { values: [[status]] },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+    }
+
+    console.log(`Successfully updated status to "${status}" for campaign ${campaignId} in Google Sheet`);
+    await updateSheetSyncTracking(campaignId);
+    return true;
+  } catch (error) {
+    console.error('Error updating dental campaign status in sheet:', error instanceof Error ? error.message : 'Unknown error');
     return false;
   }
 }
@@ -366,7 +537,7 @@ export async function deleteCampaignFromSheet(campaignId: string) {
       return false;
     }
     const sheetId = liveSheet.properties.sheetId;
-    const columnCount = liveSheet.properties.gridProperties?.columnCount || 23; // Default to 23 (A:W) if not specified
+    const columnCount = liveSheet.properties.gridProperties?.columnCount || COLUMN_COUNT; // Default to 30 (A:AD) if not specified
     console.log(`${SHEET_NAME} sheet column count: ${columnCount}`);
 
     // Sort row indices in descending order to avoid shifting issues when deleting
@@ -374,12 +545,12 @@ export async function deleteCampaignFromSheet(campaignId: string) {
     
     // Delete each row individually, starting from the bottom
     for (const rowIndex of rowIndices) {
-      // First, clear the row to ensure no leftover data (use A:W since we know the sheet structure)
+      // First, clear the row to ensure no leftover data (use A:AX since we know the sheet structure)
       try {
         await axios.put(
-          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:W${rowIndex}?valueInputOption=RAW`,
+          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:AX${rowIndex}?valueInputOption=RAW`,
           {
-            values: [Array(23).fill('')], // Clear exactly 23 columns (A:W)
+            values: [Array(COLUMN_COUNT).fill('')], // Clear exactly 50 columns (A:AX)
           },
           {
             headers: {

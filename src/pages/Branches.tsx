@@ -1,14 +1,15 @@
 // ============================================================================
 // SUUN TERVEYSTALO - Branches (Pisteet) Page
 // Manage all dental clinic branches/locations
+// Shows campaign budgets and active campaigns overview
 // ============================================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { createBranch, updateBranch, toggleBranchStatus, upsertBranchAllocatedBudget } from '../lib/branchService';
-import { getAppSetting, updateAppSetting } from '../lib/settingsService';
+import { createBranch, updateBranch, toggleBranchStatus } from '../lib/branchService';
+import { getCampaignsByBranch } from '../lib/campaignService';
 import { useStore } from '../lib/store';
 import { countScreensInRadius } from '../lib/mediaScreensService';
-import type { Branch } from '../types';
+import type { Branch, DentalCampaign } from '../types';
 import {
   MapPin,
   Plus,
@@ -27,7 +28,10 @@ import {
   List,
   Monitor,
   Euro,
-  Percent
+  Percent,
+  TrendingUp,
+  Calendar,
+  Activity
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -37,9 +41,37 @@ interface BranchCardProps {
   onEdit: (branch: Branch) => void;
   onToggleStatus: (branchId: string) => void;
   screenCount?: number;
+  campaigns: DentalCampaign[];
+  totalCampaignBudget: number;
+  hasActiveCampaigns: boolean;
 }
 
-const BranchCard = ({ branch, onEdit, onToggleStatus, screenCount }: BranchCardProps) => (
+const BranchCard = ({
+  branch,
+  onEdit,
+  onToggleStatus,
+  screenCount,
+  campaigns,
+  totalCampaignBudget,
+  hasActiveCampaigns
+}: BranchCardProps) => {
+  // Calculate total budget from all campaigns
+  const totalBudget = campaigns.reduce((sum, campaign) => {
+    return sum + (campaign.total_budget || 0);
+  }, 0);
+
+  // Calculate budget by channel
+  const channelBudgets = campaigns.reduce((acc, campaign) => {
+    return {
+      display: acc.display + (campaign.budget_display || 0),
+      pdooh: acc.pdooh + (campaign.budget_pdooh || 0),
+      meta: acc.meta + (campaign.budget_meta || 0),
+    };
+  }, { display: 0, pdooh: 0, meta: 0 });
+
+  const activeCampaigns = campaigns.filter(c => c.status === 'active');
+
+  return (
   <div className="card-hover p-6 animate-fade-in dark:bg-slate-800/70 dark:border-white/10">
     <div className="flex items-start justify-between mb-4">
       <div className="flex items-start space-x-4">
@@ -47,7 +79,15 @@ const BranchCard = ({ branch, onEdit, onToggleStatus, screenCount }: BranchCardP
           <MapPin size={24} className={branch.active ? 'text-[#00A5B5]' : 'text-gray-400'} />
         </div>
         <div>
-          <h3 className="font-semibold text-gray-900 dark:text-white">{branch.name}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-gray-900 dark:text-white">{branch.name}</h3>
+            {hasActiveCampaigns && (
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full dark:bg-green-900/30 dark:text-green-400">
+                <Activity size={12} />
+                Aktiivinen
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">{branch.city}</p>
         </div>
       </div>
@@ -92,12 +132,46 @@ const BranchCard = ({ branch, onEdit, onToggleStatus, screenCount }: BranchCardP
           <span>{screenCount} näyttöä 5 km säteellä</span>
         </div>
       )}
-      {branch.budget?.allocated_budget !== undefined && branch.budget.allocated_budget > 0 && (
-        <div className="flex items-center text-gray-600 dark:text-gray-300">
-          <Euro size={16} className="mr-2 text-gray-400" />
-          <span>
-            {branch.budget.used_budget?.toLocaleString('fi-FI') || 0} € / {branch.budget.allocated_budget.toLocaleString('fi-FI')} € käytetty
-          </span>
+
+      {/* Campaign Budget Overview */}
+      {campaigns.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/10">
+          <div className="flex items-center text-gray-700 dark:text-gray-300 mb-2">
+            <Euro size={16} className="mr-2 text-[#00A5B5]" />
+            <span className="font-medium">Kampanjabudjetti:</span>
+            <span className="ml-auto font-semibold text-[#00A5B5]">
+              {totalBudget.toLocaleString('fi-FI')} €
+            </span>
+          </div>
+
+          {/* Channel breakdown */}
+          {(channelBudgets.display > 0 || channelBudgets.pdooh > 0 || channelBudgets.meta > 0) && (
+            <div className="flex gap-2 text-xs mt-2">
+              {channelBudgets.display > 0 && (
+                <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded dark:bg-purple-900/30 dark:text-purple-400">
+                  Display: {channelBudgets.display.toLocaleString('fi-FI')} €
+                </span>
+              )}
+              {channelBudgets.pdooh > 0 && (
+                <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded dark:bg-blue-900/30 dark:text-blue-400">
+                  PDOOH: {channelBudgets.pdooh.toLocaleString('fi-FI')} €
+                </span>
+              )}
+              {channelBudgets.meta > 0 && (
+                <span className="px-2 py-1 bg-green-100 text-green-700 rounded dark:bg-green-900/30 dark:text-green-400">
+                  Meta: {channelBudgets.meta.toLocaleString('fi-FI')} €
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Active campaigns count */}
+          {activeCampaigns.length > 0 && (
+            <div className="flex items-center text-xs text-gray-500 dark:text-gray-400 mt-2">
+              <Calendar size={12} className="mr-1" />
+              {activeCampaigns.length} aktiivista kampanjaa
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -112,7 +186,8 @@ const BranchCard = ({ branch, onEdit, onToggleStatus, screenCount }: BranchCardP
       )}
     </div>
   </div>
-);
+  );
+};
 
 // Branch Modal Component
 interface BranchModalProps {
@@ -416,27 +491,50 @@ const BranchModal = ({ branch, isOpen, onClose, onSave, totalBudget }: BranchMod
 const Branches = () => {
   // Get data from global store (instant, already loaded, realtime synced)
   const { branches: storeBranches } = useStore();
-  
+
   const [filteredBranches, setFilteredBranches] = useState<Branch[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'has-active-campaigns'>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [showModal, setShowModal] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [screenCounts, setScreenCounts] = useState<Record<string, number>>({});
-  const [totalBudget, setTotalBudget] = useState<number>(0);
-  const [editingTotalBudget, setEditingTotalBudget] = useState(false);
+  const [branchCampaigns, setBranchCampaigns] = useState<Record<string, DentalCampaign[]>>({});
+  const [loadingCampaigns, setLoadingCampaigns] = useState<Record<string, boolean>>({});
 
-  // Load total budget from settings
+  // Load campaigns for each branch
   useEffect(() => {
-    getAppSetting<number>('total_monthly_budget').then(val => {
-      if (val) setTotalBudget(val);
-    });
-  }, []);
+    const loadCampaignsForBranches = async () => {
+      const campaignsData: Record<string, DentalCampaign[]> = {};
+      const loadingState: Record<string, boolean> = {};
+
+      for (const branch of storeBranches) {
+        loadingState[branch.id] = true;
+        setLoadingCampaigns(prev => ({ ...prev, [branch.id]: true }));
+
+        try {
+          const campaigns = await getCampaignsByBranch(branch.id);
+          campaignsData[branch.id] = campaigns;
+        } catch (error) {
+          console.error(`Error loading campaigns for branch ${branch.id}:`, error);
+          campaignsData[branch.id] = [];
+        } finally {
+          loadingState[branch.id] = false;
+          setLoadingCampaigns(prev => ({ ...prev, [branch.id]: false }));
+        }
+      }
+
+      setBranchCampaigns(campaignsData);
+    };
+
+    if (storeBranches.length > 0) {
+      loadCampaignsForBranches();
+    }
+  }, [storeBranches]);
 
   // Extract unique regions from store data
-  const regions = useMemo(() => 
+  const regions = useMemo(() =>
     [...new Set(storeBranches.map(b => b.region).filter(Boolean))] as string[],
     [storeBranches]
   );
@@ -445,7 +543,7 @@ const Branches = () => {
   useEffect(() => {
     const loadScreenCounts = async () => {
       const counts: Record<string, number> = {};
-      
+
       for (const branch of storeBranches) {
         if (branch.latitude && branch.longitude) {
           try {
@@ -459,7 +557,7 @@ const Branches = () => {
           counts[branch.id] = 0;
         }
       }
-      
+
       setScreenCounts(counts);
     };
 
@@ -483,9 +581,17 @@ const Branches = () => {
 
     // Status filter
     if (statusFilter !== 'all') {
-      filtered = filtered.filter(b => 
-        statusFilter === 'active' ? b.active : !b.active
-      );
+      if (statusFilter === 'has-active-campaigns') {
+        // Filter branches that have active campaigns
+        filtered = filtered.filter(b => {
+          const campaigns = branchCampaigns[b.id] || [];
+          return campaigns.some(c => c.status === 'active');
+        });
+      } else {
+        filtered = filtered.filter(b =>
+          statusFilter === 'active' ? b.active : !b.active
+        );
+      }
     }
 
     // Region filter
@@ -494,7 +600,7 @@ const Branches = () => {
     }
 
     setFilteredBranches(filtered);
-  }, [storeBranches, searchQuery, statusFilter, regionFilter]);
+  }, [storeBranches, searchQuery, statusFilter, regionFilter, branchCampaigns]);
 
   // Re-filter when store data or filters change
   useEffect(() => {
@@ -589,41 +695,6 @@ const Branches = () => {
           </p>
         </div>
         <div className="flex items-center space-x-3">
-          {/* Total Budget */}
-          <div className="flex items-center gap-2 bg-gradient-to-r from-[#00A5B5]/10 to-transparent rounded-xl px-4 py-2 border border-[#00A5B5]/20">
-            <Euro size={16} className="text-[#00A5B5]" />
-            {editingTotalBudget ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={totalBudget || ''}
-                  onChange={(e) => setTotalBudget(parseFloat(e.target.value) || 0)}
-                  className="w-28 px-2 py-1 text-sm rounded border border-[#00A5B5] focus:ring-1 focus:ring-[#00A5B5] outline-none"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      updateAppSetting('total_monthly_budget', totalBudget);
-                      setEditingTotalBudget(false);
-                      toast.success('Kokonaisbudjetti päivitetty');
-                    }
-                    if (e.key === 'Escape') setEditingTotalBudget(false);
-                  }}
-                  onBlur={() => {
-                    updateAppSetting('total_monthly_budget', totalBudget);
-                    setEditingTotalBudget(false);
-                  }}
-                />
-                <span className="text-sm text-gray-500">€/kk</span>
-              </div>
-            ) : (
-              <button
-                onClick={() => setEditingTotalBudget(true)}
-                className="text-sm font-semibold text-[#00A5B5] hover:underline"
-              >
-                {totalBudget > 0 ? `${totalBudget.toLocaleString('fi-FI')}€/kk` : 'Aseta budjetti'}
-              </button>
-            )}
-          </div>
           {/* View Mode Toggle */}
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
             <button
@@ -671,12 +742,13 @@ const Branches = () => {
           <div className="relative">
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive' | 'has-active-campaigns')}
               className="input pr-10 appearance-none min-w-[140px]"
             >
               <option value="all">Kaikki tilat</option>
               <option value="active">Aktiiviset</option>
               <option value="inactive">Ei aktiiviset</option>
+              <option value="has-active-campaigns">Aktiiviset kampanjat</option>
             </select>
             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           </div>
@@ -719,15 +791,24 @@ const Branches = () => {
         </div>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredBranches.map((branch) => (
-            <BranchCard
-              key={branch.id}
-              branch={branch}
-              onEdit={handleEditBranch}
-              onToggleStatus={handleToggleStatus}
-              screenCount={screenCounts[branch.id]}
-            />
-          ))}
+          {filteredBranches.map((branch) => {
+            const campaigns = branchCampaigns[branch.id] || [];
+            const hasActiveCampaigns = campaigns.some(c => c.status === 'active');
+            const totalCampaignBudget = campaigns.reduce((sum, c) => sum + (c.total_budget || 0), 0);
+
+            return (
+              <BranchCard
+                key={branch.id}
+                branch={branch}
+                onEdit={handleEditBranch}
+                onToggleStatus={handleToggleStatus}
+                screenCount={screenCounts[branch.id]}
+                campaigns={campaigns}
+                totalCampaignBudget={totalCampaignBudget}
+                hasActiveCampaigns={hasActiveCampaigns}
+              />
+            );
+          })}
         </div>
       ) : (
         <div className="card overflow-hidden">

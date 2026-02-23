@@ -22,17 +22,17 @@ const SUPABASE_URL = getEnvVar([
   'NETLIFY_SUPABASE_URL'
 ]);
 
-const SUPABASE_ANON_KEY = getEnvVar([
-  'SUPABASE_ANON_KEY',
-  'VITE_SUPABASE_ANON_KEY',
-  'REACT_APP_SUPABASE_ANON_KEY',
-  'NETLIFY_SUPABASE_ANON_KEY'
+const SUPABASE_SERVICE_ROLE_KEY = getEnvVar([
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'VITE_SUPABASE_SERVICE_ROLE_KEY',
+  'REACT_APP_SUPABASE_SERVICE_ROLE_KEY',
+  'NETLIFY_SUPABASE_SERVICE_ROLE_KEY'
 ]);
 
 console.log(`Initializing Supabase with URL: ${SUPABASE_URL}`);
-console.log(`Anon key available: ${SUPABASE_ANON_KEY ? 'Yes (starts with: ' + SUPABASE_ANON_KEY.slice(0, 5) + '...)' : 'No'}`);
+console.log(`Service role key available: ${SUPABASE_SERVICE_ROLE_KEY ? 'Yes (starts with: ' + SUPABASE_SERVICE_ROLE_KEY.slice(0, 5) + '...)' : 'No'}`);
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Constants
 const BT_API_URL = 'https://asx-api.bidtheatre.com/v2.0/api';
@@ -685,52 +685,107 @@ const createBidTheatreCampaign = async (campaign) => {
         }
 
         if (channel.channel === 'DISPLAY') {
-          const adConfigs = {
-            '300x300': { hash: 'PENDING', width: 300, height: 300 },  // TODO: Update hash when Creatopy template ready
-            '300x431': { hash: 'g3jo2pn', width: 300, height: 431 },
-            '300x600': { hash: '11jp13n', width: 300, height: 600 },
-            '620x891': { hash: 'mqopyyq', width: 620, height: 891 },
-            '980x400': { hash: '58z5ylw', width: 980, height: 400 },
+          const adConfigs: Record<string, { width: number; height: number; dimension: number }> = {
+            '300x300': { width: 300, height: 300, dimension: 10 },
+            '300x431': { width: 300, height: 431, dimension: 1888 },
+            '300x600': { width: 300, height: 600, dimension: 11 },
+            '620x891': { width: 620, height: 891, dimension: 1888 },
+            '980x400': { width: 980, height: 400, dimension: 15 },
           };
 
           if (!apartmentKeys || apartmentKeys.length === 0) {
             overallError += `No ads created for ${channel.channel} due to missing apartment keys\n`;
             console.log(`No ads created for channel ${channel.channel} due to missing apartment keys at: ${new Date().toISOString()}`);
           } else {
-            for (const aptKey of apartmentKeys) {
-              const apartment = apartments.find(apt => apt.key === aptKey);
-              if (!apartment) {
-                overallError += `Apartment ${aptKey} not found for ${channel.channel}\n`;
-                console.log(`Apartment ${aptKey} not found for channel ${channel.channel} at: ${new Date().toISOString()}`);
-                continue;
-              }
-              for (const adGroup of adGroups) {
-                for (const size of adGroup.sizes) {
-                  const config = adConfigs[size];
-                  const adPayload = {
-                    campaign: btCampaignId,
-                    name: `${aptKey} - ${size}`,
-                    adType: 'HTML banner',
-                    adStatus: 'Active',
-                    html: `<script type="text/javascript">var embedConfig = {"hash": "${config.hash}", "width": ${config.width}, "height": ${config.height}, "t": "{timestamp}", "userId": 762652, "network": "STANDARD", "type": "html5", "clickTag": "{clickurl}https://terveystalo.com/suunterveystalo?utm_source=programmatic&utm_medium=display&utm_campaign=marketing-engine&utm_content=${campaign.id}", "targetId": "${campaign.id}-${aptKey}"};</script><script type="text/javascript" src="https://live-tag.creatopy.net/embed/embed.js"></script>`,
-                    dimension: size === '300x300' ? 10 : size === '300x600' ? 11 : size === '620x891' ? 1888 : 15,
-                    isExpandable: false,
-                    isInSync: true,
-                    isSecure: true,
-                    backupContentURL: backupContentURLs[size],
-                  };
-                  try {
-                    const response = await retryWithBackoff(() =>
-                      bidTheatreApi.post(`/${BT_NETWORK_ID}/ad`, adPayload, {
-                        headers: { Authorization: `Bearer ${btToken}` },
-                      })
-                    );
-                    const adId = parseInt(response.data.ad.id);
-                    adIds[adGroup.name].push(adId);
-                    console.log(`Created ad for channel ${channel.channel}, apartment ${aptKey}, size ${size}, ad ID: ${adId} at: ${new Date().toISOString()}`);
-                  } catch (adError) {
-                    overallError += `Ad creation failed for ${channel.channel} - ${aptKey} - ${size}: ${adError.message}\n`;
-                    console.log(`Ad creation failed for ${channel.channel} - ${aptKey} - ${size}: ${adError.message} at: ${new Date().toISOString()}`);
+            // Fetch creative templates from Supabase
+            const { data: templates, error: templatesError } = await supabase
+              .from('creative_templates')
+              .select('*')
+              .in('size', Object.keys(adConfigs))
+              .eq('active', true);
+
+            if (templatesError || !templates || templates.length === 0) {
+              overallError += `Failed to fetch creative templates from Supabase: ${templatesError?.message || 'No templates found'}\n`;
+              console.log(`Failed to fetch creative templates from Supabase at: ${new Date().toISOString()}`);
+            } else {
+              console.log(`Fetched ${templates.length} creative templates from Supabase at: ${new Date().toISOString()}`);
+
+              for (const aptKey of apartmentKeys) {
+                const apartment = apartments.find(apt => apt.key === aptKey);
+                if (!apartment) {
+                  overallError += `Apartment ${aptKey} not found for ${channel.channel}\n`;
+                  console.log(`Apartment ${aptKey} not found for channel ${channel.channel} at: ${new Date().toISOString()}`);
+                  continue;
+                }
+                for (const adGroup of adGroups) {
+                  for (const size of adGroup.sizes) {
+                    const config = adConfigs[size];
+                    const template = templates.find(t => t.size === size);
+
+                    if (!template) {
+                      overallError += `Template not found for size ${size}\n`;
+                      console.log(`Template not found for size ${size} at: ${new Date().toISOString()}`);
+                      continue;
+                    }
+
+                    // Build template variables
+                    // Note: Some fields like offer_title, offer_date, price are not stored in dental_campaigns table
+                    // They are used during template preview but need to be extracted from offer_text or use defaults
+                    const variables: Record<string, string> = {
+                      headline: (campaign.headline || 'Hymyile.<br>Olet hyvissä käsissä.').replace(/\n/g, '<br>'),
+                      subheadline: (campaign.subheadline || 'Sujuvampaa suunterveyttä.').replace(/\n/g, '<br>'),
+                      offer_title: 'Hammas-<br>tarkastus', // Default value
+                      price: campaign.offer_text || '49', // Extract price from offer_text
+                      offer_date: 'Varaa viimeistään<br>28.10.', // Default value
+                      cta_text: campaign.cta_text || 'Varaa aika',
+                      branch_address: campaign.creative_type === 'local' ? (apartment.address || campaign.campaign_address || '') : '',
+                      image_url: campaign.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen.jpg',
+                      artwork_url: 'https://suunterveystalo.netlify.app/refs/assets/terveystalo-artwork.png',
+                      logo_url: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
+                      click_url: campaign.landing_url || 'https://terveystalo.com/suunterveystalo?utm_source=programmatic&utm_medium=display&utm_campaign=marketing-engine&utm_content=' + campaign.id,
+                      disclaimer_text: '', // Default empty for Display ads
+                    };
+
+                    // Generate HTML by replacing variables in template
+                    let html = template.html_template || '';
+
+                    // Merge with default values from template
+                    const mergedVars: Record<string, string> = { ...template.default_values, ...variables };
+
+                    // Replace all placeholders
+                    Object.entries(mergedVars).forEach(([key, value]) => {
+                      const regex = new RegExp(`{{${key}}}`, 'g');
+                      html = html.replace(regex, String(value));
+                    });
+
+                    // Replace clickTag placeholder with proper format
+                    html = html.replace(/{{clickTag}}/g, '{clickurl}' + (campaign.landing_url || 'https://terveystalo.com/suunterveystalo'));
+
+                    const adPayload = {
+                      campaign: btCampaignId,
+                      name: `${aptKey} - ${size}`,
+                      adType: 'HTML banner',
+                      adStatus: 'Active',
+                      html: html,
+                      dimension: config.dimension,
+                      isExpandable: false,
+                      isInSync: true,
+                      isSecure: true,
+                      backupContentURL: backupContentURLs[size],
+                    };
+                    try {
+                      const response = await retryWithBackoff(() =>
+                        bidTheatreApi.post(`/${BT_NETWORK_ID}/ad`, adPayload, {
+                          headers: { Authorization: `Bearer ${btToken}` },
+                        })
+                      );
+                      const adId = parseInt(response.data.ad.id);
+                      adIds[adGroup.name].push(adId);
+                      console.log(`Created ad for channel ${channel.channel}, apartment ${aptKey}, size ${size}, ad ID: ${adId} at: ${new Date().toISOString()}`);
+                    } catch (adError: any) {
+                      overallError += `Ad creation failed for ${channel.channel} - ${aptKey} - ${size}: ${adError.message}\n`;
+                      console.log(`Ad creation failed for ${channel.channel} - ${aptKey} - ${size}: ${adError.message} at: ${new Date().toISOString()}`);
+                    }
                   }
                 }
               }
@@ -1017,18 +1072,18 @@ const createBidTheatreCampaign = async (campaign) => {
       }
     }
 
-    // Update the campaigns table with both display_bt_id and pdooh_bt_id
-const updatePayload = {};
+    // Update the campaigns table with both bt_campaign_id_display and bt_campaign_id_pdooh
+const updatePayload: Record<string, string> = {};
 if (campaignIds['DISPLAY']) {
-  updatePayload['display_bt_id'] = campaignIds['DISPLAY'];
+  updatePayload['bt_campaign_id_display'] = campaignIds['DISPLAY'];
 }
 if (campaignIds['PDOOH']) {
-  updatePayload['pdooh_bt_id'] = campaignIds['PDOOH'];
+  updatePayload['bt_campaign_id_pdooh'] = campaignIds['PDOOH'];
 }
 
 if (Object.keys(updatePayload).length > 0) {
   const { error: updateError } = await supabase
-    .from('campaigns')
+    .from('dental_campaigns')
     .update(updatePayload)
     .eq('id', campaign.id);
 
@@ -1036,7 +1091,7 @@ if (Object.keys(updatePayload).length > 0) {
     overallError += `Failed to update campaign ${campaign.id} with BidTheatre IDs: ${updateError.message}\n`;
     console.log(`Failed to update campaign ${campaign.id} with BidTheatre IDs: ${updateError.message} at: ${new Date().toISOString()}`);
   } else {
-    console.log(`Successfully updated campaign ${campaign.id} in Supabase with BidTheatre IDs: display_bt_id=${updatePayload['display_bt_id'] || 'N/A'}, pdooh_bt_id=${updatePayload['pdooh_bt_id'] || 'N/A'} at: ${new Date().toISOString()}`);
+    console.log(`Successfully updated campaign ${campaign.id} in Supabase with BidTheatre IDs: bt_campaign_id_display=${updatePayload['bt_campaign_id_display'] || 'N/A'}, bt_campaign_id_pdooh=${updatePayload['bt_campaign_id_pdooh'] || 'N/A'} at: ${new Date().toISOString()}`);
   }
 }
 
@@ -1066,8 +1121,8 @@ const pauseBidTheatreCampaign = async (campaign) => {
   const BT_NETWORK_ID = credentials.network_id;
 
   const channels: Channel[] = [];
-  if (campaign.display_bt_id) channels.push({ channel: 'DISPLAY', btCampaignId: campaign.display_bt_id });
-  if (campaign.pdooh_bt_id) channels.push({ channel: 'PDOOH', btCampaignId: campaign.pdooh_bt_id });
+  if (campaign.bt_campaign_id_display) channels.push({ channel: 'DISPLAY', btCampaignId: campaign.bt_campaign_id_display });
+  if (campaign.bt_campaign_id_pdooh) channels.push({ channel: 'PDOOH', btCampaignId: campaign.bt_campaign_id_pdooh });
 
   console.log(`Determined channels for pausing campaign ${campaign.id}: ${channels.map(c => c.channel).join(', ')}`);
 
@@ -1150,7 +1205,7 @@ export async function handler(event) {
 
   // 2) Determine op type
   const isPause = Boolean(campaign.pause || campaign.is_pause);
-  const isUpdate = Boolean(campaign.is_update || campaign.display_bt_id || campaign.pdooh_bt_id);
+  const isUpdate = Boolean(campaign.is_update || campaign.bt_campaign_id_display || campaign.bt_campaign_id_pdooh);
 
   if (!campaign.id) {
     return {

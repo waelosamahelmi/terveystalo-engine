@@ -6,6 +6,12 @@
 import { supabase } from './supabase';
 import { sendSlackNotification } from './slackService';
 import { updateBranchUsedBudget } from './branchService';
+import {
+  addDentalCampaignToSheet,
+  updateDentalCampaignInSheet,
+  updateDentalCampaignStatusInSheet,
+  deleteCampaignFromSheet,
+} from './googleSheets';
 import type {
   DentalCampaign,
   CampaignFormData,
@@ -157,9 +163,11 @@ export async function createCampaign(
 
     // Creative content fields
     headline: formData.headline || null,
+    subheadline: formData.subheadline || null,
     offer_text: formData.offer_text || null,
     cta_text: formData.cta_text || null,
     landing_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
+    general_brand_message: formData.general_brand_message || null,
 
     // New fields for campaign redesign
     ad_type: formData.ad_type,
@@ -167,6 +175,7 @@ export async function createCampaign(
     target_age_min: formData.target_age_min,
     target_age_max: formData.target_age_max,
     target_genders: formData.target_genders,
+    campaign_objective: formData.campaign_objective || 'traffic',
 
     status: 'draft' as CampaignStatus,
     created_by: userId
@@ -206,6 +215,13 @@ export async function createCampaign(
         'Päättyy': data.end_date
       }
     ).catch(() => {}); // Fire and forget
+
+    // Sync to Google Sheets master feed (fire and forget)
+    addDentalCampaignToSheet(data)
+      .then(ok => {
+        if (!ok) console.warn('Sheet sync returned false for campaign', data.id);
+      })
+      .catch(e => console.error('Google Sheets sync failed (non-blocking):', e));
   }
 
   return data;
@@ -234,6 +250,12 @@ export async function updateCampaign(
     return null;
   }
 
+  // Sync updated data to Google Sheets (fire and forget)
+  if (data) {
+    updateDentalCampaignInSheet(data)
+      .catch(e => console.error('Google Sheets update sync failed (non-blocking):', e));
+  }
+
   return data;
 }
 
@@ -260,6 +282,10 @@ export async function updateCampaignStatus(
     console.error('Failed to update campaign status:', error);
     return false;
   }
+
+  // Sync status change to Google Sheets (fire and forget)
+  updateDentalCampaignStatusInSheet(id, status)
+    .catch(e => console.error('Google Sheets status sync failed (non-blocking):', e));
 
   // Send Slack notification for status change
   if (campaign) {
@@ -306,6 +332,21 @@ export async function updateCampaignStatus(
  * Delete a campaign
  */
 export async function deleteCampaign(id: string): Promise<boolean> {
+  // Pause BidTheatre campaigns first to avoid orphaned running campaigns
+  try {
+    await fetch('/.netlify/functions/pauseBidTheatreCampaign-background', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId: id })
+    });
+  } catch (error) {
+    console.error('Failed to pause BT campaigns before delete (non-blocking):', error);
+  }
+
+  // Delete from Google Sheets (while campaign still exists in DB for lookup)
+  deleteCampaignFromSheet(id)
+    .catch(e => console.error('Google Sheets delete sync failed (non-blocking):', e));
+
   const { error } = await supabase
     .from('dental_campaigns')
     .delete()
@@ -330,12 +371,25 @@ export async function launchCampaign(id: string): Promise<boolean> {
     return false;
   }
 
+  // Fetch full campaign data — the create background function expects the full campaign object
+  const { data: campaignData, error: fetchError } = await supabase
+    .from('dental_campaigns')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !campaignData) {
+    console.error('Failed to fetch campaign for BT launch:', fetchError);
+    await updateCampaignStatus(id, 'draft');
+    return false;
+  }
+
   // Trigger background function for BidTheatre sync
   try {
     const response = await fetch('/.netlify/functions/createBidTheatreCampaign-background', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaign_id: id })
+      body: JSON.stringify(campaignData)
     });
 
     if (!response.ok) {
@@ -367,7 +421,7 @@ export async function pauseCampaign(id: string): Promise<boolean> {
     await fetch('/.netlify/functions/pauseBidTheatreCampaign-background', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaign_id: id })
+      body: JSON.stringify({ campaignId: id })
     });
 
     return true;
@@ -381,7 +435,40 @@ export async function pauseCampaign(id: string): Promise<boolean> {
  * Resume a paused campaign
  */
 export async function resumeCampaign(id: string): Promise<boolean> {
-  return await updateCampaignStatus(id, 'active');
+  const success = await updateCampaignStatus(id, 'active');
+  
+  if (!success) {
+    return false;
+  }
+
+  // Fetch full campaign data to send to BidTheatre for re-activation
+  const { data: campaignData, error: fetchError } = await supabase
+    .from('dental_campaigns')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !campaignData) {
+    console.error('Failed to fetch campaign for BT resume:', fetchError);
+    // Status already updated — BT re-activation failed but Supabase is correct
+    return true;
+  }
+
+  // If campaign has BT IDs, trigger update to re-activate cycles
+  if (campaignData.display_bt_id || campaignData.pdooh_bt_id) {
+    try {
+      await fetch('/.netlify/functions/createBidTheatreCampaign-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...campaignData, is_update: true })
+      });
+    } catch (error) {
+      console.error('Failed to resume BT campaign:', error);
+      // Non-blocking — Supabase status is already active
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -495,6 +582,12 @@ export async function duplicateCampaign(
   if (error) {
     console.error('Failed to duplicate campaign:', error);
     return null;
+  }
+
+  // Sync duplicated campaign to Google Sheets (fire and forget)
+  if (data) {
+    addDentalCampaignToSheet(data)
+      .catch(e => console.error('Google Sheets sync for duplicate failed (non-blocking):', e));
   }
 
   return data;

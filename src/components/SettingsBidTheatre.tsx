@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { getBidTheatreToken } from '../lib/bidTheatre';
 import toast from 'react-hot-toast';
 import {
   Monitor,
@@ -94,7 +95,7 @@ const SettingsBidTheatre = () => {
 
       // Load bid strategies
       const { data: strategiesData } = await supabase
-        .from('bid_strategies')
+        .from('bidtheatre_bid_strategies')
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -138,13 +139,10 @@ const SettingsBidTheatre = () => {
   const handleTestConnection = async () => {
     setTesting(true);
     try {
-      const response = await fetch('/api/bidtheatre/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials),
-      });
+      // Test connection by attempting BT authentication using saved credentials
+      const token = await getBidTheatreToken();
 
-      if (response.ok) {
+      if (token) {
         toast.success('Yhteys BidTheatreen toimii!');
         setConnectionStatus('success');
       } else {
@@ -165,7 +163,7 @@ const SettingsBidTheatre = () => {
       if (editingStrategy) {
         // Update existing
         const { error } = await supabase
-          .from('bid_strategies')
+          .from('bidtheatre_bid_strategies')
           .update({
             ...newStrategy,
             updated_at: new Date().toISOString(),
@@ -177,7 +175,7 @@ const SettingsBidTheatre = () => {
       } else {
         // Create new
         const { error } = await supabase
-          .from('bid_strategies')
+          .from('bidtheatre_bid_strategies')
           .insert({
             ...newStrategy,
             created_at: new Date().toISOString(),
@@ -213,7 +211,7 @@ const SettingsBidTheatre = () => {
 
     try {
       const { error } = await supabase
-        .from('bid_strategies')
+        .from('bidtheatre_bid_strategies')
         .delete()
         .eq('id', id);
 
