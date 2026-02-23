@@ -2203,7 +2203,7 @@ const CampaignCreate = () => {
                 </div>
 
                 {/* Disclaimer text for PDOOH (not for 980x400) */}
-                {formData.channel_pdooh && selectedSizes.some(s => s !== '980x400') && (
+                {formData.channel_pdooh && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Legal (PDOOH)
@@ -2376,12 +2376,13 @@ const CampaignCreate = () => {
                     return (
                       <div key={cat.key}>
                         <div className="flex items-center gap-2 mb-1.5">
-                          <CatIcon size={14} className="text-gray-500" />
-                          <span className={`text-xs font-semibold uppercase tracking-wider ${isMeta ? 'text-gray-400' : 'text-gray-600'}`}>
+                          <CatIcon size={14} className={isMeta && !formData.channel_meta ? 'text-gray-400' : 'text-gray-500'} />
+                          <span className={`text-xs font-semibold uppercase tracking-wider ${isMeta && !formData.channel_meta ? 'text-gray-400' : 'text-gray-600'}`}>
                             {cat.label}
+                            {isMeta && !formData.channel_meta && ' (tulossa)'}
                           </span>
                         </div>
-                        <div className={`flex flex-wrap gap-2 ${isMeta ? 'opacity-50 pointer-events-none' : ''}`}>
+                        <div className={`flex flex-wrap gap-2 ${isMeta && !formData.channel_meta ? 'opacity-50 pointer-events-none' : ''}`}>
                           {sizesInCat.map((size) => {
                             const Icon = size.icon;
                             const isSelected = previewSize.id === size.id;
