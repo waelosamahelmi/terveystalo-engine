@@ -43,7 +43,8 @@ import {
   Smartphone,
   Users,
   X,
-  TrendingUp
+  TrendingUp,
+  Play
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
@@ -93,6 +94,7 @@ interface CreativeConfig {
   priceBubbleMode: 'price' | 'no-price' | 'both';
   targetUrl: string;
   audioFile: File | null;
+  selectedAudio: string | null;
   disclaimerText: string;
   generalBrandMessage: string; // Yleinen brändiviesti
 }
@@ -702,6 +704,7 @@ const CampaignCreate = () => {
     priceBubbleMode: 'price',
     targetUrl: 'https://terveystalo.com/suunterveystalo',
     audioFile: null,
+    selectedAudio: null,
     disclaimerText: 'Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.',
     generalBrandMessage: 'Hymyile.<br>Olet hyvissä käsissä.'
   });
@@ -2097,7 +2100,8 @@ const CampaignCreate = () => {
                   />
                 </div>
 
-                {/* Price Bubble Mode */}
+                {/* Price Bubble Mode - Hide for general brand message */}
+                {selectedService?.code !== 'yleinen-brandiviesti' && (
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                   <div className="flex items-center gap-3 mb-3">
                     <Euro size={20} className="text-[#004E9A]" />
@@ -2167,6 +2171,7 @@ const CampaignCreate = () => {
                     </div>
                   )}
                 </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2197,11 +2202,11 @@ const CampaignCreate = () => {
                   <p className="text-xs text-gray-400 mt-1">Mainosta klikkaavan käyttäjän ohjausosoite</p>
                 </div>
 
-                {/* Disclaimer text for PDOOH */}
-                {formData.channel_pdooh && (
+                {/* Disclaimer text for PDOOH (not for 980x400) */}
+                {formData.channel_pdooh && selectedSizes.some(s => s !== '980x400') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Vastuuvapauslauseke (PDOOH)
+                      Legal (PDOOH)
                     </label>
                     <AutoExpandTextarea
                       value={creativeConfig.disclaimerText}
@@ -2210,7 +2215,7 @@ const CampaignCreate = () => {
                       minHeight={60}
                       maxHeight={200}
                     />
-                    <p className="text-xs text-gray-400 mt-1">Näytetään vain PDOOH-mainoksissa</p>
+                    <p className="text-xs text-gray-400 mt-1">Näytetään vain PDOOH-mainoksissa (ei 980x400)</p>
                   </div>
                 )}
 
@@ -2221,42 +2226,89 @@ const CampaignCreate = () => {
                       <Volume2 size={20} className="text-[#1DB954]" />
                       <div>
                         <h4 className="font-medium text-gray-900">Audio-mainos</h4>
-                        <p className="text-xs text-gray-500">Lataa äänitiedosto (MP3, max 30s)</p>
+                        <p className="text-xs text-gray-500">Valitse äänitiedosto tai lataa oma</p>
                       </div>
                     </div>
-                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#1DB954] transition-colors">
-                      <Upload size={24} className="text-gray-400 mb-2" />
-                      <span className="text-sm text-gray-600">
-                        {creativeConfig.audioFile ? creativeConfig.audioFile.name : 'Valitse äänitiedosto...'}
-                      </span>
-                      <input
-                        type="file"
-                        accept="audio/mp3,audio/mpeg,audio/wav"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setCreativeConfig({ ...creativeConfig, audioFile: file });
-                            toast.success(`Äänitiedosto "${file.name}" valittu`);
-                          }
-                        }}
-                      />
-                    </label>
-                    {creativeConfig.audioFile && (
-                      <div className="mt-3 flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
-                        <div className="flex items-center gap-2">
-                          <Volume2 size={16} className="text-[#1DB954]" />
-                          <span className="text-sm text-gray-700">{creativeConfig.audioFile.name}</span>
-                          <span className="text-xs text-gray-400">({(creativeConfig.audioFile.size / 1024).toFixed(0)} KB)</span>
+
+                    {/* Predefined audio files */}
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      {[
+                        { id: 'suun1', name: 'suun1.wav', url: '/audio/suun1.wav' },
+                        { id: 'suun2', name: 'suun2.wav', url: '/audio/suun2.wav' }
+                      ].map((audio) => {
+                        const isSelected = creativeConfig.selectedAudio === audio.url;
+                        return (
+                          <button
+                            key={audio.id}
+                            type="button"
+                            onClick={() => {
+                              setCreativeConfig({ ...creativeConfig, selectedAudio: audio.url, audioFile: null });
+                              toast.success(`Valittu: ${audio.name}`);
+                            }}
+                            className={`p-3 rounded-lg border-2 text-left transition-all ${
+                              isSelected
+                                ? 'border-[#1DB954] bg-[#1DB954]/10'
+                                : 'border-gray-200 hover:border-[#1DB954]/50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Volume2 size={14} className={isSelected ? 'text-[#1DB954]' : 'text-gray-400'} />
+                                <span className={`text-xs font-medium ${isSelected ? 'text-[#1DB954]' : 'text-gray-700'}`}>{audio.name}</span>
+                              </div>
+                              {isSelected && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const audioEl = new Audio(audio.url);
+                                    audioEl.play().catch(() => toast.error('Ei voitu toistaa'));
+                                  }}
+                                  className="text-[#1DB954] hover:scale-110 transition-transform"
+                                >
+                                  <Play size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom upload */}
+                    <div className="relative">
+                      <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#1DB954] transition-colors">
+                        <Upload size={20} className="text-gray-400 mb-1" />
+                        <span className="text-xs text-gray-600">Lataa oma äänitiedosto...</span>
+                        <input
+                          type="file"
+                          accept="audio/mp3,audio/mpeg,audio/wav"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setCreativeConfig({ ...creativeConfig, audioFile: file, selectedAudio: null });
+                              toast.success(`Äänitiedosto "${file.name}" valittu`);
+                            }
+                          }}
+                        />
+                      </label>
+                      {creativeConfig.audioFile && (
+                        <div className="mt-2 flex items-center justify-between p-2 bg-white rounded-lg border border-gray-200">
+                          <div className="flex items-center gap-2">
+                            <Volume2 size={14} className="text-[#1DB954]" />
+                            <span className="text-xs text-gray-700 truncate max-w-[150px]">{creativeConfig.audioFile.name}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCreativeConfig({ ...creativeConfig, audioFile: null })}
+                            className="text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            <X size={14} />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => setCreativeConfig({ ...creativeConfig, audioFile: null })}
-                          className="text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
 
