@@ -3,28 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="ad.size" content="width=300,height=600">
     <title>300x600 Ad Banner - Suun Terveystalo</title>
     <style>
-        /* Terveystalo Font */
+        /* Terveystalo Display Font */
         @font-face {
-            font-family: 'TerveystaloSans';
-            src: url('/font/TerveystaloSans-Regular.woff2') format('woff2'),
-                 url('/font/TerveystaloSans-Regular.woff') format('woff');
-            font-weight: 400;
-            font-style: normal;
-        }
-        @font-face {
-            font-family: 'TerveystaloSans';
-            src: url('/font/TerveystaloSans-SemiBold.woff2') format('woff2'),
-                 url('/font/TerveystaloSans-SemiBold.woff') format('woff');
-            font-weight: 600;
-            font-style: normal;
-        }
-        @font-face {
-            font-family: 'TerveystaloSans';
-            src: url('/font/TerveystaloSans-Bold.woff2') format('woff2'),
-                 url('/font/TerveystaloSans-Bold.woff') format('woff');
-            font-weight: 700;
+            font-family: 'TerveystaloSansDisplay';
+            src: url('/font/TerveystaloSansDisplay-Super.woff2') format('woff2'),
+                 url('/font/TerveystaloSansDisplay-Super.woff') format('woff');
+            font-weight: 900;
             font-style: normal;
         }
 
@@ -40,7 +27,7 @@
             align-items: center;
             min-height: 100vh;
             background-color: #333;
-            font-family: 'TerveystaloSans', sans-serif;
+            font-family: 'TerveystaloSansDisplay', sans-serif;
         }
 
         /* Main Ad Container */
@@ -123,12 +110,12 @@
         /* --- LOGO --- */
         .logo {
             position: absolute;
-            bottom: 50px;
+            bottom: 55px;
             left: 50%;
             transform: translateX(-50%);
-            width: 180px;
+            width: 160px;
             height: auto;
-            max-height: 32px;
+            max-height: 28px;
             z-index: 10;
             object-fit: contain;
             opacity: 0;
@@ -164,20 +151,34 @@
         .price-bubble {
             position: absolute;
             z-index: 15;
-            top: 260px; 
-            left: 15px;
-            background-color: #ffffff;
-            color: #004E9A;
-            width: 135px;
-            height: 135px;
-            border-radius: 50%;
+            top: 260px;
+            left: 12px;
+            width: 140px;
+            height: 140px;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            box-shadow: 0px 5px 15px rgba(0,0,0,0.3);
             opacity: 0;
             animation: slideInFromLeft 0.6s ease-out 0.4s forwards;
+        }
+
+        .price-bubble img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .price-bubble-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #004E9A;
         }
 
         .pb-title {
@@ -196,7 +197,7 @@
             display: flex;
             align-items: flex-start;
         }
-        
+
         .pb-currency {
              font-size: 28px;
              margin-top: 4px;
@@ -235,7 +236,7 @@
         /* --- ADDRESS FOOTER --- */
         .address {
             position: absolute;
-            bottom: 30px;
+            bottom: 35px;
             width: 100%;
             text-align: center;
             font-size: 13px;
@@ -246,35 +247,57 @@
             animation: slideInFromBottom 0.5s ease-out 1s forwards;
         }
 
+        /* --- DISCLAIMER --- */
+        .disclaimer {
+            position: absolute;
+            bottom: 6px;
+            left: 0;
+            right: 0;
+            padding: 0 12px;
+            text-align: center;
+            font-size: 7px;
+            font-weight: 400;
+            line-height: 1.2;
+            z-index: 11;
+            color: rgba(255,255,255,0.6);
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out 1.2s forwards;
+        }
+
     </style>
 </head>
 <body>
 
     <div class="ad-container">
-        
+
         <!-- Main background image (man or woman) -->
-        <img src="refs/assets/nainen.jpg" alt="Dentist" class="main-image">
-        
+        <img src="{{image_url}}" alt="Dentist" class="main-image">
+
         <!-- Decorative artwork (blue bubbles) -->
-        <img src="refs/assets/terveystalo-artwork.png" alt="" class="artwork">
-        
+        <img src="{{artwork_url}}" alt="" class="artwork">
+
         <div class="text-area">
-            <h1 class="headline">Hymyile.<br>Olet hyvissä käsissä.</h1>
-            <p class="subheadline">Sujuvampaa suunterveyttä Lahden Suun Terveystalossa.</p>
+            <h1 class="headline">{{headline}}</h1>
+            <p class="subheadline">{{subheadline}}</p>
         </div>
 
         <div class="price-bubble">
-            <span class="pb-title">Hammas-<br>tarkastus</span>
-            <div class="pb-price">49<span class="pb-currency">€</span></div>
-            <span class="pb-date">Varaa viimeistään<br>28.10.</span>
+            <img src="/price.svg" alt="">
+            <div class="price-bubble-content">
+                <span class="pb-title">{{offer_title}}</span>
+                <div class="pb-price">{{price}}<span class="pb-currency">€</span></div>
+                <span class="pb-date">{{offer_date}}</span>
+            </div>
         </div>
 
-        <a href="#" class="cta-button">Varaa aika</a>
+        <a href="{{click_url}}" class="cta-button">{{cta_text}}</a>
 
         <!-- Suun Terveystalo Logo -->
-        <img src="refs/assets/SuunTerveystalo_logo.png" alt="Suun Terveystalo" class="logo">
-        
-        <div class="address">Torikatu 1, Lahti</div>
+        <img src="{{logo_url}}" alt="Suun Terveystalo" class="logo">
+
+        <div class="address">{{branch_address}}</div>
+
+        <div class="disclaimer">{{disclaimer_text}}</div>
 
     </div>
 

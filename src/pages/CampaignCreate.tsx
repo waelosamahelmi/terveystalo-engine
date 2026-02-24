@@ -986,7 +986,7 @@ const CampaignCreate = () => {
     const isGeneralBrandMessage = selectedService?.code === 'yleinen-brandiviesti';
     const branchCity = selectedBranch?.city || selectedBranch?.name?.split(' ')[0] || 'Oulun';
 
-    const headlineText = creativeConfig.generalBrandMessage || 'Hymyile.';
+    const headlineText = creativeConfig.headline || 'Hymyile.';
     const subheadlineText = creativeConfig.subheadline || 'Olet hyvissä käsissä.';
     const offerTitle = isGeneralBrandMessage ? '' : (creativeConfig.offerTitle || 'Hammas-tarkastus');
     const priceValue = isGeneralBrandMessage ? '' : (creativeConfig.offer || '49');
@@ -1306,7 +1306,7 @@ const CampaignCreate = () => {
       const campaign = await createCampaign({
         ...formData,
         name: campaignName,
-        headline: creativeConfig.generalBrandMessage || 'Hymyile.<br>Olet hyvissä käsissä.',
+        headline: creativeConfig.headline || 'Hymyile.<br>Olet hyvissä käsissä.',
         subheadline: creativeConfig.subheadline || 'Sujuvampaa suunterveyttä.',
         offer_text: creativeConfig.offer,
         cta_text: creativeConfig.cta,
