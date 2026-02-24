@@ -31,6 +31,8 @@ import Settings from './pages/Settings';
 import Layout from './components/Layout';
 import ResetPassword from './components/ResetPassword';
 import CampaignDetails from './components/CampaignDetails';
+import { TemplateEditor } from './pages/admin/TemplateEditor';
+import { TemplateList } from './pages/admin/TemplateList';
 
 // ============================================================================
 // LOADING SCREEN
@@ -138,6 +140,8 @@ const AppRoutes = () => {
           <Route path="/settings" element={<Settings />} />
           <Route path="/bidtheatre" element={<BidTheatre />} />
           <Route path="/media-screens" element={<MediaScreens />} />
+          <Route path="/admin/templates" element={<TemplateList />} />
+          <Route path="/admin/editor/:templateId?" element={<TemplateEditor />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>

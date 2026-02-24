@@ -523,11 +523,11 @@ const CampaignPreview = ({
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <div className="aspect-video bg-gray-100 rounded overflow-hidden mb-2">
+                  <div className="aspect-video bg-gray-100 rounded overflow-hidden mb-2 flex items-center justify-center">
                     {creative.type === 'video' ? (
-                      <video src={creative.url} className="w-full h-full object-cover" />
+                      <video src={creative.url} className="max-w-full max-h-full object-contain" />
                     ) : (
-                      <img src={creative.url} alt={creative.name} className="w-full h-full object-cover" />
+                      <img src={creative.url} alt={creative.name} className="max-w-full max-h-full object-contain" />
                     )}
                   </div>
                   <p className="text-sm font-medium text-gray-900 truncate">{creative.name}</p>

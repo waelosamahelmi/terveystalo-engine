@@ -53,25 +53,46 @@ interface CreativeCardProps {
 const CreativeCard = ({ creative, onPreview, onDownload }: CreativeCardProps) => {
   const [showMenu, setShowMenu] = useState(false);
 
+  // Calculate scale to fit creative in the preview container while maintaining aspect ratio
+  const getPreviewStyle = (width: number, height: number) => {
+    const maxWidth = 384; // Container width (minus padding)
+    const maxHeight = 216; // Container height (aspect-video)
+
+    const scaleX = maxWidth / width;
+    const scaleY = maxHeight / height;
+    const scale = Math.min(scaleX, scaleY);
+
+    const scaledWidth = width * scale;
+    const scaledHeight = height * scale;
+
+    return {
+      width: `${scaledWidth}px`,
+      height: `${scaledHeight}px`,
+    };
+  };
+
+  const previewStyle = creative.html_content ? getPreviewStyle(creative.width, creative.height) : undefined;
+
   return (
     <div className="card group relative overflow-hidden">
       {/* Preview Image / HTML */}
-      <div 
-        className="aspect-video bg-gray-100 relative cursor-pointer overflow-hidden"
+      <div
+        className="aspect-video bg-gray-100 relative cursor-pointer overflow-hidden flex items-center justify-center"
         onClick={onPreview}
       >
         {creative.html_content ? (
           <iframe
             srcDoc={fixFontUrls(creative.html_content)}
-            className="w-full h-full border-0 pointer-events-none"
+            className="border-0 pointer-events-none"
             title={creative.name}
-            style={{ transform: 'scale(0.25)', transformOrigin: 'top left', width: '400%', height: '400%' }}
+            style={previewStyle}
+            sandbox="allow-same-origin"
           />
         ) : creative.preview_url ? (
-          <img 
-            src={creative.preview_url} 
+          <img
+            src={creative.preview_url}
             alt={creative.name}
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full object-contain"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -622,21 +643,37 @@ const Creatives = () => {
             <div className="p-6 bg-gray-100 overflow-auto" style={{ maxHeight: 'calc(90vh - 120px)' }}>
               <div className="flex items-center justify-center">
                 {previewCreative.html_content ? (
-                  <div 
+                  <div
                     className="bg-white shadow-lg"
-                    style={{ 
-                      width: Math.min(previewCreative.width, 800),
-                      height: Math.min(previewCreative.height, 600),
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '60vh',
+                      aspectRatio: `${previewCreative.width}/${previewCreative.height}`,
+                      width: 'auto',
+                      height: 'auto',
                     }}
                   >
                     <iframe
                       srcDoc={fixFontUrls(previewCreative.html_content)}
                       className="w-full h-full border-0"
                       title="Creative preview"
+                      style={{
+                        width: `${previewCreative.width}px`,
+                        height: `${previewCreative.height}px`,
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        transform: `scale(${Math.min(
+                          800 / previewCreative.width,
+                          600 / previewCreative.height,
+                          (window.innerWidth - 200) / previewCreative.width,
+                          (window.innerHeight * 0.5) / previewCreative.height
+                        )})`,
+                        transformOrigin: 'top center',
+                      }}
                     />
                   </div>
                 ) : previewCreative.preview_url ? (
-                  <img 
+                  <img
                     src={previewCreative.preview_url}
                     alt={previewCreative.name}
                     className="max-w-full max-h-[60vh] object-contain shadow-lg"

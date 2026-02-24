@@ -1,10 +1,20 @@
+-- ============================================================================
+-- SUUN TERVEYSTALO - UPDATE 980x400 TEMPLATE
+-- Version: 1.0.0
+-- Date: 2026-02-24
+-- Description: Rebuild 980x400 template with better layout and larger text
+-- ============================================================================
+
+-- Update 980x400 template with improved layout
+UPDATE creative_templates
+SET html_template = $html$
 <!DOCTYPE html>
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="ad.size" content="width=1080,height=1920">
-    <title>1080x1920 PDOOH Ad Banner - Suun Terveystalo</title>
+    <meta name="ad.size" content="width=980,height=400">
+    <title>980x400 Ad Banner - Suun Terveystalo</title>
     <style>
         /* Terveystalo Display Font */
         @font-face {
@@ -32,13 +42,12 @@
 
         /* Main Ad Container */
         .ad-container {
-            width: 1080px;
-            height: 1920px;
+            width: 980px;
+            height: 400px;
             background-color: #08091A;
             position: relative;
             overflow: hidden;
             color: #ffffff;
-            text-align: center;
         }
 
         /* --- ANIMATIONS --- */
@@ -48,113 +57,111 @@
         }
 
         @keyframes slideInFromTop {
-            from { opacity: 0; transform: translateY(-60px); }
+            from { opacity: 0; transform: translateY(-30px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
         @keyframes slideInFromLeft {
-            from { opacity: 0; transform: translateX(-80px); }
+            from { opacity: 0; transform: translateX(-50px); }
             to { opacity: 1; transform: translateX(0); }
         }
 
         @keyframes slideInFromRight {
-            from { opacity: 0; transform: translateX(80px) rotate(-30deg); }
+            from { opacity: 0; transform: translateX(50px) rotate(-30deg); }
             to { opacity: 1; transform: translateX(0) rotate(-30deg); }
         }
 
         @keyframes slideInFromBottom {
-            from { opacity: 0; transform: translateY(60px); }
+            from { opacity: 0; transform: translateY(30px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
         @keyframes scaleIn {
-            from { opacity: 0; transform: translateX(-50%) scale(0.8); }
-            to { opacity: 1; transform: translateX(-50%) scale(1); }
+            from { opacity: 0; transform: translateY(-50%) scale(0.8); }
+            to { opacity: 1; transform: translateY(-50%) scale(1); }
         }
 
         @keyframes pulse {
-            0%, 100% { transform: translateX(-50%) scale(1); }
-            50% { transform: translateX(-50%) scale(1.05); }
+            0%, 100% { transform: translateY(-50%) scale(1); }
+            50% { transform: translateY(-50%) scale(1.05); }
         }
 
-        /* --- MAIN IMAGE (Background Person) --- */
-        .main-image {
+        /* --- BACKGROUND GRADIENT --- */
+        .background-gradient {
             position: absolute;
-            top: 300px;
+            top: 0;
             left: 0;
             width: 100%;
-            height: 1100px;
+            height: 100%;
+            background: linear-gradient(135deg, #08091A 0%, #1a2d4a 50%, #08091A 100%);
+            z-index: 0;
+        }
+
+        /* --- MAIN IMAGE (Left Side) --- */
+        .main-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 45%;
+            height: 100%;
             z-index: 1;
             object-fit: cover;
             object-position: center top;
-            -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 45%, transparent 85%);
-            mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 45%, transparent 85%);
+            -webkit-mask-image: linear-gradient(to right, black 50%, transparent 100%);
+            mask-image: linear-gradient(to right, black 50%, transparent 100%);
             opacity: 0;
             animation: fadeIn 0.8s ease-out 0.2s forwards;
         }
 
-        /* --- ARTWORK (Blue Bubbles) --- */
+        /* --- ARTWORK (Blue Bubbles) - Top Right --- */
         .artwork {
             position: absolute;
-            bottom: -200px;
-            right: -220px;
-            width: 800px;
-            height: 800px;
+            top: -50px;
+            right: -80px;
+            width: 320px;
+            height: 320px;
             z-index: 2;
             object-fit: contain;
-            transform: rotate(-30deg);
+            transform: rotate(-25deg);
             opacity: 0;
             animation: slideInFromRight 0.7s ease-out 0.5s forwards;
         }
 
-        /* --- LOGO --- */
-        .logo {
-            position: absolute;
-            bottom: 150px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 420px;
-            height: auto;
-            max-height: 75px;
-            z-index: 10;
-            object-fit: contain;
-            opacity: 0;
-            animation: fadeIn 0.6s ease-out 1.2s forwards;
-        }
-
-        /* --- TEXT CONTENT (Top) --- */
+        /* --- TEXT CONTENT (Top Left/Center) --- */
         .text-area {
-            position: relative;
+            position: absolute;
             z-index: 10;
-            padding-top: 120px;
-            width: 100%;
+            top: 50px;
+            left: 50px;
+            width: 480px;
+            text-align: left;
             opacity: 0;
             animation: slideInFromTop 0.6s ease-out 0.1s forwards;
         }
 
         .headline {
-            font-size: 78px;
+            font-size: 52px;
             font-weight: 900;
             line-height: 1.1;
-            margin-bottom: 35px;
+            margin-bottom: 12px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
         }
 
         .subheadline {
-            font-size: 48px;
-            line-height: 1.35;
-            max-width: 85%;
-            margin: 0 auto;
+            font-size: 26px;
+            line-height: 1.3;
+            color: rgba(255,255,255,0.9);
         }
 
-
-        /* --- PRICE BUBBLE (Left Aligned) --- */
+        /* --- PRICE BUBBLE (Left-Center) --- */
         .price-bubble {
             position: absolute;
             z-index: 15;
-            top: 820px;
-            left: 50px;
-            width: 340px;
-            height: 340px;
+            top: 50%;
+            left: 80px;
+            transform: translateY(-50%);
+            width: 200px;
+            height: 200px;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -182,84 +189,82 @@
         }
 
         .pb-title {
-            font-size: 32px;
+            font-size: 16px;
             font-weight: 700;
             line-height: 1.1;
             text-align: center;
         }
 
         .pb-price {
-            font-size: 130px;
+            font-size: 68px;
             font-weight: 900;
-            line-height: 0.9;
-            margin: 10px 0;
-            letter-spacing: -5px;
+            line-height: 0.85;
+            margin: 6px 0;
+            letter-spacing: -3px;
             display: flex;
             align-items: flex-start;
         }
 
         .pb-currency {
-             font-size: 65px;
-             margin-top: 10px;
-             margin-left: 3px;
+             font-size: 34px;
+             margin-top: 6px;
+             margin-left: 2px;
         }
 
         .pb-date {
-            font-size: 24px;
+            font-size: 13px;
             font-weight: 600;
             text-align: center;
             line-height: 1.2;
         }
 
-
-        /* --- CTA BUTTON (Bottom Center) --- */
+        /* --- CTA BUTTON (Right-Center) --- */
         .cta-button {
             position: absolute;
             z-index: 15;
-            bottom: 250px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 50%;
+            right: 60px;
+            transform: translateY(-50%);
             background-color: #ffffff;
             color: #004E9A;
             text-decoration: none;
             font-weight: 700;
-            font-size: 36px;
-            padding: 30px 80px;
+            font-size: 18px;
+            padding: 18px 42px;
             border-radius: 50px;
             white-space: nowrap;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
             opacity: 0;
             animation: scaleIn 0.5s ease-out 0.8s forwards, pulse 2s ease-in-out 2s infinite;
         }
 
-
         /* --- ADDRESS FOOTER --- */
         .address {
             position: absolute;
-            bottom: 100px;
+            bottom: 35px;
             width: 100%;
             text-align: center;
-            font-size: 32px;
+            font-size: 14px;
             font-weight: 400;
             z-index: 11;
-            color: #fff;
+            color: rgba(255,255,255,0.8);
             opacity: 0;
             animation: slideInFromBottom 0.5s ease-out 1s forwards;
         }
 
-        /* --- DISCLAIMER TEXT (PDOOH Offer) --- */
+        /* --- DISCLAIMER TEXT --- */
         .disclaimer {
             position: absolute;
-            bottom: 20px;
+            bottom: 8px;
             left: 0;
             right: 0;
-            padding: 0 40px;
+            padding: 0 30px;
             text-align: center;
-            font-size: 16px;
+            font-size: 9px;
             font-weight: 400;
             line-height: 1.3;
             z-index: 11;
-            color: rgba(255,255,255,0.7);
+            color: rgba(255,255,255,0.6);
             opacity: 0;
             animation: fadeIn 0.5s ease-out 1.2s forwards;
         }
@@ -270,17 +275,22 @@
 
     <div class="ad-container">
 
-        <!-- Main background image (man or woman) -->
+        <!-- Background gradient -->
+        <div class="background-gradient"></div>
+
+        <!-- Main background image -->
         <img src="{{image_url}}" alt="Dentist" class="main-image">
 
         <!-- Decorative artwork (blue bubbles) -->
         <img src="{{artwork_url}}" alt="" class="artwork">
 
+        <!-- Text content -->
         <div class="text-area">
             <h1 class="headline">{{headline}}</h1>
             <p class="subheadline">{{subheadline}}</p>
         </div>
 
+        <!-- Price bubble -->
         <div class="price-bubble">
             <img src="/price.svg" alt="">
             <div class="price-bubble-content">
@@ -290,16 +300,21 @@
             </div>
         </div>
 
+        <!-- CTA button -->
         <a href="{{click_url}}" class="cta-button">{{cta_text}}</a>
 
-        <!-- Suun Terveystalo Logo -->
-        <img src="{{logo_url}}" alt="Suun Terveystalo" class="logo">
+        <!-- Logo (use image from variable) -->
+        <img src="{{logo_url}}" alt="Suun Terveystalo" class="logo" style="position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 150px; height: auto; max-height: 28px; z-index: 10; object-fit: contain; opacity: 0; animation: fadeIn 0.6s ease-out 1.2s forwards;">
 
+        <!-- Address -->
         <div class="address">{{branch_address}}</div>
 
+        <!-- Disclaimer -->
         <div class="disclaimer">{{disclaimer_text}}</div>
 
     </div>
 
 </body>
 </html>
+$html$
+WHERE name = 'Suun Terveystalo 980x400';

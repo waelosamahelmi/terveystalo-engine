@@ -221,6 +221,7 @@ export const navigationShortcuts = (actions: {
   goToReports?: () => void;
   goToSettings?: () => void;
   goToCreatives?: () => void;
+  goToTemplates?: () => void;
 }): SequentialShortcut[] => [
   {
     sequence: ['g', 'h'],
@@ -261,7 +262,13 @@ export const navigationShortcuts = (actions: {
   {
     sequence: ['g', 'e'],
     action: actions.goToCreatives || (() => {}),
-    description: 'Siirry Kreatiiveihin',
+    description: 'Siirry Luoviin',
+    category: 'Navigointi'
+  },
+  {
+    sequence: ['g', 't'],
+    action: actions.goToTemplates || (() => {}),
+    description: 'Siirry Mallipohjiin',
     category: 'Navigointi'
   }
 ];

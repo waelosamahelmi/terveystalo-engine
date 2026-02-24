@@ -1443,10 +1443,10 @@ SET html_template = $html$
             position: absolute;
             z-index: 15;
             top: 50%;
-            left: 365px;
+            left: 390px;
             transform: translateY(-50%);
-            width: 150px;
-            height: 150px;
+            width: 170px;
+            height: 170px;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -1597,14 +1597,1048 @@ SET html_template = $html$
 $html$
 WHERE name = 'Suun Terveystalo 980x400';
 
--- Update placeholder label for 980x400 from "Vastuuvapauslauseke" to "Legal"
+-- Add disclaimer placeholder and default value for 980x400
 UPDATE creative_templates
-SET placeholders = jsonb_set(
-        COALESCE(placeholders, '[]'::jsonb),
+SET placeholders = COALESCE(placeholders, '[]'::jsonb) || '{"key": "disclaimer_text", "label": "Legal", "type": "textarea", "required": false, "maxLength": 500}'::jsonb,
+    default_values = jsonb_set(
+        COALESCE(default_values, '{}'::jsonb),
         '{disclaimer_text}',
-        '{"key": "disclaimer_text", "label": "Legal", "type": "textarea", "required": false, "maxLength": 500}'::jsonb
+        '"Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo."'::jsonb
     )
 WHERE name = 'Suun Terveystalo 980x400';
+
+-- ============================================================================
+-- UPDATE 1080x1920 PDOOH TEMPLATE WITH SVG PRICE BUBBLE AND NEW FONT
+-- ============================================================================
+
+UPDATE creative_templates
+SET html_template = $html$
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="ad.size" content="width=1080,height=1920">
+    <title>1080x1920 PDOOH Ad Banner - Suun Terveystalo</title>
+    <style>
+        /* Terveystalo Display Font */
+        @font-face {
+            font-family: 'TerveystaloSansDisplay';
+            src: url('/font/TerveystaloSansDisplay-Super.woff2') format('woff2'),
+                 url('/font/TerveystaloSansDisplay-Super.woff') format('woff');
+            font-weight: 900;
+            font-style: normal;
+        }
+
+        /* Reset and Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;
+            font-family: 'TerveystaloSansDisplay', sans-serif;
+        }
+
+        /* Main Ad Container */
+        .ad-container {
+            width: 1080px;
+            height: 1920px;
+            background-color: #08091A;
+            position: relative;
+            overflow: hidden;
+            color: #ffffff;
+            text-align: center;
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideInFromTop {
+            from { opacity: 0; transform: translateY(-60px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideInFromLeft {
+            from { opacity: 0; transform: translateX(-80px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes slideInFromRight {
+            from { opacity: 0; transform: translateX(80px) rotate(-30deg); }
+            to { opacity: 1; transform: translateX(0) rotate(-30deg); }
+        }
+
+        @keyframes slideInFromBottom {
+            from { opacity: 0; transform: translateY(60px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes scaleIn {
+            from { opacity: 0; transform: translateX(-50%) scale(0.8); }
+            to { opacity: 1; transform: translateX(-50%) scale(1); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.05); }
+        }
+
+        /* --- MAIN IMAGE (Background Person) --- */
+        .main-image {
+            position: absolute;
+            top: 300px;
+            left: 0;
+            width: 100%;
+            height: 1100px;
+            z-index: 1;
+            object-fit: cover;
+            object-position: center top;
+            -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 45%, transparent 85%);
+            mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 45%, transparent 85%);
+            opacity: 0;
+            animation: fadeIn 0.8s ease-out 0.2s forwards;
+        }
+
+        /* --- ARTWORK (Blue Bubbles) --- */
+        .artwork {
+            position: absolute;
+            bottom: -200px;
+            right: -220px;
+            width: 800px;
+            height: 800px;
+            z-index: 2;
+            object-fit: contain;
+            transform: rotate(-30deg);
+            opacity: 0;
+            animation: slideInFromRight 0.7s ease-out 0.5s forwards;
+        }
+
+        /* --- LOGO --- */
+        .logo {
+            position: absolute;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 420px;
+            height: auto;
+            max-height: 75px;
+            z-index: 10;
+            object-fit: contain;
+            opacity: 0;
+            animation: fadeIn 0.6s ease-out 1.2s forwards;
+        }
+
+        /* --- TEXT CONTENT (Top) --- */
+        .text-area {
+            position: relative;
+            z-index: 10;
+            padding-top: 120px;
+            width: 100%;
+            opacity: 0;
+            animation: slideInFromTop 0.6s ease-out 0.1s forwards;
+        }
+
+        .headline {
+            font-size: 78px;
+            font-weight: 900;
+            line-height: 1.1;
+            margin-bottom: 35px;
+        }
+
+        .subheadline {
+            font-size: 48px;
+            line-height: 1.35;
+            max-width: 85%;
+            margin: 0 auto;
+        }
+
+
+        /* --- PRICE BUBBLE (Left Aligned) --- */
+        .price-bubble {
+            position: absolute;
+            z-index: 15;
+            top: 820px;
+            left: 50px;
+            width: 340px;
+            height: 340px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            animation: slideInFromLeft 0.6s ease-out 0.4s forwards;
+        }
+
+        .price-bubble img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .price-bubble-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #004E9A;
+        }
+
+        .pb-title {
+            font-size: 32px;
+            font-weight: 700;
+            line-height: 1.1;
+            text-align: center;
+        }
+
+        .pb-price {
+            font-size: 130px;
+            font-weight: 900;
+            line-height: 0.9;
+            margin: 10px 0;
+            letter-spacing: -5px;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .pb-currency {
+             font-size: 65px;
+             margin-top: 10px;
+             margin-left: 3px;
+        }
+
+        .pb-date {
+            font-size: 24px;
+            font-weight: 600;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+
+        /* --- CTA BUTTON (Bottom Center) --- */
+        .cta-button {
+            position: absolute;
+            z-index: 15;
+            bottom: 250px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ffffff;
+            color: #004E9A;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 36px;
+            padding: 30px 80px;
+            border-radius: 50px;
+            white-space: nowrap;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            opacity: 0;
+            animation: scaleIn 0.5s ease-out 0.8s forwards, pulse 2s ease-in-out 2s infinite;
+        }
+
+
+        /* --- ADDRESS FOOTER --- */
+        .address {
+            position: absolute;
+            bottom: 100px;
+            width: 100%;
+            text-align: center;
+            font-size: 32px;
+            font-weight: 400;
+            z-index: 11;
+            color: #fff;
+            opacity: 0;
+            animation: slideInFromBottom 0.5s ease-out 1s forwards;
+        }
+
+        /* --- DISCLAIMER TEXT (PDOOH Offer) --- */
+        .disclaimer {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            padding: 0 40px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 400;
+            line-height: 1.3;
+            z-index: 11;
+            color: rgba(255,255,255,0.7);
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out 1.2s forwards;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="ad-container">
+
+        <!-- Main background image (man or woman) -->
+        <img src="{{image_url}}" alt="Dentist" class="main-image">
+
+        <!-- Decorative artwork (blue bubbles) -->
+        <img src="{{artwork_url}}" alt="" class="artwork">
+
+        <div class="text-area">
+            <h1 class="headline">{{headline}}</h1>
+            <p class="subheadline">{{subheadline}}</p>
+        </div>
+
+        <div class="price-bubble">
+            <img src="/price.svg" alt="">
+            <div class="price-bubble-content">
+                <span class="pb-title">{{offer_title}}</span>
+                <div class="pb-price">{{price}}<span class="pb-currency">€</span></div>
+                <span class="pb-date">{{offer_date}}</span>
+            </div>
+        </div>
+
+        <a href="{{click_url}}" class="cta-button">{{cta_text}}</a>
+
+        <!-- Suun Terveystalo Logo -->
+        <img src="{{logo_url}}" alt="Suun Terveystalo" class="logo">
+
+        <div class="address">{{branch_address}}</div>
+
+        <div class="disclaimer">{{disclaimer_text}}</div>
+
+    </div>
+
+</body>
+</html>
+$html$
+WHERE name = 'Suun Terveystalo 1080x1920 PDOOH';
+
+UPDATE creative_templates
+SET placeholders = COALESCE(placeholders, '[]'::jsonb) || '{"key": "disclaimer_text", "label": "Legal", "type": "textarea", "required": false, "maxLength": 500}'::jsonb,
+    default_values = jsonb_set(
+        COALESCE(default_values, '{}'::jsonb),
+        '{disclaimer_text}',
+        '"Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo."'::jsonb
+    )
+WHERE name = 'Suun Terveystalo 1080x1920 PDOOH';
+
+-- ============================================================================
+-- UPDATE META TEMPLATES WITH SVG PRICE BUBBLE AND NEW FONT
+-- ============================================================================
+
+-- Update 1080x1080 Meta template
+UPDATE creative_templates
+SET html_template = $html$
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="ad.size" content="width=1080,height=1080">
+    <title>1080x1080 Meta Ad - Suun Terveystalo</title>
+    <style>
+        /* Terveystalo Display Font */
+        @font-face {
+            font-family: 'TerveystaloSansDisplay';
+            src: url('/font/TerveystaloSansDisplay-Super.woff2') format('woff2'),
+                 url('/font/TerveystaloSansDisplay-Super.woff') format('woff');
+            font-weight: 900;
+            font-style: normal;
+        }
+
+        /* Reset and Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;
+            font-family: 'TerveystaloSansDisplay', sans-serif;
+        }
+
+        /* Main Ad Container */
+        .ad-container {
+            width: 1080px;
+            height: 1080px;
+            background-color: #08091A;
+            position: relative;
+            overflow: hidden;
+            color: #ffffff;
+            text-align: center;
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideInFromTop {
+            from { opacity: 0; transform: translateY(-40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideInFromLeft {
+            from { opacity: 0; transform: translateX(-50px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes slideInFromRight {
+            from { opacity: 0; transform: translateX(50px) rotate(-30deg); }
+            to { opacity: 1; transform: translateX(0) rotate(-30deg); }
+        }
+
+        @keyframes slideInFromBottom {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes scaleIn {
+            from { opacity: 0; transform: translateX(-50%) scale(0.8); }
+            to { opacity: 1; transform: translateX(-50%) scale(1); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.05); }
+        }
+
+        /* --- MAIN IMAGE (Background Person) --- */
+        .main-image {
+            position: absolute;
+            top: 150px;
+            left: 0;
+            width: 100%;
+            height: 650px;
+            z-index: 1;
+            object-fit: cover;
+            object-position: center top;
+            -webkit-mask-image: radial-gradient(ellipse 80% 75% at 50% 45%, black 42%, transparent 82%);
+            mask-image: radial-gradient(ellipse 80% 75% at 50% 45%, black 42%, transparent 82%);
+            opacity: 0;
+            animation: fadeIn 0.8s ease-out 0.2s forwards;
+        }
+
+        /* --- ARTWORK (Blue Bubbles) --- */
+        .artwork {
+            position: absolute;
+            bottom: -100px;
+            right: -120px;
+            width: 450px;
+            height: 450px;
+            z-index: 2;
+            object-fit: contain;
+            transform: rotate(-30deg);
+            opacity: 0;
+            animation: slideInFromRight 0.7s ease-out 0.5s forwards;
+        }
+
+        /* --- LOGO --- */
+        .logo {
+            position: absolute;
+            bottom: 85px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 240px;
+            height: auto;
+            max-height: 44px;
+            z-index: 10;
+            object-fit: contain;
+            opacity: 0;
+            animation: fadeIn 0.6s ease-out 1.2s forwards;
+        }
+
+        /* --- TEXT CONTENT (Top) --- */
+        .text-area {
+            position: relative;
+            z-index: 10;
+            padding-top: 60px;
+            width: 100%;
+            opacity: 0;
+            animation: slideInFromTop 0.6s ease-out 0.1s forwards;
+        }
+
+        .headline {
+            font-size: 48px;
+            font-weight: 900;
+            line-height: 1.1;
+            margin-bottom: 20px;
+        }
+
+        .subheadline {
+            font-size: 28px;
+            line-height: 1.35;
+            max-width: 85%;
+            margin: 0 auto;
+        }
+
+
+        /* --- PRICE BUBBLE (Left Aligned) --- */
+        .price-bubble {
+            position: absolute;
+            z-index: 15;
+            top: 380px;
+            left: 25px;
+            width: 240px;
+            height: 240px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            animation: slideInFromLeft 0.6s ease-out 0.4s forwards;
+        }
+
+        .price-bubble img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .price-bubble-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #004E9A;
+        }
+
+        .pb-title {
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.1;
+            text-align: center;
+        }
+
+        .pb-price {
+            font-size: 92px;
+            font-weight: 900;
+            line-height: 0.9;
+            margin: 8px 0;
+            letter-spacing: -4px;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .pb-currency {
+             font-size: 46px;
+             margin-top: 8px;
+             margin-left: 2px;
+        }
+
+        .pb-date {
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+
+        /* --- CTA BUTTON (Bottom Center) --- */
+        .cta-button {
+            position: absolute;
+            z-index: 15;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ffffff;
+            color: #004E9A;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 28px;
+            padding: 22px 60px;
+            border-radius: 45px;
+            white-space: nowrap;
+            box-shadow: 0 6px 15px rgba(0,0,0,0.2);
+            opacity: 0;
+            animation: scaleIn 0.5s ease-out 0.8s forwards, pulse 2s ease-in-out 2s infinite;
+        }
+
+
+        /* --- ADDRESS FOOTER --- */
+        .address {
+            position: absolute;
+            bottom: 50px;
+            width: 100%;
+            text-align: center;
+            font-size: 22px;
+            font-weight: 400;
+            z-index: 11;
+            color: #fff;
+            opacity: 0;
+            animation: slideInFromBottom 0.5s ease-out 1s forwards;
+        }
+
+        /* --- DISCLAIMER --- */
+        .disclaimer {
+            position: absolute;
+            bottom: 8px;
+            left: 0;
+            right: 0;
+            padding: 0 25px;
+            text-align: center;
+            font-size: 11px;
+            font-weight: 400;
+            line-height: 1.2;
+            z-index: 11;
+            color: rgba(255,255,255,0.6);
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out 1.2s forwards;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="ad-container">
+
+        <!-- Main background image (man or woman) -->
+        <img src="{{image_url}}" alt="Dentist" class="main-image">
+
+        <!-- Decorative artwork (blue bubbles) -->
+        <img src="{{artwork_url}}" alt="" class="artwork">
+
+        <div class="text-area">
+            <h1 class="headline">{{headline}}</h1>
+            <p class="subheadline">{{subheadline}}</p>
+        </div>
+
+        <div class="price-bubble">
+            <img src="/price.svg" alt="">
+            <div class="price-bubble-content">
+                <span class="pb-title">{{offer_title}}</span>
+                <div class="pb-price">{{price}}<span class="pb-currency">€</span></div>
+                <span class="pb-date">{{offer_date}}</span>
+            </div>
+        </div>
+
+        <a href="{{click_url}}" class="cta-button">{{cta_text}}</a>
+
+        <!-- Suun Terveystalo Logo -->
+        <img src="{{logo_url}}" alt="Suun Terveystalo" class="logo">
+
+        <div class="address">{{branch_address}}</div>
+
+        <div class="disclaimer">{{disclaimer_text}}</div>
+
+    </div>
+
+</body>
+</html>
+$html$,
+    placeholders = COALESCE(placeholders, '[]'::jsonb) || '[{"key": "image_url", "label": "Kuva", "type": "text", "required": true}, {"key": "artwork_url", "label": "Artwork", "type": "text", "required": true}, {"key": "logo_url", "label": "Logo", "type": "text", "required": true}, {"key": "headline", "label": "Otsikko", "type": "text", "required": true}, {"key": "subheadline", "label": "Alaotsikko", "type": "text", "required": true}, {"key": "offer_title", "label": "Tarjouksen nimi", "type": "text", "required": true}, {"key": "price", "label": "Hinta", "type": "text", "required": true}, {"key": "offer_date", "label": "Tarjous päättyy", "type": "text", "required": true}, {"key": "cta_text", "label": "CTA teksti", "type": "text", "required": true}, {"key": "click_url", "label": "Linkki", "type": "text", "required": true}, {"key": "branch_address", "label": "Toimipisteen osoite", "type": "text", "required": true}, {"key": "disclaimer_text", "label": "Legal", "type": "textarea", "required": false, "maxLength": 500}]'::jsonb,
+    default_values = jsonb_set(
+        jsonb_set(
+            jsonb_set(
+                jsonb_set(
+                    jsonb_set(
+                        jsonb_set(
+                            jsonb_set(
+                                jsonb_set(
+                                    jsonb_set(
+                                        jsonb_set(
+                                            COALESCE(default_values, '{}'::jsonb),
+                                            '{disclaimer_text}',
+                                            '"Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo."'::jsonb
+                                        ),
+                                        '{cta_text}',
+                                        '"Varaa aika"'::jsonb
+                                    ),
+                                    '{branch_address}',
+                                    '"terveystalo.com"'::jsonb
+                                ),
+                                '{click_url}',
+                                '"https://terveystalo.com"'::jsonb
+                            ),
+                            '{offer_date}',
+                            '"31.3.2026"'::jsonb
+                        ),
+                        '{price}',
+                        '"79"'::jsonb
+                    ),
+                    '{offer_title}',
+                    '"Tarkastus"'::jsonb
+                ),
+                '{subheadline}',
+                '"Olet hyvissä käsissä."'::jsonb
+            ),
+            '{headline}',
+            '"Hymyile."'::jsonb
+        ),
+        '{active}',
+        'true'::jsonb
+    )
+WHERE name = 'Suun Terveystalo 1080x1080 Meta';
+
+-- Update 1080x1920 Meta template
+UPDATE creative_templates
+SET html_template = $html$
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="ad.size" content="width=1080,height=1920">
+    <title>1080x1920 Meta Ad - Suun Terveystalo</title>
+    <style>
+        /* Terveystalo Display Font */
+        @font-face {
+            font-family: 'TerveystaloSansDisplay';
+            src: url('/font/TerveystaloSansDisplay-Super.woff2') format('woff2'),
+                 url('/font/TerveystaloSansDisplay-Super.woff') format('woff');
+            font-weight: 900;
+            font-style: normal;
+        }
+
+        /* Reset and Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;
+            font-family: 'TerveystaloSansDisplay', sans-serif;
+        }
+
+        /* Main Ad Container */
+        .ad-container {
+            width: 1080px;
+            height: 1920px;
+            background-color: #08091A;
+            position: relative;
+            overflow: hidden;
+            color: #ffffff;
+            text-align: center;
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideInFromTop {
+            from { opacity: 0; transform: translateY(-60px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideInFromLeft {
+            from { opacity: 0; transform: translateX(-80px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes slideInFromRight {
+            from { opacity: 0; transform: translateX(80px) rotate(-30deg); }
+            to { opacity: 1; transform: translateX(0) rotate(-30deg); }
+        }
+
+        @keyframes slideInFromBottom {
+            from { opacity: 0; transform: translateY(60px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes scaleIn {
+            from { opacity: 0; transform: translateX(-50%) scale(0.8); }
+            to { opacity: 1; transform: translateX(-50%) scale(1); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.05); }
+        }
+
+        /* --- MAIN IMAGE (Background Person) --- */
+        .main-image {
+            position: absolute;
+            top: 300px;
+            left: 0;
+            width: 100%;
+            height: 1100px;
+            z-index: 1;
+            object-fit: cover;
+            object-position: center top;
+            -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 45%, transparent 85%);
+            mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 45%, transparent 85%);
+            opacity: 0;
+            animation: fadeIn 0.8s ease-out 0.2s forwards;
+        }
+
+        /* --- ARTWORK (Blue Bubbles) --- */
+        .artwork {
+            position: absolute;
+            bottom: -200px;
+            right: -220px;
+            width: 800px;
+            height: 800px;
+            z-index: 2;
+            object-fit: contain;
+            transform: rotate(-30deg);
+            opacity: 0;
+            animation: slideInFromRight 0.7s ease-out 0.5s forwards;
+        }
+
+        /* --- LOGO --- */
+        .logo {
+            position: absolute;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 420px;
+            height: auto;
+            max-height: 75px;
+            z-index: 10;
+            object-fit: contain;
+            opacity: 0;
+            animation: fadeIn 0.6s ease-out 1.2s forwards;
+        }
+
+        /* --- TEXT CONTENT (Top) --- */
+        .text-area {
+            position: relative;
+            z-index: 10;
+            padding-top: 120px;
+            width: 100%;
+            opacity: 0;
+            animation: slideInFromTop 0.6s ease-out 0.1s forwards;
+        }
+
+        .headline {
+            font-size: 78px;
+            font-weight: 900;
+            line-height: 1.1;
+            margin-bottom: 35px;
+        }
+
+        .subheadline {
+            font-size: 48px;
+            line-height: 1.35;
+            max-width: 85%;
+            margin: 0 auto;
+        }
+
+
+        /* --- PRICE BUBBLE (Left Aligned) --- */
+        .price-bubble {
+            position: absolute;
+            z-index: 15;
+            top: 820px;
+            left: 50px;
+            width: 340px;
+            height: 340px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            animation: slideInFromLeft 0.6s ease-out 0.4s forwards;
+        }
+
+        .price-bubble img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .price-bubble-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #004E9A;
+        }
+
+        .pb-title {
+            font-size: 32px;
+            font-weight: 700;
+            line-height: 1.1;
+            text-align: center;
+        }
+
+        .pb-price {
+            font-size: 130px;
+            font-weight: 900;
+            line-height: 0.9;
+            margin: 10px 0;
+            letter-spacing: -5px;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .pb-currency {
+             font-size: 65px;
+             margin-top: 10px;
+             margin-left: 3px;
+        }
+
+        .pb-date {
+            font-size: 24px;
+            font-weight: 600;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+
+        /* --- CTA BUTTON (Bottom Center) --- */
+        .cta-button {
+            position: absolute;
+            z-index: 15;
+            bottom: 250px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ffffff;
+            color: #004E9A;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 36px;
+            padding: 30px 80px;
+            border-radius: 50px;
+            white-space: nowrap;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            opacity: 0;
+            animation: scaleIn 0.5s ease-out 0.8s forwards, pulse 2s ease-in-out 2s infinite;
+        }
+
+
+        /* --- ADDRESS FOOTER --- */
+        .address {
+            position: absolute;
+            bottom: 100px;
+            width: 100%;
+            text-align: center;
+            font-size: 32px;
+            font-weight: 400;
+            z-index: 11;
+            color: #fff;
+            opacity: 0;
+            animation: slideInFromBottom 0.5s ease-out 1s forwards;
+        }
+
+        /* --- DISCLAIMER TEXT (Meta Offer) --- */
+        .disclaimer {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            padding: 0 40px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 400;
+            line-height: 1.3;
+            z-index: 11;
+            color: rgba(255,255,255,0.7);
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out 1.2s forwards;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="ad-container">
+
+        <!-- Main background image (man or woman) -->
+        <img src="{{image_url}}" alt="Dentist" class="main-image">
+
+        <!-- Decorative artwork (blue bubbles) -->
+        <img src="{{artwork_url}}" alt="" class="artwork">
+
+        <div class="text-area">
+            <h1 class="headline">{{headline}}</h1>
+            <p class="subheadline">{{subheadline}}</p>
+        </div>
+
+        <div class="price-bubble">
+            <img src="/price.svg" alt="">
+            <div class="price-bubble-content">
+                <span class="pb-title">{{offer_title}}</span>
+                <div class="pb-price">{{price}}<span class="pb-currency">€</span></div>
+                <span class="pb-date">{{offer_date}}</span>
+            </div>
+        </div>
+
+        <a href="{{click_url}}" class="cta-button">{{cta_text}}</a>
+
+        <!-- Suun Terveystalo Logo -->
+        <img src="{{logo_url}}" alt="Suun Terveystalo" class="logo">
+
+        <div class="address">{{branch_address}}</div>
+
+        <div class="disclaimer">{{disclaimer_text}}</div>
+
+    </div>
+
+</body>
+</html>
+$html$,
+    placeholders = COALESCE(placeholders, '[]'::jsonb) || '[{"key": "image_url", "label": "Kuva", "type": "text", "required": true}, {"key": "artwork_url", "label": "Artwork", "type": "text", "required": true}, {"key": "logo_url", "label": "Logo", "type": "text", "required": true}, {"key": "headline", "label": "Otsikko", "type": "text", "required": true}, {"key": "subheadline", "label": "Alaotsikko", "type": "text", "required": true}, {"key": "offer_title", "label": "Tarjouksen nimi", "type": "text", "required": true}, {"key": "price", "label": "Hinta", "type": "text", "required": true}, {"key": "offer_date", "label": "Tarjous päättyy", "type": "text", "required": true}, {"key": "cta_text", "label": "CTA teksti", "type": "text", "required": true}, {"key": "click_url", "label": "Linkki", "type": "text", "required": true}, {"key": "branch_address", "label": "Toimipisteen osoite", "type": "text", "required": true}, {"key": "disclaimer_text", "label": "Legal", "type": "textarea", "required": false, "maxLength": 500}]'::jsonb,
+    default_values = jsonb_set(
+        jsonb_set(
+            jsonb_set(
+                jsonb_set(
+                    jsonb_set(
+                        jsonb_set(
+                            jsonb_set(
+                                jsonb_set(
+                                    jsonb_set(
+                                        jsonb_set(
+                                            COALESCE(default_values, '{}'::jsonb),
+                                            '{disclaimer_text}',
+                                            '"Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo."'::jsonb
+                                        ),
+                                        '{cta_text}',
+                                        '"Varaa aika"'::jsonb
+                                    ),
+                                    '{branch_address}',
+                                    '"terveystalo.com"'::jsonb
+                                ),
+                                '{click_url}',
+                                '"https://terveystalo.com"'::jsonb
+                            ),
+                            '{offer_date}',
+                            '"31.3.2026"'::jsonb
+                        ),
+                        '{price}',
+                        '"79"'::jsonb
+                    ),
+                    '{offer_title}',
+                    '"Tarkastus"'::jsonb
+                ),
+                '{subheadline}',
+                '"Olet hyvissä käsissä."'::jsonb
+            ),
+            '{headline}',
+            '"Hymyile."'::jsonb
+        ),
+        '{active}',
+        'true'::jsonb
+    )
+WHERE name = 'Suun Terveystalo 1080x1920 Meta';
 
 -- ============================================================================
 -- END OF MIGRATION

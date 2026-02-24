@@ -10,16 +10,16 @@ import { getBrandAssets } from '../lib/creativeService';
 import { getAppSetting, updateAppSetting } from '../lib/settingsService';
 import { isDemoMode, isDemoUser } from '../lib/demoService';
 import type { User } from '../types';
-import { 
-  LayoutDashboard, 
-  Users, 
-  BarChart3, 
-  LogOut, 
-  Menu, 
-  X, 
+import {
+  LayoutDashboard,
+  Users,
+  BarChart3,
+  LogOut,
+  Menu,
+  X,
   ChevronDown,
-  ChevronLeft, 
-  ChevronRight, 
+  ChevronLeft,
+  ChevronRight,
   Settings,
   MapPin,
   Megaphone,
@@ -33,7 +33,8 @@ import {
   Activity,
   Command,
   Keyboard,
-  Sparkles
+  Sparkles,
+  FileEdit
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import UserProfileModal from './UserProfileModal';
@@ -95,6 +96,7 @@ const Layout = ({ user, children }: LayoutProps) => {
     goToReports: () => navigate('/reports'),
     goToSettings: () => navigate('/settings'),
     goToCreatives: () => navigate('/creatives'),
+    goToTemplates: () => navigate('/admin/templates'),
   });
   
   useKeyboardShortcuts(shortcuts, true, navShortcuts);
@@ -144,6 +146,7 @@ const Layout = ({ user, children }: LayoutProps) => {
     { name: 'Analytiikka', path: '/analytics', icon: BarChart3 },
     { name: 'Raportit', path: '/reports', icon: FileBarChart, roles: ['admin', 'manager'] },
     { name: 'Luovat', path: '/creatives', icon: Palette },
+    { name: 'Mallipohjat', path: '/admin/templates', icon: FileEdit, roles: ['admin', 'manager'] },
     { name: 'AI Assistentti', path: '/ai-assistant', icon: MessageSquare },
     { name: 'Käyttäjät', path: '/users', icon: Users, roles: ['admin', 'manager'] },
     { name: 'Toimintaloki', path: '/activity-log', icon: Activity, roles: ['admin', 'manager'] },

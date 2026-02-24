@@ -31,7 +31,14 @@ INSERT INTO creative_templates (
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Suun Terveystalo - {{offer_title}} {{price}}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800;900&display=swap');
+  /* Terveystalo Display Font */
+  @font-face {
+    font-family: 'TerveystaloSansDisplay';
+    src: url('/font/TerveystaloSansDisplay-Super.woff2') format('woff2'),
+         url('/font/TerveystaloSansDisplay-Super.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+  }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -41,7 +48,7 @@ INSERT INTO creative_templates (
     position: relative;
     overflow: hidden;
     background: #0a1e5c;
-    font-family: 'Inter', sans-serif;
+    font-family: 'TerveystaloSansDisplay', sans-serif;
   }
 
   /* ===== SCENE 1: Dark dental close-up (0s - ~7s) ===== */
@@ -439,27 +446,12 @@ INSERT INTO creative_templates (
 
   <!-- LOGO bottom -->
   <div class="logo-bottom">
-    <span class="logo-suun">Suun</span><span class="logo-terveystalo">&thinsp;Terveystalo</span>
+    <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 46px; width: auto;">
   </div>
 
-  <!-- PRICE BADGE - SVG blob traced from video -->
+  <!-- PRICE BADGE - SVG from /price.svg -->
   <div class="price-badge-wrap">
-    <svg viewBox="0 0 290 290" xmlns="http://www.w3.org/2000/svg">
-      <path d="
-        M 145,10
-        C 175,8   205,15  230,35
-        Q 258,55  270,90
-        C 280,120  282,155  272,185
-        Q 260,220  235,248
-        C 210,272  175,285  140,284
-        C 105,283  70,270   45,245
-        Q 20,218   10,180
-        C 2,148    5,112   18,82
-        Q 32,48    65,28
-        C 90,14   118,10  145,10
-        Z
-      " fill="white"/>
-    </svg>
+    <img src="/price.svg" alt="" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;">
     <div class="badge-content">
       <div class="badge-label">{{offer_title}}</div>
       <div class="badge-price">{{price}}<span class="euro">€</span></div>
@@ -491,7 +483,7 @@ INSERT INTO creative_templates (
       <span class="w">{{scene3_line4}}</span>
     </div>
     <div class="scene-3-logo">
-      <span class="logo-suun">Suun</span><span class="logo-terveystalo">&thinsp;Terveystalo</span>
+      <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 46px; width: auto;">
     </div>
   </div>
 
@@ -499,7 +491,7 @@ INSERT INTO creative_templates (
   <div class="scene-4">
     <div class="scene-4-inner">
       <div class="scene-4-logo">
-        <span class="logo-suun">Suun</span><span class="logo-terveystalo">&thinsp;Terveystalo</span>
+        <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 54px; width: auto;">
       </div>
       <div class="scene-4-address">{{branch_address}}</div>
     </div>
@@ -551,7 +543,14 @@ INSERT INTO creative_templates (
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Suun Terveystalo - {{offer_title}} {{price}}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800;900&display=swap');
+  /* Terveystalo Display Font */
+  @font-face {
+    font-family: 'TerveystaloSansDisplay';
+    src: url('/font/TerveystaloSansDisplay-Super.woff2') format('woff2'),
+         url('/font/TerveystaloSansDisplay-Super.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+  }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -561,7 +560,7 @@ INSERT INTO creative_templates (
     position: relative;
     overflow: hidden;
     background: #0a1e5c;
-    font-family: 'Inter', sans-serif;
+    font-family: 'TerveystaloSansDisplay', sans-serif;
   }
 
   /* ===== SCENE 1: Dark dental close-up ===== */
@@ -958,27 +957,12 @@ INSERT INTO creative_templates (
 
   <!-- LOGO bottom -->
   <div class="logo-bottom">
-    <span class="logo-suun">Suun</span><span class="logo-terveystalo">&thinsp;Terveystalo</span>
+    <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 82px; width: auto;">
   </div>
 
-  <!-- PRICE BADGE -->
+  <!-- PRICE BADGE - SVG from /price.svg -->
   <div class="price-badge-wrap">
-    <svg viewBox="0 0 290 290" xmlns="http://www.w3.org/2000/svg">
-      <path d="
-        M 145,10
-        C 175,8   205,15  230,35
-        Q 258,55  270,90
-        C 280,120  282,155  272,185
-        Q 260,220  235,248
-        C 210,272  175,285  140,284
-        C 105,283  70,270   45,245
-        Q 20,218   10,180
-        C 2,148    5,112   18,82
-        Q 32,48    65,28
-        C 90,14   118,10  145,10
-        Z
-      " fill="white"/>
-    </svg>
+    <img src="/price.svg" alt="" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;">
     <div class="badge-content">
       <div class="badge-label">{{offer_title}}</div>
       <div class="badge-price">{{price}}<span class="euro">€</span></div>
@@ -1010,7 +994,7 @@ INSERT INTO creative_templates (
       <span class="w">{{scene3_line4}}</span>
     </div>
     <div class="scene-3-logo">
-      <span class="logo-suun">Suun</span><span class="logo-terveystalo">&thinsp;Terveystalo</span>
+      <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 82px; width: auto;">
     </div>
   </div>
 
@@ -1018,7 +1002,7 @@ INSERT INTO creative_templates (
   <div class="scene-4">
     <div class="scene-4-inner">
       <div class="scene-4-logo">
-        <span class="logo-suun">Suun</span><span class="logo-terveystalo">&thinsp;Terveystalo</span>
+        <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 96px; width: auto;">
       </div>
       <div class="scene-4-address">{{branch_address}}</div>
     </div>
