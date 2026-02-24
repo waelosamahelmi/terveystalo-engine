@@ -209,66 +209,39 @@ interface ServiceCardProps {
 const ServiceCard = ({ service, selected, onClick }: ServiceCardProps) => {
   // Use name_fi as primary, fallback to name
   const serviceName = service.name_fi || service.name || 'Nimetön palvelu';
-  const serviceDesc = service.description_fi || service.description;
   const servicePrice = service.default_price || (service.price ? `${service.price}€` : null);
   const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
 
   return (
     <button
       onClick={onClick}
-      className={`relative overflow-hidden p-6 rounded-2xl border-2 text-left transition-all duration-300 transform hover:scale-[1.02] ${
+      className={`w-full p-4 rounded-lg border-2 text-left transition-all flex items-center gap-4 ${
         selected
-          ? 'border-[#00A5B5] bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/5 shadow-lg shadow-[#00A5B5]/20'
-          : 'border-gray-200 hover:border-[#00A5B5]/50 hover:shadow-md bg-white'
+          ? 'border-[#00A5B5] bg-[#00A5B5]/10'
+          : 'border-gray-200 hover:border-[#00A5B5]/50'
       }`}
     >
-      {/* Background decoration */}
-      <div className={`absolute top-0 right-0 w-32 h-32 rounded-full transform translate-x-16 -translate-y-16 transition-colors ${
-        selected ? 'bg-[#00A5B5]/10' : 'bg-gray-50'
-      }`} />
+      <div className={selected ? 'text-[#00A5B5]' : 'text-gray-400'}>
+        {isGeneralBrandMessage ? <TrendingUp size={24} /> : <ToothIcon size={24} />}
+      </div>
 
-      <div className="relative flex items-start space-x-4">
-        <div className={`p-4 rounded-xl transition-colors ${
-          selected
-            ? 'bg-gradient-to-br from-[#00A5B5] to-[#1B365D] text-white shadow-lg'
-            : 'bg-gray-100 text-gray-500'
-        }`}>
-          {isGeneralBrandMessage ? <TrendingUp size={28} /> : <ToothIcon size={28} />}
+      <div className="flex-1 min-w-0">
+        <div className={`text-base font-semibold ${selected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>
+          {serviceName}
         </div>
-
-        <div className="flex-1 min-w-0">
-          <h4 className="text-lg font-semibold text-gray-900">
-            {serviceName}
-          </h4>
-          {serviceDesc && (
-            <p className="text-sm text-gray-500 mt-1 line-clamp-2">{serviceDesc}</p>
-          )}
-          <div className="flex items-center mt-3 space-x-4">
-            {servicePrice && !isGeneralBrandMessage && (
-              <span className={`text-lg font-bold ${selected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>
-                {servicePrice}
-              </span>
-            )}
-            {isGeneralBrandMessage && selected && (
-              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                Ei hintaa
-              </span>
-            )}
-            {service.duration_minutes !== undefined && service.duration_minutes !== null && (
-              <span className="text-sm text-gray-400">
-                {service.duration_minutes} min
-              </span>
-            )}
+        {!isGeneralBrandMessage && servicePrice && (
+          <div className={`text-sm mt-1 ${selected ? 'text-[#00A5B5]/70' : 'text-gray-500'}`}>
+            {servicePrice}
           </div>
-        </div>
+        )}
+      </div>
 
-        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-          selected
-            ? 'border-[#00A5B5] bg-[#00A5B5]'
-            : 'border-gray-300'
-        }`}>
-          {selected && <Check size={14} className="text-white" strokeWidth={3} />}
-        </div>
+      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+        selected
+          ? 'border-[#00A5B5] bg-[#00A5B5]'
+          : 'border-gray-300'
+      }`}>
+        {selected && <Check size={12} className="text-white" strokeWidth={3} />}
       </div>
     </button>
   );
@@ -999,6 +972,10 @@ const CampaignCreate = () => {
       const baseSize = sizeId.replace('-meta', '');
       return dbTemplates.find(t => t.size === baseSize && t.type === 'meta');
     }
+    // Handle 1080x1080 as Meta size (square format)
+    if (sizeId === '1080x1080') {
+      return dbTemplates.find(t => t.size === '1080x1080' && t.type === 'meta');
+    }
     // For non-meta, find active templates matching the size (excludes meta type to avoid collision)
     return dbTemplates.find(t => t.size === sizeId && t.type !== 'meta' && t.active);
   }, [dbTemplates]);
@@ -1007,18 +984,224 @@ const CampaignCreate = () => {
   const buildTemplateVariables = useCallback((showAddress: boolean): Record<string, string> => {
     const baseUrl = window.location.origin;
     const isGeneralBrandMessage = selectedService?.code === 'yleinen-brandiviesti';
+    const branchCity = selectedBranch?.city || selectedBranch?.name?.split(' ')[0] || 'Oulun';
+
+    const headlineText = creativeConfig.generalBrandMessage || 'Hymyile.';
+    const subheadlineText = creativeConfig.subheadline || 'Olet hyvissä käsissä.';
+    const offerTitle = isGeneralBrandMessage ? '' : (creativeConfig.offerTitle || 'Hammas-tarkastus');
+    const priceValue = isGeneralBrandMessage ? '' : (creativeConfig.offer || '49');
 
     return {
-      headline: creativeConfig.generalBrandMessage || 'Hymyile.<br>Olet hyvissä käsissä.',
-      subheadline: (creativeConfig.subheadline || 'Sujuvampaa suunterveyttä.').replace(/\n/g, '<br>'),
-      offer_title: isGeneralBrandMessage ? '' : (creativeConfig.offerTitle || 'Hammas-<br>tarkastus').replace(/\n/g, '<br>'),
-      price: isGeneralBrandMessage ? '' : (creativeConfig.offer || '49'),
-      offer_date: isGeneralBrandMessage ? '' : (creativeConfig.offerDate || 'Varaa viimeistään<br>28.10.').replace(/\n/g, '<br>'),
+      // Text content
+      title: 'Suun Terveystalo',
+      headline: headlineText,
+      subheadline: subheadlineText.replace(/\n/g, ' '),
+      offer_title: offerTitle.replace(/\n/g, ' '),
+      price: priceValue,
+      currency: '€',
       cta_text: creativeConfig.cta || 'Varaa aika',
-      branch_address: showAddress ? (selectedBranch?.address || 'Torikatu 1, Lahti') : '',
-      image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen.jpg`,
-      artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
+      branch_address: showAddress ? (selectedBranch?.address || 'Albertinkatu 16, Oulu') : '',
+
+      // Scene 3 text lines (for PDOOH templates with 5-line format)
+      scene3_line1: 'Sujuvampaa',
+      scene3_line2: 'suun',
+      scene3_line3: 'terveyttä',
+      scene3_line4: branchCity,
+      scene3_line5: 'Suun Terveystalossa.',
+
+      // Scene 3 text lines (for Meta templates with 4-line format)
+      scene3_line2a: 'suun',
+      scene3_line2b: 'terveyttä',
+
+      city_name: branchCity,
+
+      // Images (for Meta templates - two scene images)
+      scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
+      scene2_image: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces',
+
+      // Images (for PDOOH templates - single image + logo)
       logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
+      image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen.jpg`,
+      image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
+      image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
+
+      // Styling - fonts and colors
+      font_url: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800;900&display=swap',
+      font_family: 'Inter',
+      bg_color: '#0a1e5c',
+      text_color: '#fff',
+      wipe_color: '#0a3d91',
+      badge_color: '#0a3d91',
+      scene3_text_dim: '#6b82b8',
+      scene3_text_bright_color: '#ffffff',
+      scene4_addr_color: 'rgba(255,255,255,0.6)',
+
+      // SVG badge path
+      badge_svg_path: 'M 145,10 C 175,8   205,15  230,35 Q 258,55  270,90 C 280,120  282,155  272,185 Q 260,220  235,248 C 210,272  175,285  140,284 C 105,283  70,270   45,245 Q 20,218   10,180 C 2,148    5,112   18,82 Q 32,48    65,28 C 90,14   118,10  145,10 Z',
+
+      // Animation timing (all percentages)
+      animation_duration: '15',
+      scene1_end: '44',
+      scene1_fade: '48',
+      scene1_zoom_duration: '8',
+      scene1_zoom_scale: '1.08',
+      scene2_start: '42',
+      scene2_fade: '47',
+      logo_end: '54',
+      logo_hide: '57',
+      badge_show: '27',
+      badge_pop: '30',
+      badge_pop_scale: '1.05',
+      badge_hold: '32',
+      badge_end: '55',
+      badge_hide: '57',
+      headline_show: '27',
+      headline_pop: '30',
+      headline_hold: '35',
+      headline_move: '38',
+      headline_end: '55',
+      headline_hide: '57',
+      subline_show: '36',
+      subline_pop: '40',
+      subline_end: '55',
+      subline_hide: '57',
+      cw1_show: '48',
+      cw1_pop: '50',
+      cw1_hold: '54',
+      cw1_wipe: '57',
+      cw2_show: '49',
+      cw2_pop: '51',
+      cw2_hold: '54',
+      cw2_wipe: '57',
+      cw3_show: '49',
+      cw3_pop: '51.5',
+      cw3_hold: '54',
+      cw3_wipe: '57',
+      cw4_show: '49.5',
+      cw4_pop: '52',
+      cw4_hold: '54',
+      cw4_wipe: '57',
+      cw5_show: '50',
+      cw5_pop: '52',
+      cw5_hold: '54',
+      cw5_wipe: '57',
+      cw6_show: '50',
+      cw6_pop: '52.5',
+      cw6_hold: '54',
+      cw6_wipe: '57',
+      cw7_show: '50.5',
+      cw7_pop: '53',
+      cw7_hold: '54',
+      cw7_wipe: '57',
+      cw_big_show: '55',
+      cw_big_pop: '56',
+      cw_big_hold: '59',
+      cw_big_wipe: '8',
+      scene3_start: '58',
+      scene3_show: '60',
+      scene3_end: '82',
+      scene3_hide: '85',
+      scene3_text_dim_start: '60',
+      scene3_text_bright: '67',
+      scene3_arc: '72',
+      scene3_logo_show: '61',
+      scene3_logo_pop: '64',
+      scene3_logo_end: '82',
+      scene3_logo_hide: '85',
+      scene4_start: '83',
+      scene4_show: '86',
+      scene4_logo_show: '84',
+      scene4_logo_pop: '87',
+      scene4_addr_show: '89',
+      scene4_addr_pop: '94',
+
+      // Sizes - 1080x1080 default values
+      logo_bottom: '65',
+      logo_height: '52',
+      badge_top: '20',
+      badge_left: '15',
+      badge_size: '290',
+      badge_pad_bottom: '5',
+      badge_pad_right: '10',
+      badge_label_size: '26',
+      badge_label_weight: '700',
+      badge_price_size: '82',
+      badge_price_weight: '900',
+      badge_price_lineheight: '0.85',
+      badge_euro_size: '52',
+      badge_euro_weight: '700',
+      badge_euro_top: '6',
+      badge_euro_left: '2',
+      headline_top: '50',
+      headline_size: '70',
+      headline_weight: '800',
+      headline_start_y: '30',
+      headline_end_y: '90',
+      subline_top: '50',
+      subline_size: '62',
+      subline_weight: '800',
+      subline_start_y: '10',
+      subline_end_y: '10',
+      subline_lineheight: '1.15',
+      text_shadow: '2',
+
+      // Circle wipe sizes and positions
+      cw1_size: '140',
+      cw1_bottom: '-20',
+      cw1_left: '-30',
+      cw1_scale: '15',
+      cw2_size: '100',
+      cw2_bottom: '90',
+      cw2_left: '60',
+      cw2_scale: '15',
+      cw3_size: '70',
+      cw3_bottom: '50',
+      cw3_left: '150',
+      cw3_scale: '18',
+      cw4_size: '55',
+      cw4_bottom: '160',
+      cw4_left: '20',
+      cw4_scale: '22',
+      cw5_size: '90',
+      cw5_bottom: '130',
+      cw5_left: '130',
+      cw5_scale: '15',
+      cw6_size: '120',
+      cw6_bottom: '30',
+      cw6_left: '200',
+      cw6_scale: '12',
+      cw7_size: '45',
+      cw7_bottom: '190',
+      cw7_left: '100',
+      cw7_scale: '28',
+      cw_big_size: '400',
+      cw_big_bottom: '-200',
+      cw_big_left: '-200',
+      cw_big_scale: '8',
+
+      // Scene 3 styling
+      scene3_text_size: '78',
+      scene3_text_weight: '800',
+      scene3_text_lineheight: '1.15',
+      scene3_text_pad: '60',
+      scene3_text_style: 'italic',
+      scene3_arc_angle: '-18',
+      scene3_arc_scale: '0.82',
+      scene3_logo_bottom: '95',
+      scene3_logo_height: '46',
+
+      // Scene 4 styling
+      scene4_margin_top: '60',
+      scene4_logo_height: '54',
+      scene4_addr_top: '18',
+      scene4_addr_size: '40',
+      scene4_addr_weight: '300',
+      scene4_addr_spacing: '0.5',
+      scene4_addr_slide: '8',
+
+      // Other variables
+      offer_date: isGeneralBrandMessage ? '' : (creativeConfig.offerDate || 'Varaa viimeistään 28.10.'),
+      artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
       click_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
       disclaimer_text: creativeConfig.disclaimerText || '',
     };
@@ -1214,29 +1397,33 @@ const CampaignCreate = () => {
               </p>
             </div>
 
-            <div className="max-w-lg mx-auto">
-              <div className="space-y-4">
-                {activeServices.length > 0 ? (
-                  activeServices.map(service => (
-                    <ServiceCard
-                      key={service.id}
-                      service={service}
-                      selected={formData.service_id === service.id}
-                      onClick={() => setFormData({ ...formData, service_id: service.id })}
-                    />
-                  ))
-                ) : (
-                  <div className="text-center py-12 text-gray-500">
-                    <AlertCircle size={48} className="mx-auto mb-4 opacity-50" />
-                    <p>Ei aktiivisia palveluita</p>
-                  </div>
-                )}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl mx-auto">
+              {/* Service Selection */}
+              <div>
+                <h4 className="font-medium text-gray-900 mb-3">Palvelu</h4>
+                <div className="space-y-3">
+                  {activeServices.length > 0 ? (
+                    activeServices.map(service => (
+                      <ServiceCard
+                        key={service.id}
+                        service={service}
+                        selected={formData.service_id === service.id}
+                        onClick={() => setFormData({ ...formData, service_id: service.id })}
+                      />
+                    ))
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <AlertCircle size={48} className="mx-auto mb-4 opacity-50" />
+                      <p>Ei aktiivisia palveluita</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Ad Type Selection */}
-              <div className="mt-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
+              <div>
                 <h4 className="font-medium text-gray-900 mb-3">Mainonnan tyyppi</h4>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3">
                   {[
                     { id: 'nationwide' as const, label: 'Valtakunnallinen', icon: Globe },
                     { id: 'local' as const, label: 'Paikallinen', icon: MapPin }
@@ -1250,14 +1437,14 @@ const CampaignCreate = () => {
                         onClick={() => {
                           setFormData({ ...formData, ad_type: type.id, creative_type: type.id });
                         }}
-                        className={`p-4 rounded-lg border-2 text-center transition-all ${
+                        className={`w-full p-4 rounded-lg border-2 text-left transition-all flex items-center gap-4 ${
                           isSelected
                             ? 'border-[#00A5B5] bg-[#00A5B5]/10'
                             : 'border-gray-200 hover:border-[#00A5B5]/50'
                         }`}
                       >
-                        <TypeIcon size={22} className={`mx-auto mb-2 ${isSelected ? 'text-[#00A5B5]' : 'text-gray-400'}`} />
-                        <div className={`text-sm font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>{type.label}</div>
+                        <TypeIcon size={24} className={isSelected ? 'text-[#00A5B5]' : 'text-gray-400'} />
+                        <div className={`text-base font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>{type.label}</div>
                       </button>
                     );
                   })}
