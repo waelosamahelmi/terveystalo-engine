@@ -325,9 +325,57 @@
   outline: none;
 }
 
-.editor-canvas-container {
-  background: white;
+/* Visual Editor */
+.visual-editor-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.visual-editor-canvas {
   box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  background: #ffffff;
+}
+
+/* Transparent overlay for mouse interactions */
+.visual-editor-overlay {
+  z-index: 10;
+}
+
+/* Invisible hitbox regions for elements - show outline on hover */
+.element-hitbox {
+  box-sizing: border-box;
+  transition: outline 0.1s;
+}
+
+.element-hitbox:hover:not(.selected) {
+  outline: 1px dashed rgba(0, 102, 204, 0.5);
+  outline-offset: 1px;
+}
+
+.element-hitbox.selected {
+  /* Selection handled by SelectionOverlay */
+}
+
+/* Inline text editing overlay */
+.inline-text-edit {
+  box-sizing: border-box;
+}
+
+.inline-text-edit:focus {
+  outline: 2px solid #0066cc !important;
+}
+
+.selection-overlay {
+  box-sizing: border-box;
+}
+
+.resize-handle {
+  transition: transform 0.1s;
+}
+
+.resize-handle:hover {
+  transform: translate(-50%, -50%) scale(1.3) !important;
 }
 
 /* Property Inspector */

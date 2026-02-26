@@ -130,6 +130,19 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
           )}
         </PropertySection>
 
+        {/* Image Properties */}
+        {element.type === 'image' && (
+          <PropertySection title="Image">
+            <PropertyRow label="Source URL" fullWidth>
+              <TextAreaInput
+                value={element.src || ''}
+                onChange={(value) => onElementUpdate(element.id, { src: value })}
+                rows={2}
+              />
+            </PropertyRow>
+          </PropertySection>
+        )}
+
         {/* Text Properties */}
         {element.type === 'text' && (
           <PropertySection title="Text">
@@ -152,6 +165,8 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                   { label: 'Verdana', value: 'Verdana' },
                   { label: 'Inter', value: 'Inter' },
                   { label: 'Roboto', value: 'Roboto' },
+                  { label: 'Montserrat', value: 'Montserrat' },
+                  { label: 'TerveystaloSans', value: 'TerveystaloSans' },
                 ]}
                 onChange={(value) => onElementUpdate(element.id, { fontFamily: value })}
               />
@@ -219,8 +234,8 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
           </PropertySection>
         )}
 
-        {/* Variable Binding */}
-        {onVariableBind && element.type === 'text' && (
+        {/* Variable Binding (text and image elements) */}
+        {onVariableBind && (element.type === 'text' || element.type === 'image') && (
           <PropertySection title="Variable Binding">
             <PropertyRow label="Bind to Variable">
               <SelectInput
@@ -232,6 +247,13 @@ export const PropertyInspector: React.FC<PropertyInspectorProps> = ({
                 onChange={(value) => onVariableBind(element.id, value)}
               />
             </PropertyRow>
+            {element.variableName && (
+              <PropertyRow label="Variable" fullWidth>
+                <span style={{ fontSize: '11px', color: '#666', fontStyle: 'italic' }}>
+                  Bound to: {`{{${element.variableName}}}`}
+                </span>
+              </PropertyRow>
+            )}
           </PropertySection>
         )}
       </div>

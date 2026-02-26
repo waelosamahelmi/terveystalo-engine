@@ -1,5 +1,3 @@
-import { FabricObject, FabricObjectProps, FabricImage } from 'fabric';
-
 // Editor element types
 export type EditorElementType = 'text' | 'image' | 'rectangle' | 'circle' | 'background';
 
@@ -109,16 +107,6 @@ export interface LayerItem {
   visible: boolean;
   locked: boolean;
   thumbnail?: string;
-}
-
-// Editor context
-export interface EditorContext {
-  canvas: any; // fabric.Canvas
-  selectedElements: EditorElement[];
-  history: EditorState[];
-  historyIndex: number;
-  isDirty: boolean;
-  template?: CreativeTemplate;
 }
 
 // Creative template with editor support

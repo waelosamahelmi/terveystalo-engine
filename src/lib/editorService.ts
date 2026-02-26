@@ -112,13 +112,39 @@ function parseHTMLToElements(html: string, css: string = '', width: number, heig
       // Check if this is an image
       if (el.tagName === 'IMG') {
         const img = el as HTMLImageElement;
-        const src = img.src;
+        // Use getAttribute to get raw src (preserves {{variable}} placeholders)
+        const rawSrc = img.getAttribute('src') || '';
+        const resolvedSrc = img.src; // browser-resolved URL
 
-        // Skip placeholder images (URL-encoded template variables) and data URIs
-        if (src && !src.includes('data:placeholder') && !src.includes('%7B%7B') && !src.includes('{{')) {
-          // Check if image is actually loaded (has valid dimensions)
+        // Check for variable-bound images: {{image_url}}, {{artwork_url}}, etc.
+        const imgVarMatch = rawSrc.match(/\{\{(\w+)\}\}/);
+
+        if (imgVarMatch) {
+          // Variable-bound image — always include
+          const varName = imgVarMatch[1];
+          const cssWidth = parseInt(computedStyle.width, 10);
+          const cssHeight = parseInt(computedStyle.height, 10);
+          console.log('Found variable image:', { variable: varName, left, top, width: elWidth || cssWidth, height: elHeight || cssHeight });
+          elements.push({
+            id: `el_${Date.now()}_${index}`,
+            type: 'image',
+            name: varName,
+            visible: true,
+            locked: false,
+            left,
+            top,
+            width: (elWidth > 5 ? elWidth : cssWidth) || 150,
+            height: (elHeight > 5 ? elHeight : cssHeight) || 100,
+            angle: 0,
+            opacity,
+            src: rawSrc,
+            variableName: varName,
+            zIndex,
+          });
+        } else if (resolvedSrc && !resolvedSrc.includes('data:placeholder')) {
+          // Regular image (non-variable)
           if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-            console.log('Found image:', { src, left, top, width: elWidth, height: elHeight });
+            console.log('Found image:', { src: resolvedSrc, left, top, width: elWidth, height: elHeight });
             elements.push({
               id: `el_${Date.now()}_${index}`,
               type: 'image',
@@ -131,7 +157,7 @@ function parseHTMLToElements(html: string, css: string = '', width: number, heig
               height: elHeight,
               angle: 0,
               opacity,
-              src,
+              src: resolvedSrc,
               zIndex,
             });
           }
@@ -610,21 +636,53 @@ export function editorStateToHTML(state: EditorState): string {
   const height = state.canvas.height;
   const bg = state.canvas.backgroundColor || '#ffffff';
 
+  // Collect Google Fonts used by text elements
+  const defaultFonts = new Set(['Arial', 'sans-serif', 'serif', 'monospace', 'Helvetica', 'Times New Roman', 'Courier New']);
+  const googleFonts = new Set<string>();
+  const hasCustomFont = { TerveystaloSans: false };
+
+  state.elements.forEach((el) => {
+    if (el.fontFamily) {
+      const font = el.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+      if (font === 'TerveystaloSans') {
+        hasCustomFont.TerveystaloSans = true;
+      } else if (font && !defaultFonts.has(font)) {
+        googleFonts.add(font);
+      }
+    }
+  });
+
+  let fontLinks = '';
+  if (googleFonts.size > 0) {
+    const families = Array.from(googleFonts)
+      .map((f) => `family=${f.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800;900`)
+      .join('&');
+    fontLinks = `  <link rel="preconnect" href="https://fonts.googleapis.com">\n  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n  <link href="https://fonts.googleapis.com/css2?${families}&display=swap" rel="stylesheet">\n`;
+  }
+
+  let customFontCSS = '';
+  if (hasCustomFont.TerveystaloSans) {
+    customFontCSS = `
+    @font-face { font-family: 'TerveystaloSans'; src: url('/font/TerveystaloSans-Regular.woff2') format('woff2'), url('/font/TerveystaloSans-Regular.woff') format('woff'); font-weight: 400; font-style: normal; }
+    @font-face { font-family: 'TerveystaloSans'; src: url('/font/TerveystaloSans-SemiBold.woff2') format('woff2'), url('/font/TerveystaloSans-SemiBold.woff') format('woff'); font-weight: 600; font-style: normal; }
+    @font-face { font-family: 'TerveystaloSans'; src: url('/font/TerveystaloSans-Bold.woff2') format('woff2'), url('/font/TerveystaloSans-Bold.woff') format('woff'); font-weight: 700; font-style: normal; }`;
+  }
+
   let html = `<!DOCTYPE html>
 <html lang="fi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=${width}, height=${height}">
   <title>Preview</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+${fontLinks}  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }${customFontCSS}
     body {
       display: flex;
       justify-content: center;
       align-items: center;
       min-height: 100vh;
-      background: #f0f0f0;
-      font-family: Arial, sans-serif;
+      background: transparent;
+      font-family: ${hasCustomFont.TerveystaloSans ? "'TerveystaloSans', " : googleFonts.size > 0 ? `'${Array.from(googleFonts)[0]}', ` : ''}Arial, sans-serif;
     }
     .ad-container {
       width: ${width}px;
@@ -632,7 +690,6 @@ export function editorStateToHTML(state: EditorState): string {
       background: ${bg};
       position: relative;
       overflow: hidden;
-      box-shadow: 0 2px 20px rgba(0,0,0,0.1);
     }
     .ad-element {
       position: absolute;
@@ -673,14 +730,14 @@ export function editorStateToHTML(state: EditorState): string {
         ? `{{${element.variableName}}}`
         : element.text || '';
 
-      html += `    <div class="ad-element" style="${textStyle}">${content}</div>\n`;
+      html += `    <div class="ad-element" data-element-id="${element.id}" style="${textStyle}">${content}</div>\n`;
     } else if (element.type === 'image' && element.src) {
-      html += `    <img class="ad-element" src="${element.src}" style="${style}" alt="" />\n`;
+      html += `    <img class="ad-element" data-element-id="${element.id}" src="${element.src}" style="${style}" alt="" />\n`;
     } else if (element.type === 'rectangle') {
-      html += `    <div class="ad-element" style="${style} background: ${element.fill || '#ccc'};"></div>\n`;
+      html += `    <div class="ad-element" data-element-id="${element.id}" style="${style} background: ${element.fill || '#ccc'};"></div>\n`;
     } else if (element.type === 'circle') {
       const radius = (element.width || 100) / 2;
-      html += `    <div class="ad-element" style="${style} width: ${element.width || 100}px; height: ${element.height || 100}px; background: ${element.fill || '#ccc'}; border-radius: 50%;"></div>\n`;
+      html += `    <div class="ad-element" data-element-id="${element.id}" style="${style} width: ${element.width || 100}px; height: ${element.height || 100}px; background: ${element.fill || '#ccc'}; border-radius: 50%;"></div>\n`;
     }
   });
 

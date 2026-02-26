@@ -1,35 +1,41 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import EditorCanvas, { EditorCanvasRef } from '../../components/editor/EditorCanvas';
 import { EditorToolbar } from '../../components/editor/EditorToolbar';
 import { PropertyInspector } from '../../components/editor/PropertyInspector';
 import { LayersPanel } from '../../components/editor/LayersPanel';
 import { AssetManager } from '../../components/editor/AssetManager';
 import { TemplateVariablesManager } from '../../components/editor/TemplateVariablesManager';
+import { VisualEditor } from '../../components/editor/VisualEditor';
 import { CreativeTemplate, EditorElement, EditorState, TemplateVariable } from '../../types/editor';
 import {
   loadEditorTemplate,
   saveEditorState,
-  getVisualEditorTemplates,
   deleteTemplate,
   duplicateTemplate,
   convertTemplateToEditorState,
-  editorStateToHTML,
 } from '../../lib/editorService';
-import { renderTemplateHtml, fixFontUrls } from '../../lib/creativeService';
-import { RxDownload, RxArrowLeft, RxCopy, RxTrash, RxEyeOpen, RxDesktop, RxDeviceMobile, RxMagicWand } from 'react-icons/rx';
-import { supabase } from '../../lib/supabase';
+import {
+  addTextElement,
+  addImageElement,
+  addRectangleElement,
+  addCircleElement,
+  deleteElements,
+  updateElement,
+  updateElements,
+  alignElements,
+  reorderElement,
+} from '../../lib/editorActions';
+import { RxDownload, RxArrowLeft, RxCopy, RxTrash, RxMagicWand, RxDesktop } from 'react-icons/rx';
 
-type ViewMode = 'edit' | 'preview' | 'code';
+type ViewMode = 'edit' | 'code';
 
 export const TemplateEditor: React.FC = () => {
   const { templateId } = useParams<{ templateId: string }>();
   const navigate = useNavigate();
 
-  const canvasRef = useRef<EditorCanvasRef>(null);
   const [template, setTemplate] = useState<CreativeTemplate | null>(null);
   const [editorState, setEditorState] = useState<EditorState | null>(null);
-  const [selectedElements, setSelectedElements] = useState<EditorElement[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [showAssets, setShowAssets] = useState(false);
@@ -45,23 +51,25 @@ export const TemplateEditor: React.FC = () => {
       loadTemplate(templateId);
     } else {
       // Create new blank template
+      const initialState: EditorState = {
+        version: '1.0',
+        canvas: { width: 300, height: 250, backgroundColor: '#ffffff' },
+        elements: [],
+        variables: [],
+      };
       setTemplate({
         name: 'New Template',
         type: 'display',
         width: 300,
         height: 250,
-        editor_state: {
-          version: '1.0',
-          canvas: { width: 300, height: 250 },
-          elements: [],
-          variables: [],
-        },
+        editor_state: initialState,
         is_visual_editor: true,
         canvas_width: 300,
         canvas_height: 250,
         default_values: {},
         placeholders: [],
       });
+      setEditorState(initialState);
     }
   }, [templateId]);
 
@@ -69,19 +77,26 @@ export const TemplateEditor: React.FC = () => {
     const loaded = await loadEditorTemplate(id);
     if (loaded) {
       setTemplate(loaded);
-      // Convert template to editor state (handles both old HTML and new editor_state formats)
-      const editorState = convertTemplateToEditorState(loaded);
-      setEditorState(editorState);
+      const state = convertTemplateToEditorState(loaded);
+      setEditorState(state);
+      // Initialize history with loaded state
+      setHistory([state]);
+      setHistoryIndex(0);
     }
   };
 
+  const handleStateChange = (state: EditorState) => {
+    setEditorState(state);
+    setIsDirty(true);
+    addToHistory(state);
+  };
+
   const handleSave = async () => {
-    if (!canvasRef.current || !template) return;
+    if (!editorState || !template) return;
 
     setSaving(true);
     try {
-      const state = canvasRef.current.getState();
-      const saved = await saveEditorState(template.id, state, {
+      const saved = await saveEditorState(template.id, editorState, {
         name: template.name,
         description: template.description,
         type: template.type,
@@ -93,7 +108,6 @@ export const TemplateEditor: React.FC = () => {
       if (saved) {
         setTemplate(saved);
         setIsDirty(false);
-        addToHistory(state);
         alert('Template saved successfully!');
       }
     } catch (error) {
@@ -127,115 +141,138 @@ export const TemplateEditor: React.FC = () => {
     }
   };
 
-  const handleStateChange = (state: EditorState) => {
-    setEditorState(state);
-    setIsDirty(true);
+  const handleSelect = (ids: string[]) => {
+    setSelectedIds(ids);
   };
 
-  const handleSelect = (elements: EditorElement[]) => {
-    setSelectedElements(elements);
-  };
+  const selectedElements = editorState
+    ? editorState.elements.filter((el) => selectedIds.includes(el.id))
+    : [];
 
   const handleElementUpdate = (id: string, updates: Partial<EditorElement>) => {
-    // Update element in canvas
-    if (canvasRef.current) {
-      const state = canvasRef.current.getState();
-      const elementIndex = state.elements.findIndex((e) => e.id === id);
-
-      if (elementIndex !== -1) {
-        state.elements[elementIndex] = { ...state.elements[elementIndex], ...updates };
-        canvasRef.current.loadState(state);
-        handleStateChange(state);
-      }
-    }
+    if (!editorState) return;
+    const newState = updateElement(editorState, id, updates);
+    handleStateChange(newState);
   };
 
   const handleElementsUpdate = (updates: Partial<EditorElement>) => {
-    // Bulk update selected elements
-    if (canvasRef.current) {
-      const state = canvasRef.current.getState();
-      const selectedIds = selectedElements.map((e) => e.id);
-
-      state.elements = state.elements.map((el) =>
-        selectedIds.includes(el.id) ? { ...el, ...updates } : el
-      );
-
-      canvasRef.current.loadState(state);
-      handleStateChange(state);
-    }
+    if (!editorState) return;
+    const newState = updateElements(editorState, selectedIds, updates);
+    handleStateChange(newState);
   };
 
   const handleVariableBind = (elementId: string, variableName: string) => {
-    if (variableName) {
-      handleElementUpdate(elementId, { variableName });
-    } else {
-      handleElementUpdate(elementId, { variableName: undefined });
-    }
+    handleElementUpdate(elementId, variableName ? { variableName } : { variableName: undefined });
   };
 
   const handleToggleVisibility = (id: string) => {
-    if (canvasRef.current) {
-      // Toggle visibility (would need to extend canvas ref)
-      handleElementUpdate(id, { visible: !selectedElements.find((e) => e.id === id)?.visible });
+    if (!editorState) return;
+    const el = editorState.elements.find((e) => e.id === id);
+    if (el) {
+      handleElementUpdate(id, { visible: !el.visible });
     }
   };
 
   const handleToggleLock = (id: string) => {
-    handleElementUpdate(id, { locked: !selectedElements.find((e) => e.id === id)?.locked });
+    if (!editorState) return;
+    const el = editorState.elements.find((e) => e.id === id);
+    if (el) {
+      handleElementUpdate(id, { locked: !el.locked });
+    }
   };
 
   const handleDeleteElement = (id: string) => {
-    // Would need to extend canvas ref to support deletion by ID
-    setSelectedElements(selectedElements.filter((e) => e.id !== id));
+    if (!editorState) return;
+    const newState = deleteElements(editorState, [id]);
+    handleStateChange(newState);
+    setSelectedIds(selectedIds.filter((sid) => sid !== id));
   };
 
   const handleReorder = (id: string, direction: 'up' | 'down') => {
-    // Would need to extend canvas ref to support reordering
-    const offset = direction === 'up' ? 1 : -1;
-    const element = selectedElements.find((e) => e.id === id);
-    if (element) {
-      handleElementUpdate(id, { zIndex: (element.zIndex || 0) + offset });
-    }
+    if (!editorState) return;
+    const newState = reorderElement(editorState, id, direction);
+    handleStateChange(newState);
   };
 
   const handleAddImage = (url: string) => {
-    if (canvasRef.current) {
-      canvasRef.current.addImage(url);
-    }
+    if (!editorState) return;
+    const newState = addImageElement(editorState, url);
+    const newEl = newState.elements[newState.elements.length - 1];
+    handleStateChange(newState);
+    setSelectedIds([newEl.id]);
   };
 
   const handleVariablesChange = (variables: TemplateVariable[]) => {
-    if (canvasRef.current) {
-      const state = canvasRef.current.getState();
-      state.variables = variables;
-      canvasRef.current.loadState(state);
-      handleStateChange(state);
-    }
+    if (!editorState) return;
+    handleStateChange({ ...editorState, variables });
   };
 
   const addToHistory = (state: EditorState) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(state);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    setHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push(state);
+      // Limit history to 50 entries
+      if (newHistory.length > 50) newHistory.shift();
+      return newHistory;
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, 49));
   };
 
   const handleUndo = () => {
-    if (historyIndex > 0 && canvasRef.current) {
-      const newState = history[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
-      canvasRef.current.loadState(newState);
-      handleStateChange(newState);
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      const prevState = history[newIndex];
+      setHistoryIndex(newIndex);
+      setEditorState(prevState);
+      setIsDirty(true);
     }
   };
 
   const handleRedo = () => {
-    if (historyIndex < history.length - 1 && canvasRef.current) {
-      const newState = history[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
-      canvasRef.current.loadState(newState);
-      handleStateChange(newState);
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1;
+      const nextState = history[newIndex];
+      setHistoryIndex(newIndex);
+      setEditorState(nextState);
+      setIsDirty(true);
     }
+  };
+
+  const handleAddText = () => {
+    if (!editorState) return;
+    const newState = addTextElement(editorState);
+    const newEl = newState.elements[newState.elements.length - 1];
+    handleStateChange(newState);
+    setSelectedIds([newEl.id]);
+  };
+
+  const handleAddRectangle = () => {
+    if (!editorState) return;
+    const newState = addRectangleElement(editorState);
+    const newEl = newState.elements[newState.elements.length - 1];
+    handleStateChange(newState);
+    setSelectedIds([newEl.id]);
+  };
+
+  const handleAddCircle = () => {
+    if (!editorState) return;
+    const newState = addCircleElement(editorState);
+    const newEl = newState.elements[newState.elements.length - 1];
+    handleStateChange(newState);
+    setSelectedIds([newEl.id]);
+  };
+
+  const handleDeleteSelected = () => {
+    if (!editorState || selectedIds.length === 0) return;
+    const newState = deleteElements(editorState, selectedIds);
+    handleStateChange(newState);
+    setSelectedIds([]);
+  };
+
+  const handleAlign = (alignment: string) => {
+    if (!editorState || selectedIds.length === 0) return;
+    const newState = alignElements(editorState, selectedIds, alignment as any);
+    handleStateChange(newState);
   };
 
   if (!template) {
@@ -243,40 +280,7 @@ export const TemplateEditor: React.FC = () => {
   }
 
   const availableVariables =
-    template.editor_state?.variables?.map((v) => v.name) || [];
-
-  // Generate preview HTML with default values
-  const getPreviewHTML = () => {
-    if (!template) return '';
-
-    // If template has editor_state and no HTML template, convert editor state to HTML
-    if (editorState && !template.html_template) {
-      const html = editorStateToHTML(editorState);
-      // Replace variables with default values
-      const mergedVars = {
-        ...template.default_values,
-        ...(editorState.variables?.reduce((acc, v) => {
-          if (v.defaultValue) acc[v.name] = v.defaultValue;
-          return acc;
-        }, {} as Record<string, string>))
-      };
-
-      let renderedHtml = html;
-      Object.entries(mergedVars).forEach(([key, value]) => {
-        const regex = new RegExp(`{{${key}}}`, 'g');
-        renderedHtml = renderedHtml.replace(regex, String(value));
-      });
-
-      return fixFontUrls(renderedHtml);
-    }
-
-    // Use original HTML template with default values
-    if (template.html_template) {
-      return fixFontUrls(renderTemplateHtml(template, template.default_values || {}));
-    }
-
-    return '<html><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">No preview available</div></body></html>';
-  };
+    editorState?.variables?.map((v) => v.name) || [];
 
   return (
     <div className="template-editor-page">
@@ -305,7 +309,7 @@ export const TemplateEditor: React.FC = () => {
             <button
               className={`mode-btn ${viewMode === 'edit' ? 'active' : ''}`}
               onClick={() => setViewMode('edit')}
-              title="Visual Edit (for templates created in visual editor)"
+              title="Visual Edit"
             >
               <RxMagicWand size={16} />
               Visual
@@ -313,17 +317,10 @@ export const TemplateEditor: React.FC = () => {
             <button
               className={`mode-btn ${viewMode === 'code' ? 'active' : ''}`}
               onClick={() => setViewMode('code')}
-              title="Code Edit (for HTML templates)"
+              title="Code Edit (HTML)"
             >
               <RxDesktop size={16} />
               Code
-            </button>
-            <button
-              className={`mode-btn ${viewMode === 'preview' ? 'active' : ''}`}
-              onClick={() => setViewMode('preview')}
-            >
-              <RxEyeOpen size={16} />
-              Preview
             </button>
           </div>
           {isDirty && <span className="dirty-indicator">Unsaved changes</span>}
@@ -351,18 +348,18 @@ export const TemplateEditor: React.FC = () => {
       <EditorToolbar
         zoom={zoom}
         onZoomChange={setZoom}
-        onAddText={() => canvasRef.current?.addText()}
+        onAddText={handleAddText}
         onAddImage={() => setShowAssets(true)}
-        onAddRectangle={() => canvasRef.current?.addRectangle()}
-        onAddCircle={() => canvasRef.current?.addRectangle()} // Placeholder - needs circle method
-        onAlign={(alignment) => canvasRef.current?.alignElements(alignment)}
-        onDelete={() => canvasRef.current?.deleteSelected()}
+        onAddRectangle={handleAddRectangle}
+        onAddCircle={handleAddCircle}
+        onAlign={handleAlign}
+        onDelete={handleDeleteSelected}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onToggleVariables={() => setShowVariables(true)}
         canUndo={historyIndex > 0}
         canRedo={historyIndex < history.length - 1}
-        hasSelection={selectedElements.length > 0}
+        hasSelection={selectedIds.length > 0}
       />
 
       {/* Main Content */}
@@ -371,10 +368,8 @@ export const TemplateEditor: React.FC = () => {
         <div className="editor-sidebar layers-sidebar">
           <LayersPanel
             elements={editorState?.elements || []}
-            selectedIds={selectedElements.map((e) => e.id)}
-            onSelect={(ids) => {
-              // Would need to select on canvas
-            }}
+            selectedIds={selectedIds}
+            onSelect={handleSelect}
             onToggleVisibility={handleToggleVisibility}
             onToggleLock={handleToggleLock}
             onDelete={handleDeleteElement}
@@ -384,7 +379,7 @@ export const TemplateEditor: React.FC = () => {
 
         {/* Canvas Area */}
         <div className="editor-canvas-area">
-          {viewMode === 'edit' ? (
+          {viewMode === 'edit' && editorState ? (
             <div
               className="canvas-wrapper"
               style={{
@@ -392,17 +387,15 @@ export const TemplateEditor: React.FC = () => {
                 transformOrigin: 'center center',
               }}
             >
-              {template && (
-                <EditorCanvas
-                  ref={canvasRef}
-                  template={template}
-                  width={template.width}
-                  height={template.height}
-                  onStateChange={handleStateChange}
-                  onSelect={handleSelect}
-                  onDirtyChange={setIsDirty}
-                />
-              )}
+              <VisualEditor
+                editorState={editorState}
+                selectedIds={selectedIds}
+                zoom={zoom}
+                htmlTemplate={template.html_template}
+                defaultValues={template.default_values || {}}
+                onStateChange={handleStateChange}
+                onSelect={handleSelect}
+              />
             </div>
           ) : viewMode === 'code' ? (
             <div className="code-editor-wrapper">
@@ -418,25 +411,7 @@ export const TemplateEditor: React.FC = () => {
                 spellCheck={false}
               />
             </div>
-          ) : (
-            <div className="preview-wrapper">
-              {template && (
-                <iframe
-                  key={`preview-${template.id}-${viewMode}`}
-                  srcDoc={getPreviewHTML()}
-                  className="preview-iframe"
-                  sandbox="allow-same-origin allow-scripts"
-                  title={`${template.name} Preview`}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    border: 'none',
-                    backgroundColor: '#f5f5f5',
-                  }}
-                />
-              )}
-            </div>
-          )}
+          ) : null}
         </div>
 
         {/* Right Sidebar - Properties */}
