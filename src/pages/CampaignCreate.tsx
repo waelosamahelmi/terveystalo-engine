@@ -236,7 +236,7 @@ const ServiceCard = ({ service, selected, onClick }: ServiceCardProps) => {
         )}
       </div>
 
-      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
         selected
           ? 'border-[#00A5B5] bg-[#00A5B5]'
           : 'border-gray-300'
@@ -631,7 +631,9 @@ const CampaignCreate = () => {
   const [formData, setFormData] = useState<CampaignFormData>({
     name: '',
     service_id: '',
+    service_ids: [],
     branch_id: '',
+    branch_ids: [],
     campaign_address: '',
     campaign_postal_code: '',
     campaign_city: '',
@@ -729,8 +731,10 @@ const CampaignCreate = () => {
   ];
 
   // Get selected items
-  const selectedService = services.find(s => s.id === formData.service_id);
-  const selectedBranch = branches.find(b => b.id === formData.branch_id);
+  const selectedServices = services.filter(s => formData.service_ids.includes(s.id));
+  const selectedService = selectedServices[0] || services.find(s => s.id === formData.service_id);
+  const selectedBranches = branches.filter(b => formData.branch_ids.includes(b.id));
+  const selectedBranch = selectedBranches[0] || branches.find(b => b.id === formData.branch_id);
   
   // Helper to get service name (handles name_fi vs name)
   const getServiceName = (service: Service | undefined) => 
@@ -872,6 +876,26 @@ const CampaignCreate = () => {
     });
   };
 
+  // Get channel budget recommendation
+  const getChannelRecommendation = (channel: 'meta' | 'display' | 'pdooh' | 'audio'): string | undefined => {
+    const total = formData.total_budget;
+    if (total <= 0) return undefined;
+
+    const recommendations: Record<string, { pct: number; min: number }> = {
+      meta: { pct: 0.40, min: 150 },
+      display: { pct: 0.25, min: 100 },
+      pdooh: { pct: 0.30, min: 200 },
+      audio: { pct: 0.05, min: 50 },
+    };
+
+    const rec = recommendations[channel];
+    const recommended = Math.max(Math.round(total * rec.pct), rec.min);
+    const currentBudget = formData[`budget_${channel}` as keyof CampaignFormData] as number;
+
+    if (currentBudget >= recommended) return undefined;
+    return `Suositus: ${recommended.toLocaleString('fi-FI')}€ (${Math.round(rec.pct * 100)}% kokonaisbudjetista)`;
+  };
+
   // Update total budget and rebalance
   const updateTotalBudget = (newTotal: number) => {
     const enabledChannels = [
@@ -897,8 +921,8 @@ const CampaignCreate = () => {
   const validateCurrentStep = (): boolean => {
     switch (currentStep) {
       case 0:
-        if (!formData.service_id) {
-          toast.error('Valitse palvelu');
+        if (formData.service_ids.length === 0) {
+          toast.error('Valitse vähintään yksi palvelu');
           return false;
         }
         if (!formData.ad_type) {
@@ -907,8 +931,8 @@ const CampaignCreate = () => {
         }
         break;
       case 1:
-        if (!formData.branch_id) {
-          toast.error('Valitse toimipiste');
+        if (formData.branch_ids.length === 0) {
+          toast.error('Valitse vähintään yksi toimipiste');
           return false;
         }
         break;
@@ -1362,10 +1386,14 @@ const CampaignCreate = () => {
               Vaihe {currentStep + 1}/{steps.length} • {steps[currentStep].name}
             </p>
           </div>
-          {selectedService && (
+          {selectedServices.length > 0 && (
             <div className="hidden md:flex items-center space-x-2 bg-[#00A5B5]/10 text-[#00A5B5] px-4 py-2 rounded-full">
               <ToothIcon size={18} />
-              <span className="font-medium">{getServiceName(selectedService)}</span>
+              <span className="font-medium">
+                {selectedServices.length === 1
+                  ? getServiceName(selectedServices[0])
+                  : `${selectedServices.length} palvelua`}
+              </span>
             </div>
           )}
         </div>
@@ -1407,8 +1435,15 @@ const CampaignCreate = () => {
                       <ServiceCard
                         key={service.id}
                         service={service}
-                        selected={formData.service_id === service.id}
-                        onClick={() => setFormData({ ...formData, service_id: service.id })}
+                        selected={formData.service_ids.includes(service.id)}
+                        onClick={() => {
+                          setFormData(prev => {
+                            const ids = prev.service_ids.includes(service.id)
+                              ? prev.service_ids.filter(id => id !== service.id)
+                              : [...prev.service_ids, service.id];
+                            return { ...prev, service_ids: ids, service_id: ids[0] || '' };
+                          });
+                        }}
                       />
                     ))
                   ) : (
@@ -1435,7 +1470,12 @@ const CampaignCreate = () => {
                         key={type.id}
                         type="button"
                         onClick={() => {
-                          setFormData({ ...formData, ad_type: type.id, creative_type: type.id });
+                          if (type.id === 'nationwide') {
+                            const allBranchIds = activeBranches.map(b => b.id);
+                            setFormData({ ...formData, ad_type: type.id, creative_type: type.id, branch_ids: allBranchIds, branch_id: allBranchIds[0] || '' });
+                          } else {
+                            setFormData({ ...formData, ad_type: type.id, creative_type: type.id, branch_ids: [], branch_id: '' });
+                          }
                         }}
                         className={`w-full p-4 rounded-lg border-2 text-left transition-all flex items-center gap-4 ${
                           isSelected
@@ -1463,31 +1503,96 @@ const CampaignCreate = () => {
               <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
                 <MapPin size={32} className="text-[#00A5B5]" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Valitse toimipiste</h2>
+              <h2 className="text-2xl font-bold text-gray-900">Valitse toimipisteet</h2>
               <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Minkä toimipisteen {getServiceName(selectedService)?.toLowerCase() || 'palvelua'} markkinoidaan?
+                {formData.ad_type === 'nationwide'
+                  ? 'Valtakunnallinen kampanja – kaikki toimipisteet valittu. Voit poistaa yksittäisiä.'
+                  : `Valitse toimipisteet joiden ${getServiceName(selectedService)?.toLowerCase() || 'palvelua'} markkinoidaan.`}
               </p>
             </div>
 
-            {/* Search */}
-            <div className="max-w-lg mx-auto mb-6">
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input
-                  type="text"
-                  placeholder="Hae nimellä, kaupungilla tai osoitteella..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
-                />
+            {/* Nationwide banner */}
+            {formData.ad_type === 'nationwide' && formData.branch_ids.length === activeBranches.length && (
+              <div className="max-w-4xl mx-auto mb-4 p-3 bg-[#00A5B5]/10 border border-[#00A5B5]/30 rounded-xl text-center">
+                <p className="text-sm text-[#00A5B5] font-medium">Kaikki toimipisteet valittu. Voit poistaa yksittäisiä klikkaamalla.</p>
               </div>
-              <p className="text-sm text-gray-400 mt-2 text-center">
-                {filteredBranches.length} toimipistettä
+            )}
+
+            {/* Search + controls */}
+            <div className="max-w-4xl mx-auto mb-4">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="text"
+                    placeholder="Hae nimellä, kaupungilla tai osoitteella..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allIds = activeBranches.map(b => b.id);
+                    setFormData(prev => ({ ...prev, branch_ids: allIds, branch_id: allIds[0] || '' }));
+                  }}
+                  className="px-4 py-3 text-sm font-medium rounded-xl border border-[#00A5B5] text-[#00A5B5] hover:bg-[#00A5B5]/10 transition-colors whitespace-nowrap"
+                >
+                  Valitse kaikki
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, branch_ids: [], branch_id: '' }))}
+                  className="px-4 py-3 text-sm font-medium rounded-xl border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors whitespace-nowrap"
+                >
+                  Poista kaikki
+                </button>
+              </div>
+
+              {/* City group filter buttons */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                {(() => {
+                  const cities = [...new Set(activeBranches.map(b => b.city))].sort();
+                  return cities.map(city => {
+                    const cityBranches = activeBranches.filter(b => b.city === city);
+                    const allSelected = cityBranches.every(b => formData.branch_ids.includes(b.id));
+                    return (
+                      <button
+                        key={city}
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => {
+                            const cityIds = cityBranches.map(b => b.id);
+                            let newIds: string[];
+                            if (allSelected) {
+                              newIds = prev.branch_ids.filter(id => !cityIds.includes(id));
+                            } else {
+                              newIds = [...new Set([...prev.branch_ids, ...cityIds])];
+                            }
+                            return { ...prev, branch_ids: newIds, branch_id: newIds[0] || '' };
+                          });
+                        }}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                          allSelected
+                            ? 'bg-[#00A5B5] text-white border-[#00A5B5]'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-[#00A5B5]'
+                        }`}
+                      >
+                        {city} ({cityBranches.length})
+                      </button>
+                    );
+                  });
+                })()}
+              </div>
+
+              <p className="text-sm text-gray-500">
+                {formData.branch_ids.length} / {activeBranches.length} toimipistettä valittu
               </p>
             </div>
-            
+
             {/* Table */}
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="border border-gray-200 rounded-xl overflow-hidden max-w-4xl mx-auto">
               <div className="max-h-[400px] overflow-y-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 sticky top-0">
@@ -1499,48 +1604,58 @@ const CampaignCreate = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredBranches.map(branch => (
-                      <tr
-                        key={branch.id}
-                        onClick={() => setFormData({ ...formData, branch_id: branch.id })}
-                        className={`cursor-pointer transition-colors ${
-                          formData.branch_id === branch.id 
-                            ? 'bg-[#00A5B5]/10' 
-                            : 'hover:bg-gray-50'
-                        }`}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center space-x-3">
-                            <div className={`p-2 rounded-lg ${
-                              formData.branch_id === branch.id 
-                                ? 'bg-[#00A5B5] text-white' 
-                                : 'bg-gray-100 text-gray-400'
-                            }`}>
-                              <MapPin size={16} />
+                    {filteredBranches.map(branch => {
+                      const isSelected = formData.branch_ids.includes(branch.id);
+                      return (
+                        <tr
+                          key={branch.id}
+                          onClick={() => {
+                            setFormData(prev => {
+                              const ids = isSelected
+                                ? prev.branch_ids.filter(id => id !== branch.id)
+                                : [...prev.branch_ids, branch.id];
+                              return { ...prev, branch_ids: ids, branch_id: ids[0] || '' };
+                            });
+                          }}
+                          className={`cursor-pointer transition-colors ${
+                            isSelected
+                              ? 'bg-[#00A5B5]/10'
+                              : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center space-x-3">
+                              <div className={`p-2 rounded-lg ${
+                                isSelected
+                                  ? 'bg-[#00A5B5] text-white'
+                                  : 'bg-gray-100 text-gray-400'
+                              }`}>
+                                <MapPin size={16} />
+                              </div>
+                              <span className="font-medium text-gray-900">{branch.name}</span>
                             </div>
-                            <span className="font-medium text-gray-900">{branch.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{branch.address}</td>
-                        <td className="px-4 py-3 text-gray-500">{branch.city}</td>
-                        <td className="px-4 py-3">
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                            formData.branch_id === branch.id 
-                              ? 'border-[#00A5B5] bg-[#00A5B5]' 
-                              : 'border-gray-300'
-                          }`}>
-                            {formData.branch_id === branch.id && (
-                              <Check size={12} className="text-white" strokeWidth={3} />
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{branch.address}</td>
+                          <td className="px-4 py-3 text-gray-500">{branch.city}</td>
+                          <td className="px-4 py-3">
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                              isSelected
+                                ? 'border-[#00A5B5] bg-[#00A5B5]'
+                                : 'border-gray-300'
+                            }`}>
+                              {isSelected && (
+                                <Check size={12} className="text-white" strokeWidth={3} />
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
-            
+
             {filteredBranches.length === 0 && (
               <div className="text-center py-12 text-gray-500">
                 <MapPin size={48} className="mx-auto mb-4 opacity-50" />
@@ -1750,9 +1865,7 @@ const CampaignCreate = () => {
                         : formData.target_genders?.length === 1
                         ? formData.target_genders[0] === 'male'
                           ? 'Miehet'
-                          : formData.target_genders[0] === 'female'
-                          ? 'Naiset'
-                          : 'Muut'
+                          : 'Naiset'
                         : `${formData.target_genders?.length || 0} valittu`}
                     </span>
                   </div>
@@ -1762,9 +1875,9 @@ const CampaignCreate = () => {
 
             {/* Campaign Objective Selection */}
             <div className="max-w-2xl mx-auto mt-8">
-              <div className="card p-6 bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border-2 border-purple-200 dark:border-purple-700">
+              <div className="card p-6 bg-gradient-to-br from-[#00A5B5]/5 to-[#1B365D]/5 dark:from-[#00A5B5]/10 dark:to-[#1B365D]/10 border-2 border-[#00A5B5]/30 dark:border-[#00A5B5]/50">
                 <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-3 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 text-white">
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-[#00A5B5] to-[#1B365D] text-white">
                     <TrendingUp size={24} />
                   </div>
                   <div>
@@ -1796,8 +1909,8 @@ const CampaignCreate = () => {
                       onClick={() => setFormData({ ...formData, campaign_objective: objective.id })}
                       className={`relative p-5 rounded-xl border-2 text-left transition-all duration-300 transform hover:scale-[1.02] ${
                         formData.campaign_objective === objective.id
-                          ? 'border-purple-500 bg-white dark:bg-gray-800 shadow-lg shadow-purple-500/20'
-                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-purple-300 dark:hover:border-purple-600'
+                          ? 'border-[#00A5B5] bg-white dark:bg-gray-800 shadow-lg shadow-[#00A5B5]/20'
+                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-[#00A5B5]/50 dark:hover:border-[#00A5B5]/60'
                       }`}
                     >
                       <div className="flex items-start justify-between mb-3">
@@ -1810,14 +1923,14 @@ const CampaignCreate = () => {
                       </div>
                       <h4 className={`font-semibold mb-1 ${
                         formData.campaign_objective === objective.id
-                          ? 'text-purple-700 dark:text-purple-400'
+                          ? 'text-[#00A5B5] dark:text-[#00A5B5]'
                           : 'text-gray-900 dark:text-white'
                       }`}>
                         {objective.label}
                       </h4>
                       <p className={`text-sm ${
                         formData.campaign_objective === objective.id
-                          ? 'text-purple-600 dark:text-purple-300'
+                          ? 'text-[#00A5B5]/80 dark:text-[#00A5B5]/70'
                           : 'text-gray-500 dark:text-gray-400'
                       }`}>
                         {objective.description}
@@ -1827,7 +1940,7 @@ const CampaignCreate = () => {
                 </div>
 
                 {formData.campaign_objective && (
-                  <div className="mt-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700">
+                  <div className="mt-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-[#00A5B5]/30 dark:border-[#00A5B5]/50">
                     <p className="text-sm text-gray-700 dark:text-gray-300">
                       <span className="font-medium">Valittu tavoite:</span>{' '}
                       {formData.campaign_objective === 'traffic'
@@ -1959,16 +2072,10 @@ const CampaignCreate = () => {
                     Valitse kampanjan budjetti
                   </label>
                   <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                    {budgetPresets.map(amount => {
-                      const available = selectedBranch?.budget
-                        ? (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)
-                        : Infinity;
-                      const isDisabled = amount > available;
-                      return (
+                    {budgetPresets.map(amount => (
                         <button
                           key={amount}
                           type="button"
-                          disabled={isDisabled}
                           onClick={() => {
                             setSelectedBudget(amount);
                             setCustomBudget(undefined);
@@ -1977,18 +2084,12 @@ const CampaignCreate = () => {
                           className={`p-4 rounded-xl border-2 transition-all ${
                             selectedBudget === amount || formData.total_budget === amount
                               ? 'bg-[#00A5B5] text-white border-[#00A5B5] shadow-md'
-                              : isDisabled
-                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-[#00A5B5] hover:bg-[#00A5B5]/10 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-[#00A5B5] hover:bg-[#00A5B5]/10 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600'
                           }`}
                         >
-                          <div className="text-lg font-bold">{amount}€</div>
-                          {isDisabled && (
-                            <div className="text-xs mt-1">Ei saatavilla</div>
-                          )}
+                          <div className="text-lg font-bold">{amount.toLocaleString('fi-FI')}€</div>
                         </button>
-                      );
-                    })}
+                    ))}
                   </div>
                 </div>
 
@@ -2001,9 +2102,6 @@ const CampaignCreate = () => {
                     <input
                       type="number"
                       min={0}
-                      max={selectedBranch?.budget
-                        ? (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)
-                        : undefined}
                       value={customBudget !== undefined ? customBudget : formData.total_budget}
                       onChange={(e) => {
                         const val = Number(e.target.value);
@@ -2019,9 +2117,9 @@ const CampaignCreate = () => {
                   {selectedBranch?.budget && formData.total_budget > (
                     (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)
                   ) && (
-                    <p className="mt-2 text-sm text-red-600 dark:text-red-400 flex items-center gap-1">
+                    <p className="mt-2 text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1">
                       <AlertCircle size={16} />
-                      Budjetti ylittää saatavilla olevan määrän ({((selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0))}€)
+                      Huomio: Budjetti ylittää toimipisteen jäljellä olevan budjetin ({((selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)).toLocaleString('fi-FI')}€). Voit silti jatkaa.
                     </p>
                   )}
                 </div>
@@ -2059,8 +2157,9 @@ const CampaignCreate = () => {
                   setFormData({ ...formData, budget_meta: val });
                   rebalanceBudgets('meta', val);
                 }}
+                suggestion={getChannelRecommendation('meta')}
               />
-              
+
               <ChannelCard
                 id="display"
                 name="Display"
@@ -2076,8 +2175,9 @@ const CampaignCreate = () => {
                   setFormData({ ...formData, budget_display: val });
                   rebalanceBudgets('display', val);
                 }}
+                suggestion={getChannelRecommendation('display')}
               />
-              
+
               <ChannelCard
                 id="pdooh"
                 name="PDOOH"
@@ -2093,9 +2193,9 @@ const CampaignCreate = () => {
                   setFormData({ ...formData, budget_pdooh: val });
                   rebalanceBudgets('pdooh', val);
                 }}
-                suggestion={screenInfo.total > 0 ? `${screenInfo.total} näyttöä alueella • Suositus: ${screenInfo.suggestedBudget}€ (${Math.round((screenInfo.suggestedBudget / formData.total_budget) * 100)}%)` : undefined}
+                suggestion={getChannelRecommendation('pdooh')}
               />
-              
+
               <ChannelCard
                 id="audio"
                 name="Digital Audio"
@@ -2111,6 +2211,7 @@ const CampaignCreate = () => {
                   setFormData({ ...formData, budget_audio: val });
                   rebalanceBudgets('audio', val);
                 }}
+                suggestion={getChannelRecommendation('audio')}
               />
             </div>
 
@@ -2192,7 +2293,7 @@ const CampaignCreate = () => {
               </div>
 
               {/* PDOOH Suggested Budget */}
-              {formData.channel_pdooh && screenInfo.total > 0 && (
+              {formData.channel_pdooh && screenInfo.total > 0 && formData.budget_pdooh < screenInfo.suggestedBudget && (
                 <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                   <div className="flex items-start space-x-3">
                     <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
@@ -2710,9 +2811,19 @@ const CampaignCreate = () => {
                   <div className="p-2 rounded-lg bg-[#00A5B5]/10">
                     <ToothIcon size={20} className="text-[#00A5B5]" />
                   </div>
-                  <span className="text-sm font-medium text-gray-500">Palvelu</span>
+                  <span className="text-sm font-medium text-gray-500">
+                    {selectedServices.length > 1 ? `Palvelut (${selectedServices.length})` : 'Palvelu'}
+                  </span>
                 </div>
-                <p className="text-lg font-semibold text-gray-900">{getServiceName(selectedService)}</p>
+                {selectedServices.length <= 1 ? (
+                  <p className="text-lg font-semibold text-gray-900">{getServiceName(selectedService)}</p>
+                ) : (
+                  <div className="space-y-1">
+                    {selectedServices.map(s => (
+                      <p key={s.id} className="text-sm font-medium text-gray-900">{getServiceName(s)}</p>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
@@ -2720,10 +2831,23 @@ const CampaignCreate = () => {
                   <div className="p-2 rounded-lg bg-[#00A5B5]/10">
                     <MapPin size={20} className="text-[#00A5B5]" />
                   </div>
-                  <span className="text-sm font-medium text-gray-500">Toimipiste</span>
+                  <span className="text-sm font-medium text-gray-500">
+                    {selectedBranches.length > 1 ? `Toimipisteet (${selectedBranches.length})` : 'Toimipiste'}
+                  </span>
                 </div>
-                <p className="text-lg font-semibold text-gray-900">{selectedBranch?.name}</p>
-                <p className="text-sm text-gray-500">{selectedBranch?.city}</p>
+                {selectedBranches.length <= 1 ? (
+                  <>
+                    <p className="text-lg font-semibold text-gray-900">{selectedBranch?.name}</p>
+                    <p className="text-sm text-gray-500">{selectedBranch?.city}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-lg font-semibold text-gray-900">{selectedBranches.length} toimipistettä</p>
+                    <p className="text-sm text-gray-500">
+                      {[...new Set(selectedBranches.map(b => b.city))].sort().join(', ')}
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">

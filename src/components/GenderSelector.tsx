@@ -3,7 +3,7 @@
 // Toggle buttons for gender selection with "All" as mutually exclusive option
 // ============================================================================
 
-import { Users, User, UserCog } from 'lucide-react';
+import { Users, User } from 'lucide-react';
 
 interface GenderSelectorProps {
   selected: string[];
@@ -14,8 +14,7 @@ interface GenderSelectorProps {
 const GENDER_OPTIONS = [
   { id: 'all', label: 'Kaikki', icon: Users },
   { id: 'male', label: 'Miehet', icon: User },
-  { id: 'female', label: 'Naiset', icon: User },
-  { id: 'other', label: 'Muut', icon: UserCog }
+  { id: 'female', label: 'Naiset', icon: User }
 ];
 
 export function GenderSelector({

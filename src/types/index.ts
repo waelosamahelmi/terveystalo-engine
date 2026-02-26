@@ -129,7 +129,9 @@ export interface DentalCampaign {
   
   // Service and branch
   service_id: string;
+  service_ids?: string[];
   branch_id: string;
+  branch_ids?: string[];
   service?: Service;
   branch?: Branch;
   
@@ -226,11 +228,13 @@ export interface DentalCampaign {
 export interface CampaignFormData {
   // Step 1: Service & Ad Type
   service_id: string;
+  service_ids: string[];
   ad_type?: AdType;
   include_pricing?: PricingOption;
 
   // Step 2: Branch
   branch_id: string;
+  branch_ids: string[];
 
   // Step 3: Audience (Age, Gender, Location)
   target_age_min?: number;

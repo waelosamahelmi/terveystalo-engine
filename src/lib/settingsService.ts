@@ -262,5 +262,5 @@ export async function getDefaultBudgetSplits(): Promise<Record<string, number>> 
  */
 export async function getBudgetPresets(): Promise<number[]> {
   const presets = await getAppSetting<number[]>('budget_presets');
-  return presets || [84, 168, 337, 505, 672, 842]; // Weekly amounts from user's table
+  return presets || [500, 1000, 1500, 2000, 3000, 5000];
 }

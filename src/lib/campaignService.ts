@@ -129,7 +129,9 @@ export async function createCampaign(
     name: formData.name,
     description: formData.description,
     service_id: formData.service_id,
+    service_ids: formData.service_ids || [formData.service_id],
     branch_id: formData.branch_id,
+    branch_ids: formData.branch_ids || [formData.branch_id],
 
     campaign_address: formData.campaign_address,
     campaign_postal_code: formData.campaign_postal_code,
