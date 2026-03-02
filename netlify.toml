@@ -9,13 +9,15 @@
     Access-Control-Allow-Origin = "*"
 
 [functions]
-  directory = "functions"
+  directory = "netlify/functions"
 
-[functions."syncApartments-background"]
-schedule = "0 */6 * * *"
-
+# BidTheatre sync - runs daily at 5:40 PM
 [functions."sync-media-costs-background"]
-schedule = "40 17 * * *"  # Run at 7:00 PM every day
+schedule = "40 17 * * *"
 
+# Media screens sync - runs daily at 3:00 AM
 [functions."syncMediaScreens-background"]
-schedule = "0 3 * * *"  # Run at 3:00 AM every day
+schedule = "0 3 * * *"
+
+# Historical media costs sync (manual trigger)
+[functions."sync-historical-media-costs-background"]

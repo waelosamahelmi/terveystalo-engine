@@ -12,12 +12,14 @@ import {
   updateDentalCampaignStatusInSheet,
   deleteCampaignFromSheet,
 } from './googleSheets';
+import { getCreativeTemplates, renderTemplateHtml } from './creativeService';
 import type {
   DentalCampaign,
   CampaignFormData,
   CampaignFilters,
   CampaignStatus,
-  CampaignSummary
+  CampaignSummary,
+  CreativeTemplate
 } from '../types';
 
 /**
@@ -111,6 +113,109 @@ export async function getCampaignSummaries(): Promise<CampaignSummary[]> {
   }
 
   return data || [];
+}
+
+/**
+ * Build template variables from campaign form data
+ */
+function buildTemplateVariables(formData: CampaignFormData, showAddress: boolean): Record<string, string> {
+  const isGeneralBrandMessage = formData.general_brand_message &&
+    formData.general_brand_message.length > 0;
+  const city = formData.campaign_city || 'Helsinki';
+  const address = formData.campaign_address || 'Osoite';
+
+  const headlineText = formData.headline || 'Hymyile.';
+  const subheadlineText = formData.subheadline || 'Olet hyvissä käsissä.';
+  const offerTitle = isGeneralBrandMessage ? '' : 'Hammas-tarkastus';
+  const priceValue = isGeneralBrandMessage ? '' : (formData.offer_text || '49');
+
+  return {
+    title: 'Suun Terveystalo',
+    headline: headlineText,
+    subheadline: subheadlineText.replace(/\n/g, ' '),
+    offer_title: offerTitle.replace(/\n/g, ' '),
+    price: priceValue,
+    currency: '€',
+    cta_text: formData.cta_text || 'Varaa aika',
+    branch_address: showAddress ? address : '',
+    city_name: city,
+    logo_url: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
+    image_url: formData.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen.jpg',
+    click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
+    disclaimer_text: '',
+  };
+}
+
+/**
+ * Create creative records for a campaign
+ */
+async function createCampaignCreatives(
+  campaignId: string,
+  formData: CampaignFormData
+): Promise<void> {
+  try {
+    // Get all active templates
+    const templates = await getCreativeTemplates({ active: true });
+    if (!templates || templates.length === 0) {
+      console.log('No active templates found, skipping creative creation');
+      return;
+    }
+
+    // Build variables based on creative type
+    const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
+    const variables = buildTemplateVariables(formData, showAddress);
+
+    // Determine which sizes to create based on enabled channels
+    const sizesToCreate: string[] = [];
+
+    if (formData.channel_display) {
+      // Display sizes
+      sizesToCreate.push('300x300', '300x431', '300x600', '980x400');
+    }
+
+    if (formData.channel_pdooh) {
+      // PDOOH sizes
+      sizesToCreate.push('1080x1920');
+    }
+
+    if (formData.channel_meta) {
+      // Meta sizes
+      sizesToCreate.push('1080x1080', '1080x1920-meta');
+    }
+
+    // Create creative records for matching templates
+    const creativesToInsert = templates
+      .filter(t => sizesToCreate.includes(t.size) || sizesToCreate.includes(`${t.size}-${t.type}`))
+      .map(template => {
+        const renderedHtml = renderTemplateHtml(template, variables);
+        return {
+          campaign_id: campaignId,
+          template_id: template.id,
+          name: `${formData.name || 'Campaign'} - ${template.name}`,
+          type: template.type,
+          width: template.width,
+          height: template.height,
+          variables: variables as any,
+          rendered_html: renderedHtml,
+          status: 'draft' as const,
+          version: 1,
+        };
+      });
+
+    if (creativesToInsert.length > 0) {
+      const { error: creativeError } = await supabase
+        .from('creatives')
+        .insert(creativesToInsert);
+
+      if (creativeError) {
+        console.error('Failed to create campaign creatives:', creativeError);
+      } else {
+        console.log(`Created ${creativesToInsert.length} creative records for campaign ${campaignId}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error creating campaign creatives:', error);
+  }
 }
 
 /**
@@ -224,6 +329,10 @@ export async function createCampaign(
         if (!ok) console.warn('Sheet sync returned false for campaign', data.id);
       })
       .catch(e => console.error('Google Sheets sync failed (non-blocking):', e));
+
+    // Create creative records for the campaign (fire and forget)
+    createCampaignCreatives(data.id, formData)
+      .catch(e => console.error('Creative creation failed (non-blocking):', e));
   }
 
   return data;

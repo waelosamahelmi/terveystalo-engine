@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sync Templates to Database</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Sync Templates to Database</h1>
+    <pre id="output"></pre>
+
+    <script>
+        const SUPABASE_URL = localStorage.getItem('supabase_url') || prompt('Enter Supabase URL:');
+        const SUPABASE_KEY = localStorage.getItem('supabase_key') || prompt('Enter Supabase Anon Key:');
+
+        if (SUPABASE_URL && SUPABASE_KEY) {
+            localStorage.setItem('supabase_url', SUPABASE_URL);
+            localStorage.setItem('supabase_key', SUPABASE_KEY);
+        }
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const templates = [
+            {
+                name: '300x300 Display',
+                size: '300x300',
+                type: 'display',
+                width: 300,
+                height: 300,
+                active: true,
+                sort_order: 1
+            },
+            {
+                name: '300x431 Display',
+                size: '300x431',
+                type: 'display',
+                width: 300,
+                height: 431,
+                active: true,
+                sort_order: 2
+            },
+            {
+                name: '300x600 Display',
+                size: '300x600',
+                type: 'display',
+                width: 300,
+                height: 600,
+                active: true,
+                sort_order: 3
+            },
+            {
+                name: '620x891 Display',
+                size: '620x891',
+                type: 'display',
+                width: 620,
+                height: 891,
+                active: true,
+                sort_order: 4
+            },
+            {
+                name: '980x400 Display',
+                size: '980x400',
+                type: 'display',
+                width: 980,
+                height: 400,
+                active: true,
+                sort_order: 5
+            },
+            {
+                name: '1080x1920 PDOOH',
+                size: '1080x1920',
+                type: 'pdooh',
+                width: 1080,
+                height: 1920,
+                active: true,
+                sort_order: 6
+            },
+            {
+                name: '1080x1080 Meta Feed',
+                size: '1080x1080',
+                type: 'meta',
+                width: 1080,
+                height: 1080,
+                active: true,
+                sort_order: 7
+            },
+            {
+                name: '1080x1920 Meta Stories',
+                size: '1080x1920',
+                type: 'meta',
+                width: 1080,
+                height: 1920,
+                active: true,
+                sort_order: 8
+            }
+        ];
+
+        async function loadTemplateFile(filename) {
+            const response = await fetch('/refs/ads/templates/' + filename);
+            return await response.text();
+        }
+
+        async function syncTemplates() {
+            const output = document.getElementById('output');
+            output.textContent = 'Starting sync...\n\n';
+
+            // First, check existing templates
+            const { data: existing, error: fetchError } = await supabase
+                .from('creative_templates')
+                .select('*');
+
+            if (fetchError) {
+                output.textContent += 'Error fetching existing templates: ' + JSON.stringify(fetchError, null, 2) + '\n';
+                return;
+            }
+
+            output.textContent += `Found ${existing.length} existing templates:\n`;
+            existing.forEach(t => {
+                output.textContent += `  - ${t.name} (${t.size}, ${t.type})\n`;
+            });
+            output.textContent += '\n';
+
+            // Sync each template
+            for (const template of templates) {
+                output.textContent += `Processing ${template.name}...\n`;
+
+                // Load HTML from file
+                let html = '';
+                try {
+                    html = await loadTemplateFile(template.size + '.html');
+                    output.textContent += `  ✓ Loaded HTML from file\n`;
+                } catch (e) {
+                    output.textContent += `  ✗ Could not load HTML file: ${e.message}\n`;
+                    // Generate basic template structure
+                    html = generateBasicTemplate(template);
+                }
+
+                // Check if template exists
+                const existingTemplate = existing.find(t => t.size === template.size && t.type === template.type);
+
+                if (existingTemplate) {
+                    // Update
+                    const { error: updateError } = await supabase
+                        .from('creative_templates')
+                        .update({
+                            html_template: html,
+                            name: template.name,
+                            width: template.width,
+                            height: template.height,
+                            active: template.active,
+                            sort_order: template.sort_order,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', existingTemplate.id);
+
+                    if (updateError) {
+                        output.textContent += `  ✗ Update failed: ${updateError.message}\n`;
+                    } else {
+                        output.textContent += `  ✓ Updated\n`;
+                    }
+                } else {
+                    // Insert
+                    const { error: insertError } = await supabase
+                        .from('creative_templates')
+                        .insert({
+                            name: template.name,
+                            size: template.size,
+                            type: template.type,
+                            width: template.width,
+                            height: template.height,
+                            html_template: html,
+                            active: template.active,
+                            sort_order: template.sort_order,
+                            default_values: getDefaultValues(template),
+                            tags: [template.type]
+                        });
+
+                    if (insertError) {
+                        output.textContent += `  ✗ Insert failed: ${insertError.message}\n`;
+                    } else {
+                        output.textContent += `  ✓ Created\n`;
+                    }
+                }
+            }
+
+            output.textContent += '\n✓ Sync complete!\n';
+        }
+
+        function getDefaultValues(template) {
+            return {
+                headline: 'Hymyile.',
+                subheadline: 'Olet hyvissä käsissä.',
+                offer_title: 'Hammas-tarkastus',
+                price: '49',
+                currency: '€',
+                offer_date: 'Varaa viimeistään 28.10.',
+                cta_text: 'Varaa aika',
+                branch_address: 'Torikatu 1, Lahti',
+                logo_url: '/refs/assets/SuunTerveystalo_logo.png',
+                image_url: '/refs/assets/nainen.jpg',
+                artwork_url: '/refs/assets/terveystalo-artwork.png',
+                click_url: 'https://terveystalo.com/suunterveystalo',
+                disclaimer_text: 'Tarjous voimassa uusille asiakkaille.'
+            };
+        }
+
+        function generateBasicTemplate(template) {
+            return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="ad.size" content="width=${template.width},height=${template.height}">
+    <title>${template.name}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #333; }
+        .ad-container { width: ${template.width}px; height: ${template.height}px; background-color: #08091A; position: relative; overflow: hidden; color: #ffffff; text-align: center; }
+        .main-image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.8; }
+        .text-area { position: relative; z-index: 10; padding-top: ${template.height * 0.1}px; }
+        .headline { font-size: ${template.width * 0.04}px; font-weight: 900; margin-bottom: 10px; }
+        .subheadline { font-size: ${template.width * 0.02}px; }
+        .cta-button { position: absolute; bottom: ${template.height * 0.15}px; left: 50%; transform: translateX(-50%); background: #fff; color: #004E9A; padding: 12px 30px; border-radius: 30px; text-decoration: none; font-weight: bold; }
+        .logo { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); max-height: 30px; }
+    </style>
+</head>
+<body>
+    <div class="ad-container">
+        <img src="{{image_url}}" class="main-image">
+        <div class="text-area">
+            <h1 class="headline">{{headline}}</h1>
+            <p class="subheadline">{{subheadline}}</p>
+        </div>
+        <a href="{{click_url}}" class="cta-button">{{cta_text}}</a>
+        <img src="{{logo_url}}" class="logo">
+    </div>
+</body>
+</html>`;
+        }
+
+        syncTemplates();
+    </script>
+</body>
+</html>

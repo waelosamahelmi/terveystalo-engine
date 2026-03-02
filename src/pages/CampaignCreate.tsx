@@ -8,8 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { createCampaign } from '../lib/campaignService';
 import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService';
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
-import { useStore } from '../lib/store';
-import { getBudgetPresets } from '../lib/settingsService';
+import { useStore, store } from '../lib/store';
 import { loader } from '../lib/googleMapsLoader';
 import type { Service, Branch, CampaignFormData, CreativeType, AdType, PricingOption, CreativeTemplate } from '../types';
 import { format, addDays, addWeeks, differenceInDays } from 'date-fns';
@@ -42,18 +41,60 @@ import {
   RectangleHorizontal,
   Smartphone,
   Users,
+  User,
+  UserCircle,
+  Baby,
+  Smile,
+  Eye,
+  MousePointerClick,
   X,
   TrendingUp,
   Play,
-  Pause
+  Pause,
+  Film,
+  Video,
+  Clock,
+  FolderOpen,
+  Sparkles as SparklesIcon,
+  LayoutGrid,
+  MoreHorizontal,
+  ChevronDown,
+  Settings,
+  Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
 import { DemoBanner } from '../components/DemoTooltip';
 import { AgeRangeSelector } from '../components/AgeRangeSelector';
 import { GenderSelector } from '../components/GenderSelector';
-// import { BudgetCard } from '../components/BudgetCard'; // Removed budget card component
 import { AutoExpandTextarea } from '../components/AutoExpandTextarea';
+import { supabase } from '../lib/supabase';
+
+// Terveystalo Budget Edit State
+interface TerveystaloBudgetEditState {
+  isOpen: boolean;
+  newValue: number;
+  isLoading: boolean;
+}
+
+// Per-branch radius settings
+interface BranchRadiusSettings {
+  [branchId: string]: {
+    radius: number;
+    enabled: boolean;
+  }
+}
+
+// Finnish cities for exclusion list
+const FINNISH_CITIES = [
+  'Helsinki', 'Espoo', 'Vantaa', 'Tampere', 'Turku', 'Oulu',
+  'Jyväskylä', 'Lahti', 'Pori', 'Kouvola', 'Rovaniemi',
+  'Joensuu', 'Lappeenranta', 'Hämeenlinna', 'Vaasa', 'Seinäjoki',
+  'Kuopio', 'Kotka', 'Hyvinkää', 'Iisalmi', 'Kerava', 'Raisio',
+  'Nurmijärvi', 'Mikkeli', 'Kaarina', 'Lohja', 'Porvoo', 'Rauma',
+  'Tuusula', 'Vihti', 'Eurajoki', 'Salo', 'Kokkola', 'Oulainen',
+  'Riihimäki', 'Tornio', 'Järvenpää', 'Mäntsälä'
+];
 
 // Custom Tooth Icon Component
 const ToothIcon = ({ size = 24, className = '' }: { size?: number; className?: string }) => (
@@ -98,6 +139,13 @@ interface CreativeConfig {
   selectedAudio: string | null;
   disclaimerText: string;
   generalBrandMessage: string; // Yleinen brändiviesti
+  // Video for Meta ads
+  videoFile: File | null;
+  selectedVideo: string | null; // URL from library
+  // Ad concept type
+  conceptType: 'brandviesti' | 'service';
+  // Multi-location mode
+  multiLocationMode: 'single' | 'multi';
 }
 
 // Preview size options
@@ -447,33 +495,64 @@ const CreativeTypeCard = ({
 // MAP COMPONENT
 // ============================================================================
 
-interface MapComponentProps {
-  center: { lat: number; lng: number };
+interface BranchWithRadius {
+  branch: Branch;
   radius: number;
-  screens: MediaScreen[];
-  onRadiusChange: (radius: number) => void;
 }
 
-const MapComponent = ({ center, radius, screens, onRadiusChange }: MapComponentProps) => {
+interface MapComponentProps {
+  branches?: BranchWithRadius[];
+  center?: { lat: number; lng: number };
+  radius?: number;
+  single?: boolean; // If true, use old single-circle mode
+  screens?: MediaScreen[];
+  allScreens?: MediaScreen[]; // All Finland screens for nationwide mode
+  onRadiusChange?: (branchId: string, radius: number) => void;
+  mode?: 'single' | 'multi' | 'finland';
+}
+
+const MapComponent = ({ branches, center, radius = 10, screens, allScreens, onRadiusChange, single = false, mode = 'multi' }: MapComponentProps) => {
   const mapRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const circleRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Use plain objects instead of Map to avoid conflict with Google Maps
+  const circlesRef = useRef<Record<string, any>>({});
+  const markersRef = useRef<Record<string, any>>({});
+  const screenMarkersRef = useRef<Record<string, any>>({});
   const googleRef = useRef<any>(null);
+
+  // Finland bounds for nationwide view
+  const FINLAND_BOUNDS = {
+    north: 70.093,
+    south: 59.685,
+    east: 31.517,
+    west: 20.546
+  };
 
   useEffect(() => {
     const initMap = async () => {
       if (!mapRef.current) return;
-      
+
       try {
         const google = await loader.load();
         googleRef.current = google;
-        
+
+        let mapCenter = center;
+        let mapZoom = 12;
+
+        if (mode === 'finland') {
+          mapCenter = { lat: 65.5, lng: 26 };
+          mapZoom = 5;
+        } else if (branches && branches.length > 0) {
+          // Calculate center from all branches
+          const avgLat = branches.reduce((sum, b) => sum + b.branch.latitude, 0) / branches.length;
+          const avgLng = branches.reduce((sum, b) => sum + (b.branch.longitude || 0), 0) / branches.length;
+          mapCenter = { lat: avgLat, lng: avgLng };
+          mapZoom = 7;
+        }
+
         const map = new google.maps.Map(mapRef.current, {
-          center,
-          zoom: 12,
+          center: mapCenter || { lat: 60.1699, lng: 24.9384 },
+          zoom: mapZoom,
           styles: [
             {
               featureType: 'poi',
@@ -484,94 +563,190 @@ const MapComponent = ({ center, radius, screens, onRadiusChange }: MapComponentP
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: true,
+          restriction: mode === 'finland' ? {
+            latLngBounds: FINLAND_BOUNDS,
+            strictBounds: false
+          } : undefined,
         });
-        
+
         mapInstanceRef.current = map;
-        
-        // Add branch marker (teal color for the clinic)
-        new google.maps.Marker({
-          position: center,
-          map,
-          icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: 14,
-            fillColor: '#00A5B5',
-            fillOpacity: 1,
-            strokeColor: '#ffffff',
+
+        // Draw Finland outline for nationwide mode
+        if (mode === 'finland') {
+          const finlandPolygon = new google.maps.Polygon({
+            paths: [
+              // Simplified Finland border coordinates
+              { lat: 69.76, lng: 29.07 }, { lat: 69.70, lng: 27.50 }, { lat: 68.55, lng: 22.83 },
+              { lat: 66.80, lng: 23.90 }, { lat: 65.50, lng: 24.50 }, { lat: 63.30, lng: 21.50 },
+              { lat: 62.90, lng: 21.50 }, { lat: 61.70, lng: 21.80 }, { lat: 60.40, lng: 22.50 },
+              { lat: 59.80, lng: 23.50 }, { lat: 59.85, lng: 24.50 }, { lat: 60.40, lng: 27.80 },
+              { lat: 61.20, lng: 28.50 }, { lat: 62.00, lng: 29.50 }, { lat: 63.30, lng: 31.50 },
+              { lat: 65.50, lng: 31.00 }, { lat: 66.80, lng: 30.00 }, { lat:68.50, lng: 28.50 },
+              { lat: 69.76, lng: 29.07 }
+            ],
+            map,
+            strokeColor: '#00A5B5',
+            strokeOpacity: 0.8,
             strokeWeight: 3,
-          },
-          title: 'Toimipiste',
-          zIndex: 1000
-        });
-        
-        // Add radius circle
-        const circle = new google.maps.Circle({
-          map,
-          center,
-          radius: radius * 1000,
-          fillColor: '#00A5B5',
-          fillOpacity: 0.1,
-          strokeColor: '#00A5B5',
-          strokeWeight: 2,
-          strokeOpacity: 0.8
-        });
-        
-        circleRef.current = circle;
-        
+            fillColor: '#00A5B5',
+            fillOpacity: 0.1
+          });
+        }
+
+        // Add branch markers and circles
+        if (mode === 'multi' && branches) {
+          branches.forEach(({ branch, radius: r }) => {
+            const position = { lat: branch.latitude, lng: branch.longitude || 0 };
+
+            // Marker
+            const marker = new google.maps.Marker({
+              position,
+              map,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 12,
+                fillColor: '#00A5B5',
+                fillOpacity: 1,
+                strokeColor: '#ffffff',
+                strokeWeight: 2,
+              },
+              title: branch.name,
+              zIndex: 100
+            });
+            markersRef.current[branch.id] = marker;
+
+            // Circle
+            const circle = new google.maps.Circle({
+              map,
+              center: position,
+              radius: r * 1000,
+              fillColor: '#00A5B5',
+              fillOpacity: 0.15,
+              strokeColor: '#00A5B5',
+              strokeWeight: 2,
+              strokeOpacity: 0.7,
+            });
+            circlesRef.current[branch.id] = circle;
+          });
+        }
+
+        // Add PDOOH screen markers
+        const screensToShow = mode === 'finland' ? allScreens : screens;
+        if (screensToShow && screensToShow.length > 0) {
+          screensToShow.forEach((screen, index) => {
+            if (screen.latitude && screen.longitude) {
+              const screenMarker = new google.maps.Marker({
+                position: { lat: screen.latitude, lng: screen.longitude },
+                map,
+                icon: {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 6,
+                  fillColor: '#1B365D',
+                  fillOpacity: 0.8,
+                  strokeColor: '#ffffff',
+                  strokeWeight: 1,
+                },
+                title: `${screen.site_url} (${screen.city || 'Unknown'})`,
+                zIndex: 50
+              });
+              screenMarkersRef.current[`screen-${index}`] = screenMarker;
+            }
+          });
+        }
+
+        // Single branch mode (backward compatible)
+        if (single && center && radius) {
+          // Single branch mode (backward compatible)
+          new google.maps.Marker({
+            position: center,
+            map,
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 14,
+              fillColor: '#00A5B5',
+              fillOpacity: 1,
+              strokeColor: '#ffffff',
+              strokeWeight: 3,
+            },
+            title: 'Toimipiste',
+            zIndex: 1000
+          });
+
+          const circle = new google.maps.Circle({
+            map,
+            center,
+            radius: radius * 1000,
+            fillColor: '#00A5B5',
+            fillOpacity: 0.1,
+            strokeColor: '#00A5B5',
+            strokeWeight: 2,
+            strokeOpacity: 0.8
+          });
+          circlesRef.current['single'] = circle;
+        }
+
       } catch (error) {
         console.error('Error initializing map:', error);
       }
     };
-    
+
     initMap();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [center]);
+  }, [mode, branches?.map(b => b.branch.id).join(','), screens?.length, allScreens?.length]);
 
-  // Update circle radius
+  // Update circle radii when branches change
   useEffect(() => {
-    if (circleRef.current) {
-      circleRef.current.setRadius(radius * 1000);
-      
-      // Adjust zoom based on radius
-      if (mapInstanceRef.current) {
-        const zoom = radius > 30 ? 9 : radius > 15 ? 10 : radius > 5 ? 11 : 12;
-        mapInstanceRef.current.setZoom(zoom);
+    if (mode === 'multi' && branches) {
+      branches.forEach(({ branch, radius: r }) => {
+        const circle = circlesRef.current[branch.id];
+        if (circle) {
+          circle.setRadius(r * 1000);
+        }
+      });
+    } else if (single && radius) {
+      const circle = circlesRef.current['single'];
+      if (circle) {
+        circle.setRadius(radius * 1000);
       }
     }
-  }, [radius]);
+  }, [branches, radius, mode, single]);
 
   return (
     <div className="relative rounded-2xl overflow-hidden shadow-inner">
       <div ref={mapRef} className="w-full h-80" />
-      
-      {/* Radius control overlay */}
-      <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm rounded-xl p-4 shadow-lg">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">Kohdistussäde</span>
-          <span className="text-lg font-bold text-[#00A5B5]">{radius} km</span>
-        </div>
-        <input
-          type="range"
-          min={1}
-          max={50}
-          value={radius}
-          onChange={(e) => onRadiusChange(parseInt(e.target.value))}
-          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00A5B5]"
-        />
-        <div className="flex justify-between text-xs text-gray-400 mt-1">
-          <span>1 km</span>
-          <span>50 km</span>
-        </div>
-      </div>
-      
+
       {/* Screen count badge */}
-      <div className="absolute top-4 right-4 bg-[#1B365D] text-white px-3 py-2 rounded-lg shadow-lg">
-        <div className="flex items-center space-x-2">
-          <Monitor size={16} />
-          <span className="font-bold">{screens.length}</span>
-          <span className="text-sm opacity-80">näyttöä</span>
+      {(single && screens && screens.length > 0) && (
+        <div className="absolute top-4 right-4 bg-[#1B365D] text-white px-3 py-2 rounded-lg shadow-lg">
+          <div className="flex items-center space-x-2">
+            <Monitor size={16} />
+            <span className="font-bold">{screens.length}</span>
+            <span className="text-sm opacity-80">näyttöä</span>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Finland screen count badge for nationwide mode */}
+      {mode === 'finland' && allScreens && allScreens.length > 0 && (
+        <div className="absolute top-4 left-4 bg-[#1B365D] text-white px-3 py-2 rounded-lg shadow-lg">
+          <div className="flex items-center space-x-2">
+            <Monitor size={16} />
+            <span className="font-bold">{allScreens.length}</span>
+            <span className="text-sm opacity-80">PDOOH-näyttöä Suomessa</span>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-branch screen count badge */}
+      {mode === 'multi' && screens && screens.length > 0 && (
+        <div className="absolute top-4 right-4 bg-[#1B365D] text-white px-3 py-2 rounded-lg shadow-lg">
+          <div className="flex items-center space-x-2">
+            <Monitor size={16} />
+            <span className="font-bold">{screens.length}</span>
+            <span className="text-sm opacity-80">näyttöä alueella</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -591,7 +766,7 @@ const backgroundImages = [
 
 const CampaignCreate = () => {
   const navigate = useNavigate();
-  const { services, branches, user } = useStore();
+  const { services, branches, campaigns, user } = useStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [_loading] = useState(false);
@@ -610,15 +785,89 @@ const CampaignCreate = () => {
   // Budget presets from settings
   const [budgetPresets, setBudgetPresets] = useState<number[]>([]);
   const [customBudget, setCustomBudget] = useState<number | undefined>(undefined);
-  const [selectedBudget, setSelectedBudget] = useState<number | undefined>(undefined);
+  const [selectedBudget, setSelectedBudget] = useState<number | undefined>(500);
 
   // Database creative templates
   const [dbTemplates, setDbTemplates] = useState<CreativeTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
 
+  // Terveystalo total budget edit state
+  const [terveystaloBudgetEdit, setTerveystaloBudgetEdit] = useState<TerveystaloBudgetEditState>({
+    isOpen: false,
+    newValue: 0,
+    isLoading: false,
+  });
+
+  // Per-branch radius settings
+  const [branchRadiusSettings, setBranchRadiusSettings] = useState<BranchRadiusSettings>({});
+
+  // Excluded cities for nationwide campaigns
+  const [excludedCities, setExcludedCities] = useState<string[]>([]);
+
+  // Branch screen counts - stores screen count for each branch
+  const [branchScreenCounts, setBranchScreenCounts] = useState<Record<string, number>>({});
+
+  // All Finland screens for nationwide mode
+  const [allFinlandScreens, setAllFinlandScreens] = useState<MediaScreen[]>([]);
+
+  // Combined screens within all selected branches' radii
+  const [combinedBranchScreens, setCombinedBranchScreens] = useState<MediaScreen[]>([]);
+
+  // Total monthly budget from app_settings
+  const [totalMonthlyBudget, setTotalMonthlyBudget] = useState<number>(0);
+
+  // Calculate total Terveystalo budget and remaining
+  const getTotalTerveystaloBudget = useCallback((): { total: number; used: number; remaining: number } => {
+    // Get current month period
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    // Get total used by campaigns running during current month
+    const totalUsed = campaigns.reduce((sum, c) => {
+      // Only count active/paused/pending campaigns
+      if (c.status !== 'active' && c.status !== 'pending' && c.status !== 'paused') {
+        return sum;
+      }
+
+      // Check if campaign overlaps with current month
+      const campaignStart = new Date(c.start_date);
+      const campaignEnd = c.end_date ? new Date(c.end_date) : new Date(2099, 11, 31); // Ongoing campaigns
+
+      // Check if date ranges overlap
+      const overlaps = campaignStart <= currentMonthEnd && campaignEnd >= currentMonthStart;
+
+      if (overlaps) {
+        return sum + (c.total_budget || 0);
+      }
+      return sum;
+    }, 0);
+
+    return {
+      total: totalMonthlyBudget,
+      used: totalUsed,
+      remaining: totalMonthlyBudget - totalUsed,
+    };
+  }, [campaigns, totalMonthlyBudget]);
+
   // Load budget presets and templates on mount
   useEffect(() => {
-    getBudgetPresets().then(setBudgetPresets).catch(console.error);
+    // Hardcoded budget presets
+    setBudgetPresets([50, 100, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000]);
+
+    // Load total monthly budget from app_settings
+    supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'total_monthly_budget')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          setTotalMonthlyBudget(Number(data.value));
+        }
+      })
+      .catch(console.error);
+
     // Load active templates from database
     setTemplatesLoading(true);
     getCreativeTemplates({ active: true })
@@ -644,15 +893,15 @@ const CampaignCreate = () => {
     creative_weight_local: 50,
     start_date: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
     end_date: format(addWeeks(new Date(), 4), 'yyyy-MM-dd'),
-    total_budget: 0,
+    total_budget: 500,
     channel_meta: true,
     channel_display: true,
     channel_pdooh: true,
     channel_audio: false,
-    budget_meta: 500,
-    budget_display: 500,
-    budget_pdooh: 800,
-    budget_audio: 200,
+    budget_meta: 250,
+    budget_display: 250,
+    budget_pdooh: 250,
+    budget_audio: 0,
     headline: '',
     offer_text: '',
     cta_text: 'Varaa aika',
@@ -667,7 +916,72 @@ const CampaignCreate = () => {
     is_ongoing: false
   });
 
-  // Creative config
+  // Fetch screens when branches or radii change
+  useEffect(() => {
+    const fetchBranchScreens = async () => {
+      if (formData.ad_type === 'nationwide') {
+        // Fetch all Finland screens for nationwide mode
+        try {
+          const { data, error } = await supabase
+            .from('media_screens')
+            .select('*')
+            .eq('status', 'active');
+          if (data) {
+            const validScreens = data.filter(s => s.latitude && s.longitude);
+            setAllFinlandScreens(validScreens);
+          }
+        } catch (error) {
+          console.error('Error loading Finland screens:', error);
+        }
+        return;
+      }
+
+      // For local mode, fetch screens for each selected branch
+      if (formData.branch_ids.length === 0) {
+        setBranchScreenCounts({});
+        setCombinedBranchScreens([]);
+        return;
+      }
+
+      try {
+        const screenCounts: Record<string, number> = {};
+        const allScreens: MediaScreen[] = [];
+        const seenScreenIds = new Set<number>();
+
+        // Fetch screens for each branch
+        for (const branchId of formData.branch_ids) {
+          const branch = branches.find(b => b.id === branchId);
+          if (!branch) continue;
+
+          const radius = branchRadiusSettings[branchId]?.radius || 10;
+          const result = await countScreensInRadius(
+            branch.latitude,
+            branch.longitude || 0,
+            radius * 1000
+          );
+
+          screenCounts[branchId] = result.total;
+
+          // Add unique screens to combined list
+          result.screensInRadius.forEach(screen => {
+            if (!seenScreenIds.has(screen.id)) {
+              seenScreenIds.add(screen.id);
+              allScreens.push(screen);
+            }
+          });
+        }
+
+        setBranchScreenCounts(screenCounts);
+        setCombinedBranchScreens(allScreens);
+      } catch (error) {
+        console.error('Error loading branch screens:', error);
+      }
+    };
+
+    fetchBranchScreens();
+  }, [formData.branch_ids, formData.ad_type, branchRadiusSettings, branches]);
+
+  // Creative config - initialize with defaults, will update based on selections
   const [creativeConfig, setCreativeConfig] = useState<CreativeConfig>({
     headline: '',
     subheadline: '',
@@ -682,8 +996,25 @@ const CampaignCreate = () => {
     audioFile: null,
     selectedAudio: null,
     disclaimerText: 'Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.',
-    generalBrandMessage: 'Hymyile.<br>Olet hyvissä käsissä.'
+    generalBrandMessage: 'Hymyile.<br>Olet hyvissä käsissä.',
+    videoFile: null,
+    selectedVideo: null,
+    conceptType: 'service',
+    multiLocationMode: 'single',
   });
+
+  // Video library state
+  const [videoLibrary, setVideoLibrary] = useState<Array<{
+    id: string;
+    name: string;
+    url: string;
+    thumbnail: string;
+    duration: number;
+    uploadedAt: string;
+  }>>([]);
+
+  // Creatives step tab state
+  const [creativeTab, setCreativeTab] = useState<'content' | 'media' | 'videos' | 'settings'>('content');
 
   // Sync ad_type choice with creative_type
   useEffect(() => {
@@ -692,23 +1023,55 @@ const CampaignCreate = () => {
     }
   }, [formData.ad_type]);
 
-  // Preview size state
+  // Preview size state - dynamically loaded from templates
+  const [availableSizes, setAvailableSizes] = useState<PreviewSize[]>(PREVIEW_SIZES);
   const [previewSize, setPreviewSize] = useState<PreviewSize>(PREVIEW_SIZES[2]); // Default to 300x600
+
+  // Update available sizes when templates are loaded
+  useEffect(() => {
+    if (dbTemplates.length > 0) {
+      // Build available sizes from database templates
+      const sizesFromDb: PreviewSize[] = dbTemplates
+        .filter(t => t.active)
+        .map(t => {
+          const sizeKey = t.size;
+          const type = t.type as 'Display' | 'PDOOH' | 'Meta';
+
+          // Map to icon and label
+          let icon = RectangleVertical;
+          let label = sizeKey;
+
+          if (sizeKey === '300x300') { icon = Square; label = 'Neliö'; }
+          else if (sizeKey === '300x431') { icon = RectangleVertical; label = 'Pysty'; }
+          else if (sizeKey === '300x600') { icon = RectangleVertical; label = 'Half-page'; }
+          else if (sizeKey === '620x891') { icon = RectangleVertical; label = 'Iso pysty'; }
+          else if (sizeKey === '980x400') { icon = RectangleHorizontal; label = 'Vaaka'; }
+          else if (sizeKey === '1080x1920') { icon = Smartphone; label = type === 'Meta' ? 'Stories' : 'Pysty'; }
+          else if (sizeKey === '1080x1080') { icon = Instagram; label = 'Feed'; }
+
+          return {
+            id: sizeKey,
+            name: sizeKey,
+            width: t.width,
+            height: t.height,
+            icon,
+            label,
+            category: type.charAt(0).toUpperCase() + type.slice(1) as 'Display' | 'PDOOH' | 'Meta'
+          };
+        });
+
+      if (sizesFromDb.length > 0) {
+        setAvailableSizes(sizesFromDb);
+        // Set default to 300x600 if available, otherwise first size
+        const defaultSize = sizesFromDb.find(s => s.id === '300x600') || sizesFromDb[0];
+        setPreviewSize(defaultSize);
+      }
+    }
+  }, [dbTemplates]);
 
   // Audio playback state
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Auto-set budget to 50% of remaining branch budget when branch is selected
-  useEffect(() => {
-    if (selectedBranch?.budget && formData.total_budget === 0) {
-      const remaining = (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0);
-      const defaultBudget = Math.round(remaining * 0.5);
-      if (defaultBudget > 0) {
-        updateTotalBudget(defaultBudget);
-      }
-    }
-  }, [formData.branch_id]);
 
   // Filter active items
   const activeServices = services.filter(s => s.active);
@@ -747,11 +1110,20 @@ const CampaignCreate = () => {
   ));
 
   // Calculate enabled channels budget total
-  const enabledChannelsBudget = 
+  const enabledChannelsBudget =
     (formData.channel_meta ? formData.budget_meta : 0) +
     (formData.channel_display ? formData.budget_display : 0) +
     (formData.channel_pdooh ? formData.budget_pdooh : 0) +
     (formData.channel_audio ? formData.budget_audio : 0);
+
+  // Update creative config based on service and branch selections
+  useEffect(() => {
+    setCreativeConfig(prev => ({
+      ...prev,
+      conceptType: selectedService?.code === 'yleinen-brandiviesti' ? 'brandviesti' : 'service',
+      multiLocationMode: selectedBranches.length > 1 ? 'multi' : 'single',
+    }));
+  }, [selectedService?.code, selectedBranches.length]);
 
   // Load screens when branch or radius changes
   useEffect(() => {
@@ -823,26 +1195,13 @@ const CampaignCreate = () => {
       formData.channel_audio && 'audio'
     ].filter(Boolean) as string[];
 
-    if (enabledChannels.length <= 1) return;
-
-    const totalBudget = formData.total_budget;
-    const otherChannels = enabledChannels.filter(c => c !== changedChannel);
-    const remaining = totalBudget - newValue;
-    const perChannel = Math.round(remaining / otherChannels.length);
-
+    // Simplified: Only update the changed channel, don't rebalance others
     const newBudgets: Partial<CampaignFormData> = {};
-    
+
     if (changedChannel === 'meta') newBudgets.budget_meta = newValue;
-    else if (formData.channel_meta) newBudgets.budget_meta = perChannel;
-    
     if (changedChannel === 'display') newBudgets.budget_display = newValue;
-    else if (formData.channel_display) newBudgets.budget_display = perChannel;
-    
     if (changedChannel === 'pdooh') newBudgets.budget_pdooh = newValue;
-    else if (formData.channel_pdooh) newBudgets.budget_pdooh = perChannel;
-    
     if (changedChannel === 'audio') newBudgets.budget_audio = newValue;
-    else if (formData.channel_audio) newBudgets.budget_audio = perChannel;
 
     setFormData(prev => ({ ...prev, ...newBudgets }));
   }, [formData]);
@@ -851,27 +1210,26 @@ const CampaignCreate = () => {
   const toggleChannel = (channel: 'meta' | 'display' | 'pdooh' | 'audio') => {
     const channelKey = `channel_${channel}` as keyof CampaignFormData;
     const newEnabled = !formData[channelKey];
-    
+
     setFormData(prev => {
       const updated = { ...prev, [channelKey]: newEnabled };
-      
-      // Rebalance budgets when toggling
-      const enabledChannels = [
-        updated.channel_meta && 'meta',
-        updated.channel_display && 'display',
-        updated.channel_pdooh && 'pdooh',
-        updated.channel_audio && 'audio'
-      ].filter(Boolean) as string[];
-      
-      if (enabledChannels.length > 0) {
-        const perChannel = Math.round(formData.total_budget / enabledChannels.length);
-        
-        if (enabledChannels.includes('meta')) updated.budget_meta = perChannel;
-        if (enabledChannels.includes('display')) updated.budget_display = perChannel;
-        if (enabledChannels.includes('pdooh')) updated.budget_pdooh = perChannel;
-        if (enabledChannels.includes('audio')) updated.budget_audio = perChannel;
+
+      // When enabling a channel, set its budget to 50% of total
+      // When disabling, set to 0
+      if (newEnabled) {
+        const channelBudget = Math.round(formData.total_budget * 0.5);
+
+        if (channel === 'meta') updated.budget_meta = channelBudget;
+        if (channel === 'display') updated.budget_display = channelBudget;
+        if (channel === 'pdooh') updated.budget_pdooh = channelBudget;
+        if (channel === 'audio') updated.budget_audio = channelBudget;
+      } else {
+        if (channel === 'meta') updated.budget_meta = 0;
+        if (channel === 'display') updated.budget_display = 0;
+        if (channel === 'pdooh') updated.budget_pdooh = 0;
+        if (channel === 'audio') updated.budget_audio = 0;
       }
-      
+
       return updated;
     });
   };
@@ -896,25 +1254,81 @@ const CampaignCreate = () => {
     return `Suositus: ${recommended.toLocaleString('fi-FI')}€ (${Math.round(rec.pct * 100)}% kokonaisbudjetista)`;
   };
 
-  // Update total budget and rebalance
+  // Update total budget - each enabled channel gets 50% of the total
   const updateTotalBudget = (newTotal: number) => {
-    const enabledChannels = [
-      formData.channel_meta && 'meta',
-      formData.channel_display && 'display',
-      formData.channel_pdooh && 'pdooh',
-      formData.channel_audio && 'audio'
-    ].filter(Boolean) as string[];
-
-    const perChannel = Math.round(newTotal / Math.max(1, enabledChannels.length));
+    const channelBudget = Math.round(newTotal * 0.5);
 
     setFormData(prev => ({
       ...prev,
       total_budget: newTotal,
-      budget_meta: enabledChannels.includes('meta') ? perChannel : 0,
-      budget_display: enabledChannels.includes('display') ? perChannel : 0,
-      budget_pdooh: enabledChannels.includes('pdooh') ? perChannel : 0,
-      budget_audio: enabledChannels.includes('audio') ? perChannel : 0,
+      budget_meta: prev.channel_meta ? channelBudget : 0,
+      budget_display: prev.channel_display ? channelBudget : 0,
+      budget_pdooh: prev.channel_pdooh ? channelBudget : 0,
+      budget_audio: prev.channel_audio ? channelBudget : 0,
     }));
+  };
+
+  // Open Terveystalo budget edit dialog
+  const openTerveystaloBudgetEdit = () => {
+    const currentTotal = getTotalTerveystaloBudget();
+    setTerveystaloBudgetEdit({
+      isOpen: true,
+      newValue: currentTotal.total,
+      isLoading: false,
+    });
+  };
+
+  // Confirm Terveystalo budget change
+  const confirmTerveystaloBudgetChange = async () => {
+    const oldTotal = getTotalTerveystaloBudget().total;
+    const newTotal = terveystaloBudgetEdit.newValue;
+
+    if (newTotal === oldTotal) {
+      setTerveystaloBudgetEdit({ isOpen: false, newValue: 0, isLoading: false });
+      return;
+    }
+
+    // Set loading state
+    setTerveystaloBudgetEdit(prev => ({ ...prev, isLoading: true }));
+
+    try {
+      // Update app_settings
+      const { error } = await supabase
+        .from('app_settings')
+        .update({
+          value: String(newTotal),
+          updated_at: new Date().toISOString()
+        })
+        .eq('key', 'total_monthly_budget');
+
+      if (error) throw error;
+
+      // Update local state
+      setTotalMonthlyBudget(newTotal);
+
+      // Log the change with user info
+      await supabase.from('activity_logs').insert({
+        user_id: user?.id,
+        action: 'terveystalo_budget_updated',
+        entity_type: 'system',
+        details: {
+          user_name: user?.name || user?.email || 'Unknown',
+          old_budget: oldTotal,
+          new_budget: newTotal,
+          difference: newTotal - oldTotal,
+          message: `${user?.name || user?.email || 'Unknown'} muutti Terveystalon kokonaisbudjettia: ${oldTotal.toLocaleString('fi-FI')}€ → ${newTotal.toLocaleString('fi-FI')}€`
+        }
+      });
+
+      // Close dialog and reset loading
+      setTerveystaloBudgetEdit({ isOpen: false, newValue: 0, isLoading: false });
+
+      toast.success(`Kokonaisbudjetti päivitetty: ${oldTotal.toLocaleString('fi-FI')}€ → ${newTotal.toLocaleString('fi-FI')}€`);
+    } catch (error) {
+      console.error('Failed to update Terveystalo budget:', error);
+      toast.error('Budjetin päivitys epäonnistui');
+      setTerveystaloBudgetEdit(prev => ({ ...prev, isLoading: false }));
+    }
   };
 
   // Validation
@@ -963,6 +1377,18 @@ const CampaignCreate = () => {
           toast.error('Valitse vähintään yksi kanava');
           return false;
         }
+        // Check if channel budgets match total budget
+        const channelSum = enabledChannelsBudget;
+        if (channelSum !== formData.total_budget) {
+          if (channelSum === 0) {
+            toast.error('Aseta budjetit valituille kanaville');
+          } else if (channelSum > formData.total_budget) {
+            toast.error(`Kanavien budjetit (${channelSum}€) ylittävät kampanjan budjetin (${formData.total_budget}€). Vähennä kanavien budjetteja.`);
+          } else {
+            toast.error(`Kampanjan budjettia (${formData.total_budget}€) ei ole käytetty kokonaan. Käytä ${formData.total_budget - channelSum}€ lisää kanaville.`);
+          }
+          return false;
+        }
         break;
       case 4:
         break;
@@ -1008,10 +1434,39 @@ const CampaignCreate = () => {
   const buildTemplateVariables = useCallback((showAddress: boolean): Record<string, string> => {
     const baseUrl = window.location.origin;
     const isGeneralBrandMessage = selectedService?.code === 'yleinen-brandiviesti';
-    const branchCity = selectedBranch?.city || selectedBranch?.name?.split(' ')[0] || 'Oulun';
 
-    const headlineText = creativeConfig.headline || 'Hymyile.';
-    const subheadlineText = creativeConfig.subheadline || 'Olet hyvissä käsissä.';
+    // Get cities for multi-location display
+    const uniqueCities = [...new Set(selectedBranches.map(b => b.city))].sort();
+    const isMultiLocation = selectedBranches.length > 1;
+
+    // Build location text based on concept type
+    let locationText = '';
+    if (isMultiLocation) {
+      // Multi-location: "... • Lahti • Helsinki" style
+      locationText = uniqueCities.length > 3
+        ? `... • ${uniqueCities.slice(0, 2).join(' • ')}`
+        : uniqueCities.join(' • ');
+    } else {
+      // Single location: "Lahti Suun Terveystalo"
+      locationText = `${selectedBranch?.city || ''} Suun Terveystalo`;
+    }
+
+    // Set headline based on concept type
+    let headlineText = creativeConfig.headline;
+    let subheadlineText = creativeConfig.subheadline;
+
+    if (isGeneralBrandMessage) {
+      // Brandviesti: "Hymyile. Olet hyvissä käsissä."
+      headlineText = headlineText || 'Hymyile.';
+      subheadlineText = subheadlineText || 'Olet hyvissä käsissä.';
+    } else {
+      // Service-specific: Service name as headline
+      const serviceName = selectedService?.name_fi || selectedService?.name || 'Palvelu';
+      headlineText = headlineText || serviceName;
+      // For service ads, subheadline is the location
+      subheadlineText = subheadlineText || locationText;
+    }
+
     const offerTitle = isGeneralBrandMessage ? '' : (creativeConfig.offerTitle || 'Hammas-tarkastus');
     const priceValue = isGeneralBrandMessage ? '' : (creativeConfig.offer || '49');
 
@@ -1030,14 +1485,14 @@ const CampaignCreate = () => {
       scene3_line1: 'Sujuvampaa',
       scene3_line2: 'suun',
       scene3_line3: 'terveyttä',
-      scene3_line4: branchCity,
+      scene3_line4: selectedBranch?.city || 'Oulun',
       scene3_line5: 'Suun Terveystalossa.',
 
       // Scene 3 text lines (for Meta templates with 4-line format)
       scene3_line2a: 'suun',
       scene3_line2b: 'terveyttä',
 
-      city_name: branchCity,
+      city_name: selectedBranch?.city || 'Oulu',
 
       // Images (for Meta templates - two scene images)
       scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
@@ -1045,6 +1500,7 @@ const CampaignCreate = () => {
 
       // Images (for PDOOH templates - single image + logo)
       logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
+      artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
       image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen.jpg`,
       image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
       image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
@@ -1225,11 +1681,10 @@ const CampaignCreate = () => {
 
       // Other variables
       offer_date: isGeneralBrandMessage ? '' : (creativeConfig.offerDate || 'Varaa viimeistään 28.10.'),
-      artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
       click_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
       disclaimer_text: creativeConfig.disclaimerText || '',
     };
-  }, [creativeConfig, selectedBranch]);
+  }, [creativeConfig, selectedBranch, selectedBranches, selectedService]);
 
   // Render preview template using database HTML templates in an iframe
   const renderPreviewTemplate = (showAddress: boolean) => {
@@ -1491,123 +1946,217 @@ const CampaignCreate = () => {
                 </div>
               </div>
             </div>
+
+            {/* Date Selection */}
+            <div className="max-w-2xl mx-auto mt-8">
+              <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-green-50 to-emerald-100">
+                    <Calendar className="text-green-600" size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Kampanjan ajankohta</h3>
+                    <p className="text-xs text-gray-500">Valitse aloitus- ja päättymispäivä</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Start Date */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Alkamispäivä</label>
+                    <input
+                      type="date"
+                      value={formData.start_date}
+                      min={format(new Date(), 'yyyy-MM-dd')}
+                      onChange={(e) => {
+                        const newStart = e.target.value;
+                        setFormData(prev => {
+                          const updated = { ...prev, start_date: newStart };
+                          if (!prev.is_ongoing && newStart > prev.end_date) {
+                            updated.end_date = format(addWeeks(new Date(newStart), 4), 'yyyy-MM-dd');
+                          }
+                          return updated;
+                        });
+                      }}
+                      className="w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* End Date */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Päättymispäivä</label>
+                    <input
+                      type="date"
+                      value={formData.is_ongoing ? '' : formData.end_date}
+                      min={formData.start_date}
+                      disabled={formData.is_ongoing}
+                      onChange={(e) => setFormData(prev => ({ ...prev, end_date: e.target.value }))}
+                      className={`w-full px-3 py-2.5 text-sm rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all ${
+                        formData.is_ongoing ? 'opacity-50 bg-gray-100' : ''
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Continuous Campaign Toggle */}
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw size={16} className="text-gray-400" />
+                    <span className="text-sm text-gray-600">Jatkuva kampanja</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({
+                      ...prev,
+                      is_ongoing: !prev.is_ongoing,
+                      end_date: !prev.is_ongoing
+                        ? format(addWeeks(new Date(prev.start_date), 52), 'yyyy-MM-dd')
+                        : format(addWeeks(new Date(prev.start_date), 4), 'yyyy-MM-dd')
+                    }))}
+                    className={`relative w-12 h-6 rounded-full transition-all ${
+                      formData.is_ongoing ? 'bg-[#00A5B5]' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-all ${
+                      formData.is_ongoing ? 'translate-x-6' : ''
+                    }`} />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
         {/* =============================================================== */}
-        {/* STEP 2: BRANCH SELECTION */}
+        {/* STEP 1: BRANCHES & MAP */}
         {/* =============================================================== */}
         {currentStep === 1 && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
-                <MapPin size={32} className="text-[#00A5B5]" />
+          <div className="animate-fade-in max-w-6xl mx-auto">
+            {/* Compact Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {formData.ad_type === 'nationwide' ? 'Alueellinen kohdistus' : 'Toimipisteet'}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {formData.ad_type === 'nationwide'
+                    ? 'Valtakunnallinen kampanja'
+                    : `${formData.branch_ids.length} valittu`
+                  }
+                </p>
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Valitse toimipisteet</h2>
-              <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                {formData.ad_type === 'nationwide'
-                  ? 'Valtakunnallinen kampanja – kaikki toimipisteet valittu. Voit poistaa yksittäisiä.'
-                  : `Valitse toimipisteet joiden ${getServiceName(selectedService)?.toLowerCase() || 'palvelua'} markkinoidaan.`}
-              </p>
             </div>
 
-            {/* Nationwide banner */}
-            {formData.ad_type === 'nationwide' && formData.branch_ids.length === activeBranches.length && (
-              <div className="max-w-4xl mx-auto mb-4 p-3 bg-[#00A5B5]/10 border border-[#00A5B5]/30 rounded-xl text-center">
-                <p className="text-sm text-[#00A5B5] font-medium">Kaikki toimipisteet valittu. Voit poistaa yksittäisiä klikkaamalla.</p>
-              </div>
-            )}
+            {formData.ad_type === 'nationwide' ? (
+              // ============================================
+              // NATIONWIDE MODE: Finland Map + City Exclusion
+              // ============================================
+              <div className="space-y-4">
+                <div className="relative rounded-xl overflow-hidden bg-gray-100">
+                  <MapComponent mode="finland" allScreens={allFinlandScreens} />
+                </div>
 
-            {/* Search + controls */}
-            <div className="max-w-4xl mx-auto mb-4">
-              <div className="flex items-center gap-4 mb-3">
-                <div className="relative flex-1">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                {/* City Exclusion */}
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-gray-700">
+                      Sulje pois kaupungkeja (valinnainen)
+                    </label>
+                    <span className="text-xs text-gray-500">
+                      {excludedCities.length} valittu
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Valitse kaupungkeja, jotka haluat jättää kampanjan ulkopuolelle.
+                  </p>
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+                    {FINNISH_CITIES.map(city => {
+                      const isExcluded = excludedCities.includes(city);
+                      return (
+                        <button
+                          key={city}
+                          type="button"
+                          onClick={() => {
+                            setExcludedCities(prev =>
+                              isExcluded
+                                ? prev.filter(c => c !== city)
+                                : [...prev, city]
+                            );
+                          }}
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                            isExcluded
+                              ? 'bg-red-50 border-red-300 text-red-700 line-through'
+                              : 'bg-white border-gray-300 text-gray-700 hover:border-[#00A5B5]'
+                          }`}
+                        >
+                          {city}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {excludedCities.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                      <div className="text-xs text-gray-500">Pois suljetut:</div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {excludedCities.map(city => (
+                          <span key={city} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">
+                            {city}
+                            <button
+                              type="button"
+                              onClick={() => setExcludedCities(prev => prev.filter(c => c !== city))}
+                              className="ml-1 hover:text-red-900"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              // ============================================
+              // LOCAL MODE: Branch Selection with Radii
+              // ============================================
+              <>
+                <div className="flex gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, branch_ids: activeBranches.map(b => b.id), branch_id: activeBranches[0]?.id || '' }))}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[#00A5B5] text-white"
+                  >
+                    Valitse kaikki
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, branch_ids: [], branch_id: '' }))}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600"
+                  >
+                    Tyhjennä
+                  </button>
+                </div>
+
+                {/* Search */}
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                   <input
                     type="text"
-                    placeholder="Hae nimellä, kaupungilla tai osoitteella..."
+                    placeholder="Hae toimipisteitä..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                    className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] outline-none"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const allIds = activeBranches.map(b => b.id);
-                    setFormData(prev => ({ ...prev, branch_ids: allIds, branch_id: allIds[0] || '' }));
-                  }}
-                  className="px-4 py-3 text-sm font-medium rounded-xl border border-[#00A5B5] text-[#00A5B5] hover:bg-[#00A5B5]/10 transition-colors whitespace-nowrap"
-                >
-                  Valitse kaikki
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData(prev => ({ ...prev, branch_ids: [], branch_id: '' }))}
-                  className="px-4 py-3 text-sm font-medium rounded-xl border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors whitespace-nowrap"
-                >
-                  Poista kaikki
-                </button>
-              </div>
 
-              {/* City group filter buttons */}
-              <div className="flex flex-wrap gap-2 mb-3">
-                {(() => {
-                  const cities = [...new Set(activeBranches.map(b => b.city))].sort();
-                  return cities.map(city => {
-                    const cityBranches = activeBranches.filter(b => b.city === city);
-                    const allSelected = cityBranches.every(b => formData.branch_ids.includes(b.id));
-                    return (
-                      <button
-                        key={city}
-                        type="button"
-                        onClick={() => {
-                          setFormData(prev => {
-                            const cityIds = cityBranches.map(b => b.id);
-                            let newIds: string[];
-                            if (allSelected) {
-                              newIds = prev.branch_ids.filter(id => !cityIds.includes(id));
-                            } else {
-                              newIds = [...new Set([...prev.branch_ids, ...cityIds])];
-                            }
-                            return { ...prev, branch_ids: newIds, branch_id: newIds[0] || '' };
-                          });
-                        }}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                          allSelected
-                            ? 'bg-[#00A5B5] text-white border-[#00A5B5]'
-                            : 'bg-white text-gray-600 border-gray-300 hover:border-[#00A5B5]'
-                        }`}
-                      >
-                        {city} ({cityBranches.length})
-                      </button>
-                    );
-                  });
-                })()}
-              </div>
-
-              <p className="text-sm text-gray-500">
-                {formData.branch_ids.length} / {activeBranches.length} toimipistettä valittu
-              </p>
-            </div>
-
-            {/* Table */}
-            <div className="border border-gray-200 rounded-xl overflow-hidden max-w-4xl mx-auto">
-              <div className="max-h-[400px] overflow-y-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 sticky top-0">
-                    <tr>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Toimipiste</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Osoite</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Kaupunki</th>
-                      <th className="w-16 px-4 py-3"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredBranches.map(branch => {
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Left: Branch Cards */}
+                  <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2">
+                    {filteredBranches.slice(0, 20).map(branch => {
                       const isSelected = formData.branch_ids.includes(branch.id);
+                      const branchRadius = branchRadiusSettings[branch.id]?.radius || 10;
                       return (
-                        <tr
+                        <div
                           key={branch.id}
                           onClick={() => {
                             setFormData(prev => {
@@ -1616,339 +2165,308 @@ const CampaignCreate = () => {
                                 : [...prev.branch_ids, branch.id];
                               return { ...prev, branch_ids: ids, branch_id: ids[0] || '' };
                             });
+                            // Initialize radius for newly selected branch
+                            if (!isSelected) {
+                              setBranchRadiusSettings(prev => ({
+                                ...prev,
+                                [branch.id]: { radius: 10, enabled: true }
+                              }));
+                            }
                           }}
-                          className={`cursor-pointer transition-colors ${
+                          className={`p-3 rounded-lg cursor-pointer transition-all border ${
                             isSelected
-                              ? 'bg-[#00A5B5]/10'
-                              : 'hover:bg-gray-50'
+                              ? 'bg-[#00A5B5]/10 border-[#00A5B5]'
+                              : 'bg-white border-gray-200 hover:border-[#00A5B5]/50'
                           }`}
                         >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center space-x-3">
-                              <div className={`p-2 rounded-lg ${
-                                isSelected
-                                  ? 'bg-[#00A5B5] text-white'
-                                  : 'bg-gray-100 text-gray-400'
-                              }`}>
-                                <MapPin size={16} />
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-3 h-3 rounded-full ${isSelected ? 'bg-[#00A5B5]' : 'bg-gray-300'}`} />
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{branch.name}</div>
+                                <div className="text-xs text-gray-500">{branch.city}</div>
                               </div>
-                              <span className="font-medium text-gray-900">{branch.name}</span>
                             </div>
-                          </td>
-                          <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{branch.address}</td>
-                          <td className="px-4 py-3 text-gray-500">{branch.city}</td>
-                          <td className="px-4 py-3">
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                              isSelected
-                                ? 'border-[#00A5B5] bg-[#00A5B5]'
-                                : 'border-gray-300'
+                            <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                              isSelected ? 'border-[#00A5B5] bg-[#00A5B5]' : 'border-gray-300'
                             }`}>
-                              {isSelected && (
-                                <Check size={12} className="text-white" strokeWidth={3} />
-                              )}
+                              {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
                             </div>
-                          </td>
-                        </tr>
+                          </div>
+                          {isSelected && (
+                            <div className="mt-2 pt-2 border-t border-[#00A5B5]/20 space-y-2">
+                              {/* Radius slider */}
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500">Säde:</span>
+                                <input
+                                  type="range"
+                                  min={1}
+                                  max={50}
+                                  value={branchRadius}
+                                  onChange={(e) => {
+                                    const newRadius = Number(e.target.value);
+                                    setBranchRadiusSettings(prev => ({
+                                      ...prev,
+                                      [branch.id]: { ...prev[branch.id], radius: newRadius }
+                                    }));
+                                  }}
+                                  className="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00A5B5]"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <span className="text-xs font-medium text-[#00A5B5] w-8 text-right">{branchRadius} km</span>
+                              </div>
+                              {/* Screen count */}
+                              <div className="flex items-center gap-1.5">
+                                <Monitor size={12} className="text-[#1B365D]" />
+                                <span className="text-xs text-gray-600">
+                                  {branchScreenCounts[branch.id] !== undefined
+                                    ? `${branchScreenCounts[branch.id]} näyttöä`
+                                    : 'Ladataan...'
+                                  }
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  </div>
 
-            {filteredBranches.length === 0 && (
-              <div className="text-center py-12 text-gray-500">
-                <MapPin size={48} className="mx-auto mb-4 opacity-50" />
-                <p>Ei hakutuloksia</p>
-              </div>
+                  {/* Right: Map Preview */}
+                  <div className="relative rounded-xl overflow-hidden bg-gray-100">
+                    {selectedBranches.length > 0 ? (
+                      <MapComponent
+                        mode="multi"
+                        branches={selectedBranches.map(branch => ({
+                          branch,
+                          radius: branchRadiusSettings[branch.id]?.radius || 10
+                        }))}
+                        screens={combinedBranchScreens}
+                      />
+                    ) : (
+                      <div className="h-80 flex items-center justify-center text-gray-400 text-sm">
+                        <MapPin size={32} className="mr-2" />
+                        Valitse toimipisteitä nähdäksesi kartalla
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Selected branches summary */}
+                {selectedBranches.length > 0 && (
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-2">Valitut toimipisteet ja säteet:</div>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedBranches.map(b => {
+                        const radius = branchRadiusSettings[b.id]?.radius || 10;
+                        return (
+                          <span key={b.id} className="px-2 py-1 bg-white rounded-full text-xs text-gray-700 border border-gray-200 flex items-center gap-1">
+                            <span>{b.city}: {b.name}</span>
+                            <span className="text-[#00A5B5] font-medium">({radius} km)</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
         {/* =============================================================== */}
-        {/* STEP 3: AUDIENCE SELECTION */}
+        {/* STEP 2: AUDIENCE SELECTION */}
         {/* =============================================================== */}
         {currentStep === 2 && (
-          <div className="animate-fade-in">
+          <div className="animate-fade-in max-w-4xl mx-auto">
+            {/* Header */}
             <div className="text-center mb-8">
-              <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
-                <Users size={32} className="text-[#00A5B5]" />
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#00A5B5]/10 mb-3">
+                <Users className="text-[#00A5B5]" size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Kohderyhmä</h2>
-              <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Määritä ikäryhmä ja sukupuoli, joille haluat mainostaa.
-              </p>
+              <h2 className="text-xl font-bold text-gray-900">Kohderyhmä</h2>
+              <p className="text-sm text-gray-500 mt-1">Määritä kampanjan kohderyhmä ja tavoite</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left: Map with screens */}
-              <div className="lg:col-span-2">
-                <MapComponent
-                  center={formData.campaign_coordinates}
-                  radius={formData.campaign_radius}
-                  screens={screenInfo.screens}
-                  onRadiusChange={(radius) => setFormData({ ...formData, campaign_radius: radius })}
-                />
-              </div>
-
-              {/* Right: Screen info sidebar */}
-              <div className="space-y-4">
-                <div className="card p-5 bg-gradient-to-br from-[#1B365D] to-[#00A5B5] text-white">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-white/80">DOOH-näytöt alueella</span>
-                    {loadingScreens && <RefreshCw size={16} className="animate-spin" />}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Age Range Card */}
+              <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100">
+                    <Baby className="text-blue-600" size={20} />
                   </div>
-                  <div className="text-4xl font-bold">{screenInfo.total}</div>
-                  <p className="text-sm text-white/70 mt-1">
-                    {formData.campaign_radius} km säteellä
-                  </p>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Ikäryhmä</h3>
+                    <p className="text-xs text-gray-500">{formData.target_age_min || 18} – {formData.target_age_max || 80} vuotta</p>
+                  </div>
                 </div>
 
-                {/* Screen types breakdown */}
-                {Object.keys(screenInfo.byType).length > 0 && (
-                  <div className="card p-5">
-                    <h4 className="font-medium text-gray-700 mb-3">Näyttötyypit</h4>
-                    <div className="space-y-2">
-                      {Object.entries(screenInfo.byType).slice(0, 5).map(([type, count]) => (
-                        <div key={type} className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600 truncate">{type}</span>
-                          <span className="text-sm font-medium text-gray-900">{count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Audience selectors below map */}
-            <div className="max-w-2xl mx-auto mt-8 space-y-8">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Kohderyhmän valinta</h3>
-
-              {/* Age Range Selector */}
-              <div>
-                <AgeRangeSelector
-                  minAge={formData.target_age_min || 18}
-                  maxAge={formData.target_age_max || 80}
-                  onChange={(min, max) => setFormData({ ...formData, target_age_min: min, target_age_max: max })}
-                  minLimit={18}
-                  maxLimit={100}
-                />
-              </div>
-
-              {/* Gender Selector */}
-              <div>
-                <GenderSelector
-                  selected={formData.target_genders || ['all']}
-                  onChange={(genders) => setFormData({ ...formData, target_genders: genders })}
-                />
-              </div>
-
-              {/* Location Targeting (Collapsible - Optional) */}
-              <details className="group">
-                <summary className="cursor-pointer p-4 bg-gray-100 dark:bg-gray-800 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <MapPin size={20} className="text-gray-600 dark:text-gray-400" />
-                      <span className="font-medium text-gray-900 dark:text-white">
-                        Sijaintiin perustuva kohdistus (valinnainen)
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {formData.campaign_address && (
-                        <span className="text-sm text-gray-500">
-                          {formData.campaign_city || 'Valittu'}
-                        </span>
-                      )}
-                      <ArrowRight size={16} className="text-gray-400 group-open:rotate-90 transition-transform" />
-                    </div>
-                  </div>
-                </summary>
-
-                <div className="mt-4 p-5 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Osoite
-                    </label>
+                {/* Age Input */}
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 mb-1 block">Minimi</label>
                     <input
-                      type="text"
-                      placeholder="Katuosoite"
-                      value={formData.campaign_address}
-                      onChange={(e) => setFormData({ ...formData, campaign_address: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          // Move focus to postal code input
-                          (document.activeElement as HTMLElement)?.parentElement?.parentElement?.querySelector('input[placeholder*="00100"]')?.focus();
-                        }
-                      }}
-                      className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
+                      type="number"
+                      min={18}
+                      max={100}
+                      value={formData.target_age_min || 18}
+                      onChange={(e) => setFormData({ ...formData, target_age_min: Number(e.target.value) })}
+                      className="w-full px-3 py-2.5 text-center font-semibold border border-gray-200 rounded-xl focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
                     />
                   </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Postinumero
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="00100"
-                        value={formData.campaign_postal_code}
-                        onChange={(e) => setFormData({ ...formData, campaign_postal_code: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            // Move focus to city input
-                            (document.activeElement as HTMLElement)?.parentElement?.nextElementSibling?.querySelector('input')?.focus();
-                          }
-                        }}
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Kaupunki
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Helsinki"
-                        value={formData.campaign_city}
-                        onChange={(e) => setFormData({ ...formData, campaign_city: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            // Move focus to radius slider or blur
-                            (document.activeElement as HTMLElement)?.blur();
-                          }
-                        }}
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white"
-                      />
-                    </div>
+                  <div className="flex items-center text-gray-300 pt-5">
+                    <div className="w-8 h-0.5 bg-gray-300" />
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Säde (km): {formData.campaign_radius}
-                    </label>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 mb-1 block">Maksimi</label>
                     <input
-                      type="range"
-                      min="1"
-                      max="50"
-                      value={formData.campaign_radius}
-                      onChange={(e) => setFormData({ ...formData, campaign_radius: Number(e.target.value) })}
-                      className="w-full"
+                      type="number"
+                      min={18}
+                      max={100}
+                      value={formData.target_age_max || 80}
+                      onChange={(e) => setFormData({ ...formData, target_age_max: Number(e.target.value) })}
+                      className="w-full px-3 py-2.5 text-center font-semibold border border-gray-200 rounded-xl focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
                     />
-                    <div className="flex justify-between text-xs text-gray-400 mt-1">
-                      <span>1 km</span>
-                      <span>50 km</span>
-                    </div>
-                  </div>
-                </div>
-              </details>
-
-              {/* Summary Box */}
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-5 border border-gray-200 dark:border-gray-700">
-                <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Valittu kohderyhmä</h4>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-600 dark:text-gray-400">Ikäryhmä:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {formData.target_age_min || 18}-{formData.target_age_max || 80} vuotta
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600 dark:text-gray-400">Sukupuoli:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {formData.target_genders?.includes('all')
-                        ? 'Kaikki'
-                        : formData.target_genders?.length === 1
-                        ? formData.target_genders[0] === 'male'
-                          ? 'Miehet'
-                          : 'Naiset'
-                        : `${formData.target_genders?.length || 0} valittu`}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Campaign Objective Selection */}
-            <div className="max-w-2xl mx-auto mt-8">
-              <div className="card p-6 bg-gradient-to-br from-[#00A5B5]/5 to-[#1B365D]/5 dark:from-[#00A5B5]/10 dark:to-[#1B365D]/10 border-2 border-[#00A5B5]/30 dark:border-[#00A5B5]/50">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-3 rounded-xl bg-gradient-to-br from-[#00A5B5] to-[#1B365D] text-white">
-                    <TrendingUp size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Kampanjan tavoite</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Valitse mitä haluat kampanjalla saavuttaa</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-6">
+                {/* Age Presets */}
+                <div className="flex flex-wrap gap-2">
                   {[
-                    {
-                      id: 'traffic' as const,
-                      label: 'Liikenne',
-                      description: 'Vie käyttäjiä verkkosivustolle',
-                      icon: '🎯',
-                      gradient: 'from-green-500 to-emerald-500'
-                    },
-                    {
-                      id: 'reach' as const,
-                      label: 'Reach',
-                      description: 'Tavoita mahdollisimman monta ihmistä',
-                      icon: '📣',
-                      gradient: 'from-blue-500 to-indigo-500'
-                    }
-                  ].map((objective) => (
+                    { label: '18-35', min: 18, max: 35, icon: Smile },
+                    { label: '25-45', min: 25, max: 45, icon: UserCircle },
+                    { label: '35-65', min: 35, max: 65, icon: Users },
+                    { label: '45-75', min: 45, max: 75, icon: User },
+                  ].map(preset => {
+                    const Icon = preset.icon;
+                    const isActive = (formData.target_age_min || 18) === preset.min && (formData.target_age_max || 80) === preset.max;
+                    return (
+                      <button
+                        key={preset.label}
+                        onClick={() => setFormData({ ...formData, target_age_min: preset.min, target_age_max: preset.max })}
+                        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-all ${
+                          isActive
+                            ? 'bg-[#00A5B5] text-white shadow-sm'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        <Icon size={14} />
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Gender Card */}
+              <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-pink-50 to-purple-100">
+                    <UserCircle className="text-pink-600" size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Sukupuoli</h3>
+                    <p className="text-xs text-gray-500">
+                      {formData.target_genders?.[0] === 'all' && 'Kaikki'}
+                      {formData.target_genders?.[0] === 'male' && 'Miehet'}
+                      {formData.target_genders?.[0] === 'female' && 'Naiset'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {[
+                    { id: 'all', label: 'Kaikki', icon: Users, desc: 'Kaikki sukupuolet' },
+                    { id: 'male', label: 'Miehet', icon: User, desc: 'Mieskohtainen' },
+                    { id: 'female', label: 'Naiset', icon: UserCircle, desc: 'Naiskohtainen' },
+                  ].map(gender => {
+                    const Icon = gender.icon;
+                    const isActive = formData.target_genders?.[0] === gender.id;
+                    return (
+                      <button
+                        key={gender.id}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, target_genders: [gender.id] })}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+                          isActive
+                            ? 'border-[#00A5B5] bg-[#00A5B5]/5'
+                            : 'border-gray-200 hover:border-[#00A5B5]/30 bg-white'
+                        }`}
+                      >
+                        <div className={`flex items-center justify-center w-9 h-9 rounded-lg transition-all ${
+                          isActive ? 'bg-[#00A5B5]' : 'bg-gray-100'
+                        }`}>
+                          <Icon size={18} className={isActive ? 'text-white' : 'text-gray-500'} />
+                        </div>
+                        <div className="flex-1">
+                          <div className={`text-sm font-medium ${isActive ? 'text-[#00A5B5]' : 'text-gray-900'}`}>
+                            {gender.label}
+                          </div>
+                          <div className="text-xs text-gray-500">{gender.desc}</div>
+                        </div>
+                        {isActive && (
+                          <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[#00A5B5]">
+                            <Check size={12} className="text-white" strokeWidth={3} />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Campaign Objective - Wide Card */}
+            <div className="mt-6 bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-orange-50 to-amber-100">
+                  <Target className="text-orange-600" size={20} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">Kampanjan tavoite</h3>
+                  <p className="text-xs text-gray-500">Mitä haluat saavuttaa?</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id: 'traffic', label: 'Liikenne', icon: MousePointerClick, desc: 'Klikkaukset ja vierailut' },
+                  { id: 'reach', label: 'Reach', icon: Eye, desc: 'Näkyvyys ja tavoittavuus' },
+                ].map(obj => {
+                  const Icon = obj.icon;
+                  const isActive = formData.campaign_objective === obj.id;
+                  return (
                     <button
-                      key={objective.id}
+                      key={obj.id}
                       type="button"
-                      onClick={() => setFormData({ ...formData, campaign_objective: objective.id })}
-                      className={`relative p-5 rounded-xl border-2 text-left transition-all duration-300 transform hover:scale-[1.02] ${
-                        formData.campaign_objective === objective.id
-                          ? 'border-[#00A5B5] bg-white dark:bg-gray-800 shadow-lg shadow-[#00A5B5]/20'
-                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-[#00A5B5]/50 dark:hover:border-[#00A5B5]/60'
+                      onClick={() => setFormData({ ...formData, campaign_objective: obj.id })}
+                      className={`relative p-4 rounded-xl border-2 transition-all text-left ${
+                        isActive
+                          ? 'border-[#00A5B5] bg-[#00A5B5]/5 shadow-sm'
+                          : 'border-gray-200 hover:border-[#00A5B5]/30 bg-white'
                       }`}
                     >
-                      <div className="flex items-start justify-between mb-3">
-                        <span className="text-3xl">{objective.icon}</span>
-                        {formData.campaign_objective === objective.id && (
-                          <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${objective.gradient} flex items-center justify-center`}>
-                            <Check size={14} className="text-white" strokeWidth={3} />
+                      <div className="flex items-center gap-3">
+                        <div className={`flex items-center justify-center w-11 h-11 rounded-xl transition-all ${
+                          isActive ? 'bg-[#00A5B5]' : 'bg-gray-100'
+                        }`}>
+                          <Icon size={22} className={isActive ? 'text-white' : 'text-gray-500'} />
+                        </div>
+                        <div className="flex-1">
+                          <div className={`text-sm font-semibold ${isActive ? 'text-[#00A5B5]' : 'text-gray-900'}`}>
+                            {obj.label}
+                          </div>
+                          <div className="text-xs text-gray-500">{obj.desc}</div>
+                        </div>
+                        {isActive && (
+                          <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[#00A5B5]">
+                            <Check size={12} className="text-white" strokeWidth={3} />
                           </div>
                         )}
                       </div>
-                      <h4 className={`font-semibold mb-1 ${
-                        formData.campaign_objective === objective.id
-                          ? 'text-[#00A5B5] dark:text-[#00A5B5]'
-                          : 'text-gray-900 dark:text-white'
-                      }`}>
-                        {objective.label}
-                      </h4>
-                      <p className={`text-sm ${
-                        formData.campaign_objective === objective.id
-                          ? 'text-[#00A5B5]/80 dark:text-[#00A5B5]/70'
-                          : 'text-gray-500 dark:text-gray-400'
-                      }`}>
-                        {objective.description}
-                      </p>
                     </button>
-                  ))}
-                </div>
-
-                {formData.campaign_objective && (
-                  <div className="mt-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-[#00A5B5]/30 dark:border-[#00A5B5]/50">
-                    <p className="text-sm text-gray-700 dark:text-gray-300">
-                      <span className="font-medium">Valittu tavoite:</span>{' '}
-                      {formData.campaign_objective === 'traffic'
-                        ? 'Liikenne - Optimoidaan kävijöiden saamiseksi verkkosivustolle'
-                        : 'Reach - Maximoidaan ihmisten tavoittaminen'}
-                    </p>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1958,818 +2476,1228 @@ const CampaignCreate = () => {
         {/* STEP 4: BUDGET & CHANNELS */}
         {/* =============================================================== */}
         {currentStep === 3 && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
-                <Euro size={32} className="text-[#00A5B5]" />
+          <div className="animate-fade-in max-w-5xl mx-auto">
+            {/* Compact Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Budjetti ja kanavat</h2>
+                <p className="text-sm text-gray-500">
+                  {formData.is_ongoing
+                    ? `Jatkuva alkaen ${format(new Date(formData.start_date), 'd.M.yyyy', { locale: fi })}`
+                    : `${format(new Date(formData.start_date), 'd.M.', { locale: fi })} – ${format(new Date(formData.end_date), 'd.M.yyyy', { locale: fi })} (${campaignDays} pv)`
+                  }
+                </p>
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Budjetti ja kanavat</h2>
-              <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Määritä kampanjan ajankohta, budjetti ja kanavat.
-              </p>
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, is_ongoing: !prev.is_ongoing,
+                  end_date: !prev.is_ongoing
+                    ? format(addWeeks(new Date(prev.start_date), 52), 'yyyy-MM-dd')
+                    : format(addWeeks(new Date(prev.start_date), 4), 'yyyy-MM-dd'),
+                }))}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+                  formData.is_ongoing
+                    ? 'bg-[#00A5B5] text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <RefreshCw size={14} />
+                {formData.is_ongoing ? 'Jatkuva' : 'Määrätty'}
+              </button>
             </div>
 
-            {/* Campaign Schedule Section */}
-            <div className="max-w-4xl mx-auto mb-8">
-              <div className="card p-6 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
-                    <Calendar size={20} className="text-[#00A5B5]" />
+            {/* Terveystalo Budget - Compact */}
+            {(() => {
+              const tb = getTotalTerveystaloBudget();
+              return (
+                <div className="flex items-center justify-between p-3 bg-gradient-to-r from-[#1B365D]/10 to-[#00A5B5]/10 rounded-xl mb-6">
+                  <div className="flex items-center gap-4">
+                    <Euro size={18} className="text-[#00A5B5]" />
+                    <div className="flex gap-6 text-sm">
+                      <span className="text-gray-600">Käytössä: <strong>{tb.total.toLocaleString('fi-FI')}€</strong></span>
+                      <span className="text-gray-600">Käytetty: <strong>{tb.used.toLocaleString('fi-FI')}€</strong></span>
+                      <span className={tb.remaining >= 0 ? 'text-gray-600' : 'text-red-600'}>
+                        Jäljellä: <strong>{tb.remaining.toLocaleString('fi-FI')}€</strong>
+                      </span>
+                    </div>
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900">Kampanjan aikataulu</h3>
+                  <button
+                    type="button"
+                    onClick={openTerveystaloBudgetEdit}
+                    className="text-xs text-[#00A5B5] hover:underline font-medium"
+                  >
+                    Muokkaa kokonaisbudjettia
+                  </button>
                 </div>
+              );
+            })()}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                  {/* Start Date */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Alkamispäivä
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.start_date}
-                      min={format(new Date(), 'yyyy-MM-dd')}
-                      onChange={(e) => {
-                        const newStart = e.target.value;
-                        setFormData(prev => {
-                          const updated = { ...prev, start_date: newStart };
-                          // If end_date is before start_date, push it forward
-                          if (!prev.is_ongoing && newStart > prev.end_date) {
-                            updated.end_date = format(addWeeks(new Date(newStart), 4), 'yyyy-MM-dd');
+            {/* Budget Selection - Compact */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-semibold text-gray-700">Kampanjan budjetti</label>
+                <span className="text-sm text-gray-500">
+                  {campaignDays > 0 ? `${Math.round(formData.total_budget / campaignDays)}€/päivä` : '-'}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {budgetPresets.map(amount => (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => {
+                      setSelectedBudget(amount);
+                      setCustomBudget(undefined);
+                      updateTotalBudget(amount);
+                    }}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      selectedBudget === amount || formData.total_budget === amount
+                        ? 'bg-[#00A5B5] text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {amount}€
+                  </button>
+                ))}
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    value={customBudget !== undefined ? customBudget : (selectedBudget ? undefined : formData.total_budget)}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setCustomBudget(val);
+                      setSelectedBudget(undefined);
+                      updateTotalBudget(val);
+                    }}
+                    placeholder="Muu"
+                    className="w-20 px-3 py-2 rounded-lg text-sm border border-gray-300 focus:border-[#00A5B5] focus:ring-1 focus:ring-[#00A5B5]/20 outline-none text-right"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">€</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Budget Recommendation */}
+            {(() => {
+              // Calculate recommendation based on campaign factors
+              const getRecommendation = () => {
+                const recs = {
+                  meta: 35,    // Default: 35% Meta
+                  display: 35,  // Default: 35% Display
+                  pdooh: 25,   // Default: 25% PDOOH
+                  audio: 5     // Default: 5% Audio
+                };
+
+                // Adjust based on campaign objective
+                if (formData.campaign_objective === 'traffic') {
+                  recs.meta = 40;    // Meta is good for clicks/traffic
+                  recs.display = 30;
+                  recs.pdooh = 25;
+                  recs.audio = 5;
+                } else if (formData.campaign_objective === 'reach') {
+                  recs.meta = 30;
+                  recs.display = 40;  // Display is good for reach
+                  recs.pdooh = 25;
+                  recs.audio = 5;
+                }
+
+                // Adjust based on PDOOH screens availability
+                const totalScreens = formData.ad_type === 'nationwide'
+                  ? allFinlandScreens.length
+                  : Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
+
+                if (totalScreens > 0) {
+                  // More screens = higher PDOOH recommendation
+                  const screenFactor = Math.min(totalScreens / 20, 1); // Cap at 20 screens
+                  recs.pdooh = Math.round(20 + (screenFactor * 20)); // 20-40%
+
+                  // Reduce others proportionally
+                  const reduction = recs.pdooh - 25;
+                  recs.meta = Math.max(20, recs.meta - Math.round(reduction * 0.4));
+                  recs.display = Math.max(20, recs.display - Math.round(reduction * 0.4));
+                  recs.audio = Math.max(0, recs.audio - Math.round(reduction * 0.2));
+                } else {
+                  // No screens available = reduce PDOOH
+                  recs.pdooh = 0;
+                  recs.meta = Math.round(recs.meta + 12);
+                  recs.display = Math.round(recs.display + 13);
+                }
+
+                // Adjust based on campaign type
+                if (formData.ad_type === 'nationwide') {
+                  // Nationwide campaigns benefit more from display/PDOOH for broad reach
+                  recs.display = Math.round(recs.display * 1.1);
+                  recs.pdooh = Math.round(recs.pdooh * 1.1);
+                  recs.meta = Math.round(100 - recs.display - recs.pdooh - recs.audio);
+                }
+
+                return recs;
+              };
+
+              const recommendation = getRecommendation();
+              const applyRecommendation = () => {
+                const newBudgets = {
+                  budget_meta: Math.round(formData.total_budget * recommendation.meta / 100),
+                  budget_display: Math.round(formData.total_budget * recommendation.display / 100),
+                  budget_pdooh: recommendation.pdooh > 0 ? Math.round(formData.total_budget * recommendation.pdooh / 100) : 0,
+                  budget_audio: Math.round(formData.total_budget * recommendation.audio / 100),
+                };
+                setFormData(prev => ({ ...prev, ...newBudgets }));
+                // Also enable channels with budget > 0
+                setFormData(prev => ({
+                  ...prev,
+                  ...newBudgets,
+                  channel_meta: newBudgets.budget_meta > 0,
+                  channel_display: newBudgets.budget_display > 0,
+                  channel_pdooh: newBudgets.budget_pdooh > 0,
+                  channel_audio: newBudgets.budget_audio > 0,
+                }));
+                toast.success('Suositus toteutettu!');
+              };
+
+              const totalScreens = formData.ad_type === 'nationwide'
+                ? allFinlandScreens.length
+                : Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
+
+              return (
+                <div className="bg-gradient-to-r from-[#00A5B5]/10 to-[#1B365D]/10 rounded-xl p-4 mb-6">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={18} className="text-[#00A5B5]" />
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">Budjetin suositus</h3>
+                        <p className="text-xs text-gray-500">
+                          {formData.campaign_objective === 'traffic'
+                            ? 'Tavoitteena liikenne - korostetaan Meta-mainontaa'
+                            : 'Tavoitteena näkyvyys - korostetaan Display/PDOOH-mainontaa'
                           }
-                          return updated;
-                        });
-                      }}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white dark:border-gray-600"
-                    />
-                  </div>
-
-                  {/* End Date */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Päättymispäivä
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.is_ongoing ? '' : formData.end_date}
-                      min={formData.start_date}
-                      disabled={formData.is_ongoing}
-                      onChange={(e) => setFormData(prev => ({ ...prev, end_date: e.target.value }))}
-                      className={`w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white dark:border-gray-600 ${
-                        formData.is_ongoing ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''
-                      }`}
-                    />
-                  </div>
-
-                  {/* Ongoing Toggle */}
-                  <div>
+                        </p>
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setFormData(prev => ({
-                          ...prev,
-                          is_ongoing: !prev.is_ongoing,
-                          // When toggling ongoing ON, set end_date far in the future for calculation purposes
-                          end_date: !prev.is_ongoing 
-                            ? format(addWeeks(new Date(prev.start_date), 52), 'yyyy-MM-dd')
-                            : format(addWeeks(new Date(prev.start_date), 4), 'yyyy-MM-dd'),
-                        }));
-                      }}
-                      className={`w-full px-4 py-3 rounded-xl border-2 font-medium transition-all flex items-center justify-center gap-2 ${
-                        formData.is_ongoing
-                          ? 'bg-[#00A5B5] text-white border-[#00A5B5] shadow-md'
-                          : 'bg-white text-gray-700 border-gray-300 hover:border-[#00A5B5] hover:bg-[#00A5B5]/10'
-                      }`}
+                      onClick={applyRecommendation}
+                      className="px-3 py-1.5 text-xs font-medium bg-[#00A5B5] text-white rounded-lg hover:bg-[#0095a5] transition-colors"
                     >
-                      <RefreshCw size={18} />
-                      Jatkuva kampanja
+                      Käytä suositusta
                     </button>
                   </div>
-                </div>
 
-                {/* Duration summary */}
-                <div className="mt-4 flex items-center gap-4 text-sm text-gray-600">
-                  <span className="flex items-center gap-1.5">
-                    <Calendar size={14} className="text-[#00A5B5]" />
-                    {formData.is_ongoing ? (
-                      <span>Jatkuva kampanja alkaen <strong>{format(new Date(formData.start_date), 'd.M.yyyy', { locale: fi })}</strong></span>
-                    ) : (
-                      <span>
-                        <strong>{format(new Date(formData.start_date), 'd.M.', { locale: fi })}</strong> – <strong>{format(new Date(formData.end_date), 'd.M.yyyy', { locale: fi })}</strong>
-                        {' '}({campaignDays} päivää)
-                      </span>
-                    )}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Budget Selection */}
-            <div className="space-y-6 max-w-4xl mx-auto">
-                {/* Budget Presets */}
-                <div>
-                  <label className="block text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                    Valitse kampanjan budjetti
-                  </label>
-                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                    {budgetPresets.map(amount => (
-                        <button
-                          key={amount}
-                          type="button"
-                          onClick={() => {
-                            setSelectedBudget(amount);
-                            setCustomBudget(undefined);
-                            updateTotalBudget(amount);
-                          }}
-                          className={`p-4 rounded-xl border-2 transition-all ${
-                            selectedBudget === amount || formData.total_budget === amount
-                              ? 'bg-[#00A5B5] text-white border-[#00A5B5] shadow-md'
-                              : 'bg-white text-gray-700 border-gray-300 hover:border-[#00A5B5] hover:bg-[#00A5B5]/10 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600'
-                          }`}
-                        >
-                          <div className="text-lg font-bold">{amount.toLocaleString('fi-FI')}€</div>
-                        </button>
+                  {/* Recommended split bars */}
+                  <div className="space-y-2">
+                    {[
+                      { channel: 'meta', label: 'Meta', percent: recommendation.meta, color: '#E1306C' },
+                      { channel: 'display', label: 'Display', percent: recommendation.display, color: '#00A5B5' },
+                      { channel: 'pdooh', label: 'PDOOH', percent: recommendation.pdooh, color: '#1B365D', screens: totalScreens },
+                      { channel: 'audio', label: 'Audio', percent: recommendation.audio, color: '#1DB954' },
+                    ].filter(ch => ch.percent > 0).map(ch => (
+                      <div key={ch.channel} className="flex items-center gap-3">
+                        <div className="w-16 text-xs text-gray-600">{ch.label}</div>
+                        <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full flex items-center justify-end pr-2"
+                            style={{ width: `${ch.percent}%`, backgroundColor: ch.color }}
+                          >
+                            <span className="text-xs font-bold text-white">{ch.percent}%</span>
+                          </div>
+                        </div>
+                        {ch.screens !== undefined && (
+                          <div className="w-16 text-xs text-gray-500 text-right">
+                            {ch.screens} näyttöä
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
+              );
+            })()}
 
-                {/* Custom Amount */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Tai oma budjetti
-                  </label>
-                  <div className="relative">
+            {/* Channels - Compact Grid */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="grid grid-cols-4 divide-x divide-gray-200">
+                {/* Meta */}
+                <div className={`p-4 cursor-pointer transition-colors ${formData.channel_meta ? 'bg-white' : 'bg-gray-50 opacity-60'}`}
+                     onClick={() => toggleChannel('meta')}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Instagram size={16} style={{ color: '#E1306C' }} />
+                      <span className="text-sm font-medium">Meta</span>
+                    </div>
+                    <div className="relative w-8 h-4">
+                      <div className={`absolute inset-0 rounded-full transition-colors ${formData.channel_meta ? 'bg-[#E1306C]' : 'bg-gray-300'}`} />
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${formData.channel_meta ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </div>
+                  </div>
+                  {formData.channel_meta && (
                     <input
                       type="number"
-                      min={0}
-                      value={customBudget !== undefined ? customBudget : formData.total_budget}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setCustomBudget(val);
-                        setSelectedBudget(undefined);
-                        updateTotalBudget(val || 0);
-                      }}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-800 dark:text-white dark:border-gray-600"
-                      placeholder="Kirjoita oma budjetti..."
+                      value={formData.budget_meta}
+                      onChange={(e) => setFormData(prev => ({ ...prev, budget_meta: Number(e.target.value) }))}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full px-2 py-1 text-lg font-bold text-center border border-gray-200 rounded-lg"
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
-                  </div>
-                  {selectedBranch?.budget && formData.total_budget > (
-                    (selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)
-                  ) && (
-                    <p className="mt-2 text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                      <AlertCircle size={16} />
-                      Huomio: Budjetti ylittää toimipisteen jäljellä olevan budjetin ({((selectedBranch.budget.allocated_budget || 0) - (selectedBranch.budget.used_budget || 0)).toLocaleString('fi-FI')}€). Voit silti jatkaa.
-                    </p>
                   )}
                 </div>
 
-                {/* Daily budget estimate */}
-                <div className="p-4 bg-[#00A5B5]/5 rounded-xl border border-[#00A5B5]/20">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Arvioitu päiväbudjetti:</span>
-                      <span className="text-lg font-bold text-[#00A5B5] ml-2">
-                        {campaignDays > 0 ? Math.round(formData.total_budget / campaignDays).toLocaleString('fi-FI') : 0}€
-                      </span>
+                {/* Display */}
+                <div className={`p-4 cursor-pointer transition-colors ${formData.channel_display ? 'bg-white' : 'bg-gray-50 opacity-60'}`}
+                     onClick={() => toggleChannel('display')}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Monitor size={16} className="text-[#00A5B5]" />
+                      <span className="text-sm font-medium">Display</span>
                     </div>
-                    <div className="text-right">
-                      <span className="text-sm text-gray-500 dark:text-gray-400">{campaignDays} päivää</span>
+                    <div className="relative w-8 h-4">
+                      <div className={`absolute inset-0 rounded-full transition-colors ${formData.channel_display ? 'bg-[#00A5B5]' : 'bg-gray-300'}`} />
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${formData.channel_display ? 'translate-x-4' : 'translate-x-0.5'}`} />
                     </div>
                   </div>
-                </div>
-              </div>
-
-            {/* Channel cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto mt-8">
-              <ChannelCard
-                id="meta"
-                name="Meta"
-                description="Facebook ja Instagram -mainokset"
-                icon={Instagram}
-                color="#E1306C"
-                enabled={formData.channel_meta}
-                budget={formData.budget_meta}
-                percentage={Math.round((formData.budget_meta / formData.total_budget) * 100) || 0}
-                totalBudget={formData.total_budget}
-                onToggle={() => toggleChannel('meta')}
-                onBudgetChange={(val) => {
-                  setFormData({ ...formData, budget_meta: val });
-                  rebalanceBudgets('meta', val);
-                }}
-                suggestion={getChannelRecommendation('meta')}
-              />
-
-              <ChannelCard
-                id="display"
-                name="Display"
-                description="Bannerimainokset verkkosivuilla"
-                icon={Monitor}
-                color="#00A5B5"
-                enabled={formData.channel_display}
-                budget={formData.budget_display}
-                percentage={Math.round((formData.budget_display / formData.total_budget) * 100) || 0}
-                totalBudget={formData.total_budget}
-                onToggle={() => toggleChannel('display')}
-                onBudgetChange={(val) => {
-                  setFormData({ ...formData, budget_display: val });
-                  rebalanceBudgets('display', val);
-                }}
-                suggestion={getChannelRecommendation('display')}
-              />
-
-              <ChannelCard
-                id="pdooh"
-                name="PDOOH"
-                description="Digitaaliset ulkomainokset"
-                icon={Tv}
-                color="#1B365D"
-                enabled={formData.channel_pdooh}
-                budget={formData.budget_pdooh}
-                percentage={Math.round((formData.budget_pdooh / formData.total_budget) * 100) || 0}
-                totalBudget={formData.total_budget}
-                onToggle={() => toggleChannel('pdooh')}
-                onBudgetChange={(val) => {
-                  setFormData({ ...formData, budget_pdooh: val });
-                  rebalanceBudgets('pdooh', val);
-                }}
-                suggestion={getChannelRecommendation('pdooh')}
-              />
-
-              <ChannelCard
-                id="audio"
-                name="Digital Audio"
-                description="Spotify ja podcast-mainokset"
-                icon={Volume2}
-                color="#1DB954"
-                enabled={formData.channel_audio}
-                budget={formData.budget_audio}
-                percentage={Math.round((formData.budget_audio / formData.total_budget) * 100) || 0}
-                totalBudget={formData.total_budget}
-                onToggle={() => toggleChannel('audio')}
-                onBudgetChange={(val) => {
-                  setFormData({ ...formData, budget_audio: val });
-                  rebalanceBudgets('audio', val);
-                }}
-                suggestion={getChannelRecommendation('audio')}
-              />
-            </div>
-
-            {/* Budget allocation visualization */}
-            <div className="mt-8 max-w-4xl mx-auto">
-              <div className="card p-4 bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-700">Budjetin jakautuminen</span>
-                  <span className={`text-sm font-medium ${
-                    enabledChannelsBudget === formData.total_budget ? 'text-green-600' : 'text-amber-600'
-                  }`}>
-                    {enabledChannelsBudget.toLocaleString('fi-FI')}€ / {formData.total_budget.toLocaleString('fi-FI')}€
-                  </span>
-                </div>
-                <div className="h-4 bg-gray-200 rounded-full overflow-hidden flex">
-                  {formData.channel_meta && formData.budget_meta > 0 && (
-                    <div 
-                      className="h-full transition-all duration-300"
-                      style={{ 
-                        width: `${(formData.budget_meta / formData.total_budget) * 100}%`,
-                        backgroundColor: '#E1306C'
-                      }}
-                    />
-                  )}
-                  {formData.channel_display && formData.budget_display > 0 && (
-                    <div 
-                      className="h-full transition-all duration-300"
-                      style={{ 
-                        width: `${(formData.budget_display / formData.total_budget) * 100}%`,
-                        backgroundColor: '#00A5B5'
-                      }}
-                    />
-                  )}
-                  {formData.channel_pdooh && formData.budget_pdooh > 0 && (
-                    <div 
-                      className="h-full transition-all duration-300"
-                      style={{ 
-                        width: `${(formData.budget_pdooh / formData.total_budget) * 100}%`,
-                        backgroundColor: '#1B365D'
-                      }}
-                    />
-                  )}
-                  {formData.channel_audio && formData.budget_audio > 0 && (
-                    <div 
-                      className="h-full transition-all duration-300"
-                      style={{ 
-                        width: `${(formData.budget_audio / formData.total_budget) * 100}%`,
-                        backgroundColor: '#1DB954'
-                      }}
-                    />
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-4 mt-3">
-                  {formData.channel_meta && (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#E1306C' }} />
-                      <span className="text-sm text-gray-600">Meta</span>
-                    </div>
-                  )}
                   {formData.channel_display && (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#00A5B5' }} />
-                      <span className="text-sm text-gray-600">Display</span>
-                    </div>
+                    <input
+                      type="number"
+                      value={formData.budget_display}
+                      onChange={(e) => setFormData(prev => ({ ...prev, budget_display: Number(e.target.value) }))}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full px-2 py-1 text-lg font-bold text-center border border-gray-200 rounded-lg"
+                    />
                   )}
+                </div>
+
+                {/* PDOOH */}
+                <div className={`p-4 cursor-pointer transition-colors ${formData.channel_pdooh ? 'bg-white' : 'bg-gray-50 opacity-60'}`}
+                     onClick={() => toggleChannel('pdooh')}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Tv size={16} className="text-[#1B365D]" />
+                      <span className="text-sm font-medium">PDOOH</span>
+                    </div>
+                    <div className="relative w-8 h-4">
+                      <div className={`absolute inset-0 rounded-full transition-colors ${formData.channel_pdooh ? 'bg-[#1B365D]' : 'bg-gray-300'}`} />
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${formData.channel_pdooh ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </div>
+                  </div>
                   {formData.channel_pdooh && (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#1B365D' }} />
-                      <span className="text-sm text-gray-600">PDOOH</span>
-                    </div>
+                    <input
+                      type="number"
+                      value={formData.budget_pdooh}
+                      onChange={(e) => setFormData(prev => ({ ...prev, budget_pdooh: Number(e.target.value) }))}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full px-2 py-1 text-lg font-bold text-center border border-gray-200 rounded-lg"
+                    />
                   )}
-                  {formData.channel_audio && (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#1DB954' }} />
-                      <span className="text-sm text-gray-600">Audio</span>
+                </div>
+
+                {/* Audio */}
+                <div className={`p-4 cursor-pointer transition-colors ${formData.channel_audio ? 'bg-white' : 'bg-gray-50 opacity-60'}`}
+                     onClick={() => toggleChannel('audio')}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Volume2 size={16} style={{ color: '#1DB954' }} />
+                      <span className="text-sm font-medium">Audio</span>
                     </div>
+                    <div className="relative w-8 h-4">
+                      <div className={`absolute inset-0 rounded-full transition-colors ${formData.channel_audio ? 'bg-[#1DB954]' : 'bg-gray-300'}`} />
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${formData.channel_audio ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </div>
+                  </div>
+                  {formData.channel_audio && (
+                    <input
+                      type="number"
+                      value={formData.budget_audio}
+                      onChange={(e) => setFormData(prev => ({ ...prev, budget_audio: Number(e.target.value) }))}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full px-2 py-1 text-lg font-bold text-center border border-gray-200 rounded-lg"
+                    />
                   )}
                 </div>
               </div>
 
-              {/* PDOOH Suggested Budget */}
-              {formData.channel_pdooh && screenInfo.total > 0 && formData.budget_pdooh < screenInfo.suggestedBudget && (
-                <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                  <div className="flex items-start space-x-3">
-                    <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-medium text-amber-800">Suositeltu PDOOH-budjetti</p>
-                      <p className="text-2xl font-bold text-amber-900 mt-1">
-                        {screenInfo.suggestedBudget.toLocaleString('fi-FI')}€
-                      </p>
-                      <p className="text-sm text-amber-700 mt-1">
-                        Perustuu {screenInfo.total} näyttöön ja {campaignDays} päivän kestoon
-                      </p>
-                      {formData.budget_pdooh < screenInfo.suggestedBudget && (
-                        <button
-                          onClick={() => {
-                            const newPdoohBudget = screenInfo.suggestedBudget;
-                            setFormData(prev => ({ ...prev, budget_pdooh: newPdoohBudget }));
-                            rebalanceBudgets('pdooh', newPdoohBudget);
-                          }}
-                          className="mt-2 px-3 py-1.5 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 transition-colors"
-                        >
-                          Käytä suositeltua budjettia
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Budget bar */}
+              <div className="h-2 bg-gray-100 flex">
+                {formData.channel_meta && formData.budget_meta > 0 && (
+                  <div className="h-full bg-[#E1306C]" style={{ width: `${(formData.budget_meta / formData.total_budget) * 100}%` }} />
+                )}
+                {formData.channel_display && formData.budget_display > 0 && (
+                  <div className="h-full bg-[#00A5B5]" style={{ width: `${(formData.budget_display / formData.total_budget) * 100}%` }} />
+                )}
+                {formData.channel_pdooh && formData.budget_pdooh > 0 && (
+                  <div className="h-full bg-[#1B365D]" style={{ width: `${(formData.budget_pdooh / formData.total_budget) * 100}%` }} />
+                )}
+                {formData.channel_audio && formData.budget_audio > 0 && (
+                  <div className="h-full bg-[#1DB954]" style={{ width: `${(formData.budget_audio / formData.total_budget) * 100}%` }} />
+                )}
+              </div>
+
+              {/* Summary row */}
+              <div className="flex items-center justify-between px-4 py-2 bg-gray-50 text-xs text-gray-600">
+                <span>Yhteensä: <strong>{enabledChannelsBudget}€</strong></span>
+                <span className={enabledChannelsBudget > formData.total_budget ? 'text-red-600' : 'text-green-600'}>
+                  {enabledChannelsBudget > formData.total_budget
+                    ? `${((enabledChannelsBudget / formData.total_budget) * 100).toFixed(0)}% yli budjetin`
+                    : enabledChannelsBudget === formData.total_budget
+                      ? 'Täysmäärä käytetty'
+                      : `${((1 - enabledChannelsBudget / formData.total_budget) * 100).toFixed(0)}% vapaana`
+                  }
+                </span>
+              </div>
             </div>
           </div>
         )}
 
         {/* =============================================================== */}
-        {/* STEP 5: CREATIVE CONTENT */}
+        {/* STEP 4: CREATIVE CONTENT - Comprehensive Redesign */}
         {/* =============================================================== */}
         {currentStep === 4 && (
           <div className="animate-fade-in">
-            <div className="text-center mb-8">
+            <div className="text-center mb-6">
               <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 mb-4">
                 <Palette size={32} className="text-[#00A5B5]" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900">Mainosten sisältö</h2>
               <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Muokkaa mainosten tekstejä ja valitse taustakuva.
+                Muokkaa mainosten tekstejä, kuvia ja videoita. Esikatselu päivittyy reaaliajassa.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
-              {/* Form */}
-              <div className="space-y-5">
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Type size={16} className="inline mr-2" />
-                    Otsikko
-                  </label>
-                  <AutoExpandTextarea
-                    value={creativeConfig.headline}
-                    onChange={(value) => setCreativeConfig({ ...creativeConfig, headline: value })}
-                    placeholder="Hymyile. Olet hyvissä käsissä."
-                    minHeight={44}
-                    maxHeight={200}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Alaotsikko
-                  </label>
-                  <AutoExpandTextarea
-                    value={creativeConfig.subheadline}
-                    onChange={(value) => setCreativeConfig({ ...creativeConfig, subheadline: value })}
-                    placeholder="Sujuvampaa suunterveyttä Lahden Suun Terveystalossa."
-                    minHeight={44}
-                    maxHeight={200}
-                  />
-                </div>
-
-                {/* Price Bubble Mode - Hide for general brand message */}
-                {selectedService?.code !== 'yleinen-brandiviesti' && (
-                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Euro size={20} className="text-[#004E9A]" />
-                    <div>
-                      <h4 className="font-medium text-gray-900">Tarjouskupla</h4>
-                      <p className="text-xs text-gray-500">Valitse näytetäänkö hintakupla mainoksessa</p>
-                    </div>
+            {/* Campaign Info Summary */}
+            <div className="max-w-4xl mx-auto mb-6">
+              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-[#00A5B5]/5 to-[#1B365D]/5 rounded-xl border border-[#00A5B5]/20">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <ToothIcon size={18} className="text-[#00A5B5]" />
+                    <span className="text-sm font-medium text-gray-700">
+                      {selectedServices.length > 1
+                        ? `${selectedServices.length} palvelua`
+                        : getServiceName(selectedService)
+                      }
+                    </span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 mb-4">
-                    {[
-                      { id: 'price' as const, label: 'Hinta' },
-                      { id: 'no-price' as const, label: 'Ilman hintaa' },
-                      { id: 'both' as const, label: 'Molemmat' }
-                    ].map((mode) => {
-                      const isSelected = creativeConfig.priceBubbleMode === mode.id;
-                      return (
-                        <button
-                          key={mode.id}
-                          type="button"
-                          onClick={() => setCreativeConfig({ ...creativeConfig, priceBubbleMode: mode.id })}
-                          className={`p-3 rounded-lg border-2 text-center transition-all ${
-                            isSelected
-                              ? 'border-[#00A5B5] bg-[#00A5B5]/10'
-                              : 'border-gray-200 hover:border-[#00A5B5]/50'
-                          }`}
-                        >
-                          <div className={`text-xs font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>{mode.label}</div>
-                        </button>
-                      );
-                    })}
+                  <div className="flex items-center gap-2">
+                    <MapPin size={18} className="text-[#00A5B5]" />
+                    <span className="text-sm font-medium text-gray-700">
+                      {selectedBranches.length > 1
+                        ? `${selectedBranches.length} toimipistettä`
+                        : selectedBranch?.name || 'Ei valittu'
+                      }
+                    </span>
                   </div>
-                  
-                  {creativeConfig.priceBubbleMode !== 'no-price' && (
-                    <div className="space-y-3 pt-3 border-t border-gray-200">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Otsikko (esim. Hammas-tarkastus)</label>
-                          <AutoExpandTextarea
-                            value={creativeConfig.offerTitle}
-                            onChange={(value) => setCreativeConfig({ ...creativeConfig, offerTitle: value })}
-                            placeholder="Hammas-tarkastus"
-                            minHeight={40}
-                            maxHeight={100}
-                          />
+                  <div className="flex items-center gap-2">
+                    <Layers size={18} className="text-[#00A5B5]" />
+                    <span className="text-sm font-medium text-gray-700">
+                      {formData.creative_type === 'nationwide' ? 'Valtakunnallinen' : 'Paikallinen'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedServices.length > 1 && (
+                    <span className="text-xs text-amber-600 bg-amber-50 px-3 py-1 rounded-full">
+                      Luodaan {selectedServices.length} eri mainosta
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="max-w-6xl mx-auto">
+              {/* Tab Navigation */}
+              <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-4 overflow-x-auto">
+                {[
+                  { id: 'content' as const, label: 'Sisältö', icon: Type },
+                  { id: 'media' as const, label: 'Kuvat', icon: ImageIcon },
+                  { id: 'videos' as const, label: 'Videot', icon: Video, badge: formData.channel_meta ? 'Meta' : undefined },
+                  { id: 'settings' as const, label: 'Asetukset', icon: Settings },
+                ].map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = creativeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setCreativeTab(tab.id)}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+                        isActive
+                          ? 'bg-[#00A5B5] text-white shadow-md shadow-[#00A5B5]/30'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      } ${tab.id === 'videos' && !formData.channel_meta ? 'opacity-50' : ''}`}
+                    >
+                      <Icon size={16} />
+                      {tab.label}
+                      {tab.badge && (
+                        <span className="ml-1 text-xs bg-white/20 px-2 py-0.5 rounded-full">{tab.badge}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left Panel - Tab Content */}
+                <div className="lg:col-span-2 space-y-5">
+                  {/* CONTENT TAB */}
+                  {creativeTab === 'content' && (
+                    <div className="space-y-5 animate-fade-in">
+                      {/* Text Content Section */}
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                              <Type size={18} className="text-[#00A5B5]" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Tekstisisältö</h3>
+                              <p className="text-xs text-gray-500">Pääotsikko ja alaotsikko</p>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Hinta (vain numero)</label>
+                        <div className="p-5 space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Otsikko
+                            </label>
+                            <AutoExpandTextarea
+                              value={creativeConfig.headline}
+                              onChange={(value) => setCreativeConfig({ ...creativeConfig, headline: value })}
+                              placeholder="Hymyile. Olet hyvissä käsissä."
+                              minHeight={50}
+                              maxHeight={150}
+                              className="text-base"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Alaotsikko
+                            </label>
+                            <AutoExpandTextarea
+                              value={creativeConfig.subheadline}
+                              onChange={(value) => setCreativeConfig({ ...creativeConfig, subheadline: value })}
+                              placeholder={`Sujuvampaa suunterveyttä${selectedBranches.length === 1 ? ` ${selectedBranch?.city} ` : ''}Suun Terveystalossa.`}
+                              minHeight={50}
+                              maxHeight={150}
+                              className="text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Price Bubble Section - Hide for general brand message */}
+                      {selectedService?.code !== 'yleinen-brandiviesti' && (
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#004E9A]/5 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-[#004E9A]/10">
+                              <Euro size={18} className="text-[#004E9A]" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Tarjouskupla</h3>
+                              <p className="text-xs text-gray-500">Hinta- ja tarjoustiedot</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5">
+                          {/* Mode selector */}
+                          <div className="flex items-center gap-2 mb-4 p-1 bg-gray-100 rounded-lg">
+                            {[
+                              { id: 'price' as const, label: 'Näytä hinta' },
+                              { id: 'no-price' as const, label: 'Ilman hintaa' },
+                              { id: 'both' as const, label: 'Luo molemmat' },
+                            ].map((mode) => {
+                              const isSelected = creativeConfig.priceBubbleMode === mode.id;
+                              return (
+                                <button
+                                  key={mode.id}
+                                  type="button"
+                                  onClick={() => setCreativeConfig({ ...creativeConfig, priceBubbleMode: mode.id })}
+                                  className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                                    isSelected
+                                      ? 'bg-white text-[#00A5B5] shadow-sm'
+                                      : 'text-gray-600 hover:text-gray-900'
+                                  }`}
+                                >
+                                  {mode.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {creativeConfig.priceBubbleMode !== 'no-price' && (
+                            <div className="space-y-4 pt-4 border-t border-gray-100">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                                    Tarjouksen otsikko
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={creativeConfig.offerTitle.replace(/<br\s*\/?>/gi, '')}
+                                    onChange={(e) => setCreativeConfig({ ...creativeConfig, offerTitle: e.target.value })}
+                                    placeholder="Hammas-tarkastus"
+                                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                                    Hinta (€)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={creativeConfig.offer}
+                                    onChange={(e) => setCreativeConfig({ ...creativeConfig, offer: e.target.value })}
+                                    placeholder="49"
+                                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                                  Voimassaoloaika
+                                </label>
+                                <input
+                                  type="text"
+                                  value={creativeConfig.offerDate.replace(/<br\s*\/?>/gi, ' ')}
+                                  onChange={(e) => setCreativeConfig({ ...creativeConfig, offerDate: e.target.value })}
+                                  placeholder="Varaa viimeistään 28.10."
+                                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      )}
+
+                      {/* CTA and URL */}
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-green-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-green-100">
+                              <MousePointerClick size={18} className="text-green-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Toimintakehote</h3>
+                              <p className="text-xs text-gray-500">CTA-painike ja kohde-URL</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5 space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Painiketeksti (CTA)
+                            </label>
+                            <input
+                              type="text"
+                              value={creativeConfig.cta}
+                              onChange={(e) => setCreativeConfig({ ...creativeConfig, cta: e.target.value })}
+                              placeholder="Varaa aika"
+                              className="w-full px-4 py-3 text-base rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Kohde-URL
+                            </label>
+                            <div className="relative">
+                              <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                              <input
+                                type="url"
+                                value={creativeConfig.targetUrl}
+                                onChange={(e) => setCreativeConfig({ ...creativeConfig, targetUrl: e.target.value })}
+                                placeholder="https://terveystalo.com/suunterveystalo"
+                                className="w-full pl-10 pr-4 py-3 text-sm rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Legal Text - for PDOOH */}
+                      {formData.channel_pdooh && (
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-amber-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-amber-100">
+                              <AlertCircle size={18} className="text-amber-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Legal teksti (PDOOH)</h3>
+                              <p className="text-xs text-gray-500">Näytetään vain PDOOH-näytöillä</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5">
                           <AutoExpandTextarea
-                            value={creativeConfig.offer}
-                            onChange={(value) => setCreativeConfig({ ...creativeConfig, offer: value })}
-                            placeholder="49"
-                            minHeight={40}
-                            maxHeight={100}
+                            value={creativeConfig.disclaimerText}
+                            onChange={(value) => setCreativeConfig({ ...creativeConfig, disclaimerText: value })}
+                            placeholder="Tarjous voimassa uusille asiakkaille..."
+                            minHeight={80}
+                            maxHeight={200}
+                            className="text-xs text-gray-600"
                           />
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Voimassaolo</label>
-                        <AutoExpandTextarea
-                          value={creativeConfig.offerDate}
-                          onChange={(value) => setCreativeConfig({ ...creativeConfig, offerDate: value })}
-                          placeholder="Varaa viimeistään 28.10."
-                          minHeight={40}
-                          maxHeight={100}
-                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* MEDIA TAB */}
+                  {creativeTab === 'media' && (
+                    <div className="space-y-5 animate-fade-in">
+                      {/* Background Images */}
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-purple-100">
+                              <ImageIcon size={18} className="text-purple-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Taustakuva</h3>
+                              <p className="text-xs text-gray-500">Valitse kuva mainoksen taustalle</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5">
+                          <div className="grid grid-cols-4 gap-4">
+                            {backgroundImages.map(img => (
+                              <button
+                                key={img.id}
+                                onClick={() => setCreativeConfig({
+                                  ...creativeConfig,
+                                  backgroundImage: img.url,
+                                  useCustomBackground: false
+                                })}
+                                className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all group ${
+                                  creativeConfig.backgroundImage === img.url
+                                    ? 'border-[#00A5B5] ring-2 ring-[#00A5B5]/30'
+                                    : 'border-gray-200 hover:border-[#00A5B5]/50'
+                                }`}
+                              >
+                                <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
+                                {creativeConfig.backgroundImage === img.url && (
+                                  <div className="absolute inset-0 bg-[#00A5B5]/20 flex items-center justify-center">
+                                    <Check size={24} className="text-white drop-shadow-lg" />
+                                  </div>
+                                )}
+                                <span className="absolute bottom-0 left-0 right-0 text-xs text-white bg-black/60 px-2 py-1 text-center">
+                                  {img.name}
+                                </span>
+                              </button>
+                            ))}
+
+                            {/* Upload custom */}
+                            <label className="aspect-square rounded-xl border-2 border-dashed border-gray-300 hover:border-[#00A5B5] flex flex-col items-center justify-center text-gray-400 hover:text-[#00A5B5] transition-colors cursor-pointer">
+                              <Upload size={24} />
+                              <span className="text-xs mt-1 text-center">Lataa oma</span>
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const url = URL.createObjectURL(file);
+                                    setCreativeConfig({ ...creativeConfig, backgroundImage: url, useCustomBackground: true });
+                                    toast.success(`Kuva "${file.name}" ladattu`);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Artwork (Blue Bubbles) */}
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-blue-100">
+                              <SparklesIcon size={18} className="text-blue-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Koristekuvi (Blue Bubbles)</h3>
+                              <p className="text-xs text-gray-500">Automaattisesti kaikissa mainoksissa</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5 flex items-center justify-center">
+                          <img
+                            src="/refs/assets/terveystalo-artwork.png"
+                            alt="Terveystalo Artwork"
+                            className="w-32 h-32 object-contain opacity-80"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
-                </div>
-                )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    CTA (Toimintakehote)
-                  </label>
-                  <AutoExpandTextarea
-                    value={creativeConfig.cta}
-                    onChange={(value) => setCreativeConfig({ ...creativeConfig, cta: value })}
-                    placeholder="Varaa aika"
-                    minHeight={44}
-                    maxHeight={200}
-                  />
-                </div>
-
-                {/* Target URL */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Globe size={16} className="inline mr-2" />
-                    Kohde-URL
-                  </label>
-                  <input
-                    type="url"
-                    value={creativeConfig.targetUrl}
-                    onChange={(e) => setCreativeConfig({ ...creativeConfig, targetUrl: e.target.value })}
-                    placeholder="https://terveystalo.com/suunterveystalo"
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all text-sm"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">Mainosta klikkaavan käyttäjän ohjausosoite</p>
-                </div>
-
-                {/* Disclaimer text for PDOOH (not for 980x400) */}
-                {formData.channel_pdooh && previewSize.category === 'PDOOH' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Legal (PDOOH)
-                    </label>
-                    <AutoExpandTextarea
-                      value={creativeConfig.disclaimerText}
-                      onChange={(value) => setCreativeConfig({ ...creativeConfig, disclaimerText: value })}
-                      placeholder="Tarjous voimassa uusille asiakkaille..."
-                      minHeight={60}
-                      maxHeight={200}
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Näytetään vain PDOOH-mainoksissa (ei 980x400)</p>
-                  </div>
-                )}
-
-                {/* Audio upload when audio channel is enabled */}
-                {formData.channel_audio && (
-                  <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                    <div className="flex items-center gap-3 mb-3">
-                      <Volume2 size={20} className="text-[#1DB954]" />
-                      <div>
-                        <h4 className="font-medium text-gray-900">Audio-mainos</h4>
-                        <p className="text-xs text-gray-500">Valitse äänitiedosto tai lataa oma</p>
-                      </div>
-                    </div>
-
-                    {/* Predefined audio files */}
-                    <div className="grid grid-cols-2 gap-2 mb-3">
-                      {[
-                        { id: 'suun1', name: 'suun1.wav', url: '/audio/suun1.wav' },
-                        { id: 'suun2', name: 'suun2.wav', url: '/audio/suun2.wav' }
-                      ].map((audio) => {
-                        const isSelected = creativeConfig.selectedAudio === audio.url;
-                        return (
+                  {/* VIDEOS TAB - Meta ads */}
+                  {creativeTab === 'videos' && (
+                    <div className="space-y-5 animate-fade-in">
+                      {!formData.channel_meta ? (
+                        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-8 text-center">
+                          <Instagram size={48} className="mx-auto text-gray-400 mb-4" />
+                          <h3 className="text-lg font-semibold text-gray-700 mb-2">Meta-kanava ei ole valittu</h3>
+                          <p className="text-sm text-gray-500 mb-4">
+                            Videot ovat saatavilla vain Meta-mainoksille.
+                          </p>
                           <button
-                            key={audio.id}
-                            type="button"
-                            onClick={() => {
-                              setCreativeConfig({ ...creativeConfig, selectedAudio: audio.url, audioFile: null });
-                              toast.success(`Valittu: ${audio.name}`);
-                            }}
-                            className={`p-3 rounded-lg border-2 text-left transition-all ${
-                              isSelected
-                                ? 'border-[#1DB954] bg-[#1DB954]/10'
-                                : 'border-gray-200 hover:border-[#1DB954]/50'
-                            }`}
+                            onClick={() => setCurrentStep(3)}
+                            className="px-4 py-2 bg-[#E1306C] text-white rounded-lg text-sm font-medium hover:bg-[#d0295f] transition-colors"
                           >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Volume2 size={14} className={isSelected ? 'text-[#1DB954]' : 'text-gray-400'} />
-                                <span className={`text-xs font-medium ${isSelected ? 'text-[#1DB954]' : 'text-gray-700'}`}>{audio.name}</span>
+                            Lisää Meta-kanava budjetista
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Video Upload Section */}
+                          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-pink-50 to-white">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-lg bg-pink-100">
+                                  <Video size={18} className="text-pink-600" />
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-gray-900">Videon lataus</h3>
+                                  <p className="text-xs text-gray-500">MP4, MOV tai WebP - enintään 30 sekuntia</p>
+                                </div>
                               </div>
-                              {isSelected && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (playingAudio === audio.url) {
-                                      // Pause
-                                      if (audioRef.current) {
-                                        audioRef.current.pause();
-                                        setPlayingAudio(null);
+                            </div>
+                            <div className="p-5">
+                              {!creativeConfig.videoFile && !creativeConfig.selectedVideo ? (
+                                <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-pink-400 hover:bg-pink-50/30 transition-all group">
+                                  <div className="p-4 rounded-full bg-pink-100 group-hover:bg-pink-200 transition-colors mb-3">
+                                    <Upload size={32} className="text-pink-600" />
+                                  </div>
+                                  <span className="text-sm font-medium text-gray-700">Lataa video</span>
+                                  <span className="text-xs text-gray-500 mt-1">MP4, MOV tai WebP, max 30MB</span>
+                                  <input
+                                    type="file"
+                                    accept="video/mp4,video/quicktime,video/webm"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        if (file.size > 30 * 1024 * 1024) {
+                                          toast.error('Videon maksimikoko on 30MB');
+                                          return;
+                                        }
+                                        setCreativeConfig({ ...creativeConfig, videoFile: file, selectedVideo: null });
+                                        toast.success(`Video "${file.name}" valittu`);
                                       }
-                                    } else {
-                                      // Play
-                                      if (audioRef.current) {
-                                        audioRef.current.pause();
-                                      }
-                                      const audioEl = new Audio(audio.url);
-                                      audioEl.onended = () => setPlayingAudio(null);
-                                      audioEl.play().then(() => {
-                                        setPlayingAudio(audio.url);
-                                        audioRef.current = audioEl;
-                                      }).catch(() => toast.error('Ei voitu toistaa'));
-                                    }
-                                  }}
-                                  className="text-[#1DB954] hover:scale-110 transition-transform"
-                                >
-                                  {playingAudio === audio.url ? <Pause size={14} /> : <Play size={14} />}
-                                </button>
+                                    }}
+                                  />
+                                </label>
+                              ) : (
+                                <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                                  <div className="p-3 rounded-lg bg-pink-100">
+                                    <Video size={20} className="text-pink-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">
+                                      {creativeConfig.videoFile?.name || 'Valittu video'}
+                                    </p>
+                                    {creativeConfig.videoFile && (
+                                      <p className="text-xs text-gray-500">
+                                        {(creativeConfig.videoFile.size / 1024 / 1024).toFixed(2)} MB
+                                      </p>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCreativeConfig({ ...creativeConfig, videoFile: null, selectedVideo: null })}
+                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                  >
+                                    <X size={18} />
+                                  </button>
+                                </div>
                               )}
                             </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Custom upload */}
-                    <div className="relative">
-                      <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#1DB954] transition-colors">
-                        <Upload size={20} className="text-gray-400 mb-1" />
-                        <span className="text-xs text-gray-600">Lataa oma äänitiedosto...</span>
-                        <input
-                          type="file"
-                          accept="audio/mp3,audio/mpeg,audio/wav"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setCreativeConfig({ ...creativeConfig, audioFile: file, selectedAudio: null });
-                              toast.success(`Äänitiedosto "${file.name}" valittu`);
-                            }
-                          }}
-                        />
-                      </label>
-                      {creativeConfig.audioFile && (
-                        <div className="mt-2 flex items-center justify-between p-2 bg-white rounded-lg border border-gray-200">
-                          <div className="flex items-center gap-2">
-                            <Volume2 size={14} className="text-[#1DB954]" />
-                            <span className="text-xs text-gray-700 truncate max-w-[150px]">{creativeConfig.audioFile.name}</span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setCreativeConfig({ ...creativeConfig, audioFile: null })}
-                            className="text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
+
+                          {/* Video Library */}
+                          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-white">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 rounded-lg bg-indigo-100">
+                                    <FolderOpen size={18} className="text-indigo-600" />
+                                  </div>
+                                  <div>
+                                    <h3 className="font-semibold text-gray-900">Videokirjasto</h3>
+                                    <p className="text-xs text-gray-500">Tallennetut videot</p>
+                                  </div>
+                                </div>
+                                <button className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                                  Hallitse
+                                </button>
+                              </div>
+                            </div>
+                            <div className="p-5">
+                              {videoLibrary.length === 0 ? (
+                                <div className="text-center py-8 text-gray-400">
+                                  <Film size={48} className="mx-auto mb-3 opacity-50" />
+                                  <p className="text-sm">Ei tallennettuja videoita</p>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-3 gap-4">
+                                  {videoLibrary.map(video => (
+                                    <button
+                                      key={video.id}
+                                      onClick={() => setCreativeConfig({ ...creativeConfig, selectedVideo: video.url, videoFile: null })}
+                                      className={`relative rounded-xl overflow-hidden border-2 transition-all group ${
+                                        creativeConfig.selectedVideo === video.url
+                                          ? 'border-[#E1306C] ring-2 ring-[#E1306C]/30'
+                                          : 'border-gray-200 hover:border-[#E1306C]/50'
+                                      }`}
+                                    >
+                                      <div className="aspect-video bg-gray-900 relative">
+                                        {video.thumbnail ? (
+                                          <img src={video.thumbnail} alt={video.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center">
+                                            <Video size={32} className="text-gray-600" />
+                                          </div>
+                                        )}
+                                        <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-0.5 rounded flex items-center gap-1">
+                                          <Clock size={10} />
+                                          {Math.floor(video.duration / 60)}:{(video.duration % 60).toString().padStart(2, '0')}
+                                        </div>
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                          <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
+                                            <Play size={20} className="text-[#E1306C] ml-1" />
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="p-2 bg-white">
+                                        <p className="text-xs font-medium text-gray-700 truncate">{video.name}</p>
+                                      </div>
+                                      {creativeConfig.selectedVideo === video.url && (
+                                        <div className="absolute top-2 right-2 w-6 h-6 bg-[#E1306C] rounded-full flex items-center justify-center">
+                                          <Check size={14} className="text-white" />
+                                        </div>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Background images */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
-                    <ImageIcon size={16} className="inline mr-2" />
-                    Taustakuva
-                  </label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {backgroundImages.map(img => (
-                      <button
-                        key={img.id}
-                        onClick={() => setCreativeConfig({ 
-                          ...creativeConfig, 
-                          backgroundImage: img.url,
-                          useCustomBackground: false 
-                        })}
-                        className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
-                          creativeConfig.backgroundImage === img.url
-                            ? 'border-[#00A5B5] ring-2 ring-[#00A5B5]/30'
-                            : 'border-gray-200 hover:border-[#00A5B5]/50'
-                        }`}
-                      >
-                        <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
-                        {creativeConfig.backgroundImage === img.url && (
-                          <div className="absolute inset-0 bg-[#00A5B5]/20 flex items-center justify-center">
-                            <Check size={24} className="text-white drop-shadow-lg" />
+                  {/* SETTINGS TAB */}
+                  {creativeTab === 'settings' && (
+                    <div className="space-y-5 animate-fade-in">
+                      {/* Multi-location Settings */}
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-teal-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-teal-100">
+                              <MapPin size={18} className="text-teal-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Sijaintiasetukset</h3>
+                              <p className="text-xs text-gray-500">Miten sijainnit näkyvät mainoksissa</p>
+                            </div>
                           </div>
-                        )}
-                        <span className="absolute bottom-1 left-1 text-xs text-white bg-black/50 px-2 py-0.5 rounded">
-                          {img.name}
-                        </span>
-                      </button>
-                    ))}
-                    
-                    {/* Upload custom */}
-                    <button
-                      onClick={() => {/* TODO: File upload */}}
-                      className="aspect-square rounded-xl border-2 border-dashed border-gray-300 hover:border-[#00A5B5] flex flex-col items-center justify-center text-gray-400 hover:text-[#00A5B5] transition-colors"
-                    >
-                      <Upload size={24} />
-                      <span className="text-xs mt-1">Lataa oma</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Preview */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Esikatselu</h3>
-                
-                {/* Size selector grouped by category - filtered by enabled channels */}
-                <div className="space-y-3 mb-4">
-                  {PREVIEW_SIZE_CATEGORIES.map((cat) => {
-                    const CatIcon = cat.icon;
-                    const sizesInCat = PREVIEW_SIZES.filter(s => s.category === cat.key);
-                    const isMeta = cat.key === 'Meta';
-                    // Hide category if its channel is disabled
-                    const isChannelDisabled = 
-                      (cat.key === 'Display' && !formData.channel_display) ||
-                      (cat.key === 'PDOOH' && !formData.channel_pdooh) ||
-                      (cat.key === 'Meta' && !formData.channel_meta);
-                    if (isChannelDisabled && !isMeta) return null;
-                    return (
-                      <div key={cat.key}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <CatIcon size={14} className={isMeta && !formData.channel_meta ? 'text-gray-400' : 'text-gray-500'} />
-                          <span className={`text-xs font-semibold uppercase tracking-wider ${isMeta && !formData.channel_meta ? 'text-gray-400' : 'text-gray-600'}`}>
-                            {cat.label}
-                            {isMeta && !formData.channel_meta && ' (tulossa)'}
-                          </span>
                         </div>
-                        <div className={`flex flex-wrap gap-2 ${isMeta && !formData.channel_meta ? 'opacity-50 pointer-events-none' : ''}`}>
-                          {sizesInCat.map((size) => {
-                            const Icon = size.icon;
-                            const isSelected = previewSize.id === size.id;
-                            return (
-                              <button
-                                key={size.id}
-                                onClick={() => setPreviewSize(size)}
-                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${
-                                  isSelected
-                                    ? 'border-[#00A5B5] bg-[#00A5B5]/10 text-[#00A5B5]'
-                                    : 'border-gray-200 hover:border-[#00A5B5]/50 text-gray-600 hover:text-[#00A5B5]'
-                                }`}
-                              >
-                                <Icon size={18} className={isSelected ? 'text-[#00A5B5]' : ''} />
-                                <div className="text-left">
-                                  <div className={`text-xs font-semibold ${isSelected ? 'text-[#00A5B5]' : 'text-gray-700'}`}>
-                                    {size.name}
-                                  </div>
-                                  <div className="text-[10px] text-gray-400">{size.label}</div>
+                        <div className="p-5">
+                          {selectedBranches.length > 1 ? (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                                <div>
+                                  <p className="text-sm font-medium text-gray-900">Yhdistä sijainnit</p>
+                                  <p className="text-xs text-gray-500">Luo yksi mainos kaikille sijainneille</p>
                                 </div>
-                              </button>
-                            );
-                          })}
+                                <select
+                                  value={creativeConfig.multiLocationMode}
+                                  onChange={(e) => setCreativeConfig({ ...creativeConfig, multiLocationMode: e.target.value as 'single' | 'multi' })}
+                                  className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:border-[#00A5B5] outline-none"
+                                >
+                                  <option value="multi">Yhdistä ("Usealla paikkakunnalla")</option>
+                                  <option value="single">Eroittain (jokaiselle oma)</option>
+                                </select>
+                              </div>
+                              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+                                <div className="flex items-start gap-3">
+                                  <AlertCircle size={18} className="text-amber-600 mt-0.5" />
+                                  <div>
+                                    <p className="text-sm font-medium text-amber-800">Valittu {selectedBranches.length} toimipistettä</p>
+                                    <p className="text-xs text-amber-700 mt-1">
+                                      {creativeConfig.multiLocationMode === 'multi'
+                                        ? `Luodaan yksi mainos, jossa maininta "${[...new Set(selectedBranches.map(b => b.city))].sort().slice(0, 3).join(', ')}${selectedBranches.length > 3 ? '...' : ''}"`
+                                        : `Luodaan ${selectedBranches.length} eri mainosta, yksi kutakin toimipistettä varten`
+                                      }
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 text-center py-4">
+                              Valitse useampi toimipiste nähdäksesi sijaintiasetukset.
+                            </p>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
 
-                {/* Preview containers - handle creative_type and priceBubbleMode for pricing */}
-                {(() => {
-                  const showBothCreativeTypes = formData.creative_type === 'both';
-                  const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
-                  const showNationwide = formData.creative_type === 'nationwide' || formData.creative_type === 'both';
-
-                  // Determine number of columns based on what we're showing
-                  const numColumns = showBothCreativeTypes ? 2 : 1;
-                  const containerWidth = numColumns > 1 ? 280 : 450;
-                  const containerHeight = numColumns > 1 ? 350 : 500;
-                  const scaleX = containerWidth / previewSize.width;
-                  const scaleY = containerHeight / previewSize.height;
-                  const previewScaleFactor = Math.min(scaleX, scaleY, 1);
-                  const minHeight = `${Math.round(previewSize.height * previewScaleFactor) + 32}px`;
-
-                  return (
-                    <div className={numColumns > 1 ? 'grid grid-cols-2 gap-4' : ''}>
-                      {/* Local version (with address) - shown for 'local' or 'both' */}
-                      {(formData.creative_type === 'local' || formData.creative_type === 'both') && (
-                        <div>
-                          {formData.creative_type === 'both' && (
-                            <div className="text-center mb-2">
-                              <span className="text-xs font-medium text-[#00A5B5] bg-[#00A5B5]/10 px-3 py-1 rounded-full">
-                                <MapPin size={12} className="inline mr-1" />
-                                Paikkakuntakohtainen
-                              </span>
+                      {/* Audio Settings */}
+                      {formData.channel_audio && (
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-green-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-green-100">
+                              <Volume2 size={18} className="text-green-600" />
                             </div>
-                          )}
-                          <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight }}>
-                            <div
-                              className="origin-top-center"
-                              style={{
-                                transform: `scale(${previewScaleFactor})`
-                              }}
-                            >
-                              {renderPreviewTemplate(true)}
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Audio-mainos</h3>
+                              <p className="text-xs text-gray-500">Radio- ja podcast-mainokset</p>
                             </div>
                           </div>
                         </div>
-                      )}
+                        <div className="p-5">
+                          {/* Predefined audio files */}
+                          <div className="grid grid-cols-2 gap-3 mb-4">
+                            {[
+                              { id: 'suun1', name: 'suun1.wav', url: '/audio/suun1.wav' },
+                              { id: 'suun2', name: 'suun2.wav', url: '/audio/suun2.wav' }
+                            ].map((audio) => {
+                              const isSelected = creativeConfig.selectedAudio === audio.url;
+                              return (
+                                <button
+                                  key={audio.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setCreativeConfig({ ...creativeConfig, selectedAudio: audio.url, audioFile: null });
+                                    toast.success(`Valittu: ${audio.name}`);
+                                  }}
+                                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                                    isSelected
+                                      ? 'border-[#1DB954] bg-[#1DB954]/10'
+                                      : 'border-gray-200 hover:border-[#1DB954]/50'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <Volume2 size={16} className={isSelected ? 'text-[#1DB954]' : 'text-gray-400'} />
+                                      <span className={`text-xs font-medium ${isSelected ? 'text-[#1DB954]' : 'text-gray-700'}`}>{audio.name}</span>
+                                    </div>
+                                    {isSelected && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (playingAudio === audio.url) {
+                                            if (audioRef.current) {
+                                              audioRef.current.pause();
+                                              setPlayingAudio(null);
+                                            }
+                                          } else {
+                                            if (audioRef.current) {
+                                              audioRef.current.pause();
+                                            }
+                                            const audioEl = new Audio(audio.url);
+                                            audioEl.onended = () => setPlayingAudio(null);
+                                            audioEl.play().then(() => {
+                                              setPlayingAudio(audio.url);
+                                              audioRef.current = audioEl;
+                                            }).catch(() => toast.error('Ei voitu toistaa'));
+                                          }
+                                        }}
+                                        className="text-[#1DB954] hover:scale-110 transition-transform"
+                                      >
+                                        {playingAudio === audio.url ? <Pause size={14} /> : <Play size={14} />}
+                                      </button>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
 
-                      {/* Nationwide version (without address) - shown for 'nationwide' or 'both' */}
-                      {(formData.creative_type === 'nationwide' || formData.creative_type === 'both') && (
-                        <div>
-                          {formData.creative_type === 'both' && (
-                            <div className="text-center mb-2">
-                              <span className="text-xs font-medium text-[#1B365D] bg-[#1B365D]/10 px-3 py-1 rounded-full">
-                                <Globe size={12} className="inline mr-1" />
-                                Valtakunnallinen
-                              </span>
+                          {/* Custom upload */}
+                          <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#1DB954] hover:bg-green-50/30 transition-all">
+                            <Upload size={20} className="text-gray-400 mb-1" />
+                            <span className="text-xs text-gray-600">Lataa oma äänitiedosto...</span>
+                            <input
+                              type="file"
+                              accept="audio/mp3,audio/mpeg,audio/wav"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setCreativeConfig({ ...creativeConfig, audioFile: file, selectedAudio: null });
+                                  toast.success(`Äänitiedosto "${file.name}" valittu`);
+                                }
+                              }}
+                            />
+                          </label>
+                          {creativeConfig.audioFile && (
+                            <div className="mt-3 flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                              <div className="flex items-center gap-2">
+                                <Volume2 size={16} className="text-[#1DB954]" />
+                                <span className="text-xs text-gray-700 truncate max-w-[200px]">{creativeConfig.audioFile.name}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setCreativeConfig({ ...creativeConfig, audioFile: null })}
+                                className="text-gray-400 hover:text-red-500 transition-colors"
+                              >
+                                <X size={16} />
+                              </button>
                             </div>
                           )}
-                          <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center overflow-hidden" style={{ minHeight }}>
-                            <div
-                              className="origin-top-center"
-                              style={{
-                                transform: `scale(${previewScaleFactor})`
-                              }}
-                            >
-                              {renderPreviewTemplate(false)}
-                            </div>
-                          </div>
                         </div>
+                      </div>
                       )}
                     </div>
-                  );
-                })()}
-                
-                <p className="text-center text-sm text-gray-500 mt-4">
-                  {previewSize.name} - {previewSize.label}
-                </p>
+                  )}
+                </div>
+
+                {/* Right Panel - Live Preview */}
+                <div className="lg:col-span-1">
+                  <div className="sticky top-4 space-y-4">
+                    {/* Preview Card */}
+                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Eye size={16} className="text-gray-500" />
+                          <span className="text-sm font-medium text-gray-700">Esikatselu</span>
+                        </div>
+                        <span className="text-xs text-gray-400">{previewSize.name}</span>
+                      </div>
+
+                      {/* Size selector - grouped by category */}
+                      <div className="p-3 border-b border-gray-100">
+                        {/* Group sizes by category */}
+                        {['Display', 'PDOOH', 'Meta'].map((category) => {
+                          const sizesInCat = availableSizes.filter(s => s.category === category);
+                          const isChannelDisabled =
+                            (category === 'Display' && !formData.channel_display) ||
+                            (category === 'PDOOH' && !formData.channel_pdooh) ||
+                            (category === 'Meta' && !formData.channel_meta);
+
+                          if (sizesInCat.length === 0 || isChannelDisabled) return null;
+
+                          return (
+                            <div key={category} className="mb-2 last:mb-0">
+                              <div className="flex items-center gap-1 mb-1">
+                                {category === 'Display' && <Monitor size={10} className="text-gray-400" />}
+                                {category === 'PDOOH' && <Tv size={10} className="text-gray-400" />}
+                                {category === 'Meta' && <Instagram size={10} className="text-gray-400" />}
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wider">{category}</p>
+                              </div>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {sizesInCat.map((size) => {
+                                  const isSelected = previewSize.id === size.id;
+                                  const Icon = size.icon;
+                                  return (
+                                    <button
+                                      key={size.id}
+                                      onClick={() => setPreviewSize(size)}
+                                      className={`flex items-center justify-center gap-1 px-1.5 py-1.5 rounded transition-all ${
+                                        isSelected
+                                          ? 'bg-[#00A5B5] text-white'
+                                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                      }`}
+                                      title={size.label}
+                                    >
+                                      <Icon size={10} />
+                                      <span className="text-[9px] font-medium">{size.name.split('×')[1]}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Preview Container */}
+                      <div className="p-4 bg-gray-900">
+                        {(() => {
+                          const showBothCreativeTypes = formData.creative_type === 'both';
+                          const numColumns = showBothCreativeTypes ? 2 : 1;
+                          const containerWidth = showBothCreativeTypes ? 140 : 280;
+                          const containerHeight = showBothCreativeTypes ? 200 : 350;
+                          const scaleX = containerWidth / previewSize.width;
+                          const scaleY = containerHeight / previewSize.height;
+                          const previewScaleFactor = Math.min(scaleX, scaleY, 1);
+
+                          return (
+                            <div className={numColumns > 1 ? 'grid grid-cols-2 gap-2' : ''}>
+                              {(formData.creative_type === 'local' || formData.creative_type === 'both') && (
+                                <div>
+                                  {formData.creative_type === 'both' && (
+                                    <p className="text-[8px] text-gray-500 text-center mb-1">Paikallinen</p>
+                                  )}
+                                  <div className="flex items-center justify-center" style={{ height: `${previewSize.height * previewScaleFactor}px` }}>
+                                    <div
+                                      className="origin-top-center"
+                                      style={{ transform: `scale(${previewScaleFactor})` }}
+                                    >
+                                      {renderPreviewTemplate(true)}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              {(formData.creative_type === 'nationwide' || formData.creative_type === 'both') && (
+                                <div>
+                                  {formData.creative_type === 'both' && (
+                                    <p className="text-[8px] text-gray-500 text-center mb-1">Valtakunnallinen</p>
+                                  )}
+                                  <div className="flex items-center justify-center" style={{ height: `${previewSize.height * previewScaleFactor}px` }}>
+                                    <div
+                                      className="origin-top-center"
+                                      style={{ transform: `scale(${previewScaleFactor})` }}
+                                    >
+                                      {renderPreviewTemplate(false)}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Preview Info */}
+                      <div className="px-4 py-3 bg-gray-50 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Koko</span>
+                          <span className="font-medium text-gray-700">{previewSize.width} × {previewSize.height}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500">Tyyppi</span>
+                          <span className="font-medium text-gray-700">{previewSize.category}</span>
+                        </div>
+                        {creativeConfig.priceBubbleMode !== 'no-price' && selectedService?.code !== 'yleinen-brandiviesti' && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500">Hinta</span>
+                            <span className="font-medium text-[#004E9A]">{creativeConfig.offer}€</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quick Tips */}
+                    <div className="bg-gradient-to-br from-[#00A5B5]/10 to-[#1B365D]/10 rounded-xl p-4 border border-[#00A5B5]/20">
+                      <div className="flex items-start gap-3">
+                        <SparklesIcon size={16} className="text-[#00A5B5] mt-0.5" />
+                        <div>
+                          <p className="text-xs font-semibold text-gray-800">Vinkki</p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            {selectedServices.length > 1
+                              ? 'Luodaan automaattesti eri mainokset jokaiselle valitulle palvelulle.'
+                              : 'Valitse useampi palvelu luodaksesi useampia mainoksia.'
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3000,6 +3928,68 @@ const CampaignCreate = () => {
           </button>
         )}
       </div>
+
+      {/* Terveystalo Budget Edit Dialog */}
+      {terveystaloBudgetEdit.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md animate-scale-in">
+            <div className="p-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Muokkaa kokonaisbudjettia</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Haluatko muuttaa Terveystalon kokonaisbudjettia? Tämä vaikuttaa kaikkien toimipisteiden budjetteihin.
+              </p>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Uusi kokonaisbudjetti
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    value={terveystaloBudgetEdit.newValue}
+                    onChange={(e) => setTerveystaloBudgetEdit(prev => ({ ...prev, newValue: Number(e.target.value) }))}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                    placeholder="Kirjoita uusi budjetti..."
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">Nykyinen:</span>
+                  <span className="font-semibold">{getTotalTerveystaloBudget().total.toLocaleString('fi-FI')}€</span>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setTerveystaloBudgetEdit({ isOpen: false, newValue: 0, isLoading: false })}
+                  disabled={terveystaloBudgetEdit.isLoading}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Peruuta
+                </button>
+                <button
+                  onClick={confirmTerveystaloBudgetChange}
+                  disabled={terveystaloBudgetEdit.isLoading}
+                  className="flex-1 px-4 py-2.5 bg-[#00A5B5] text-white rounded-xl font-medium hover:bg-[#00A5B5]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {terveystaloBudgetEdit.isLoading ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Tallennetaan...
+                    </>
+                  ) : (
+                    'Vahvista'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
