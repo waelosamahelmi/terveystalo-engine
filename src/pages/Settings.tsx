@@ -317,23 +317,44 @@ const DeveloperTab = () => {
   const [syncResult, setSyncResult] = useState<{ count: number; errors: number } | null>(null);
   const [screenCount, setScreenCount] = useState<number | null>(null);
 
+  // Template sync state
+  const [templateSyncStatus, setTemplateSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [templateSyncLog, setTemplateSyncLog] = useState<string[]>([]);
+  const [templateCount, setTemplateCount] = useState<number | null>(null);
+  const [showTemplateLog, setShowTemplateLog] = useState(false);
+
   // Load current screen count on mount
   useEffect(() => {
     loadScreenCount();
+    loadTemplateCount();
   }, []);
 
   const loadScreenCount = async () => {
     const { count, error } = await supabase
       .from('media_screens')
       .select('*', { count: 'exact', head: true });
-    
+
     if (!error) {
       setScreenCount(count || 0);
     }
   };
 
+  const loadTemplateCount = async () => {
+    const { count, error } = await supabase
+      .from('creative_templates')
+      .select('*', { count: 'exact', head: true });
+
+    if (!error) {
+      setTemplateCount(count || 0);
+    }
+  };
+
   const addLog = (message: string) => {
     setSyncLog(prev => [...prev, `[${new Date().toLocaleTimeString('fi-FI')}] ${message}`]);
+  };
+
+  const addTemplateLog = (message: string) => {
+    setTemplateSyncLog(prev => [...prev, `[${new Date().toLocaleTimeString('fi-FI')}] ${message}`]);
   };
 
   const syncMediaScreens = async () => {
@@ -525,6 +546,63 @@ const DeveloperTab = () => {
     }
   };
 
+  const syncTemplates = async () => {
+    setTemplateSyncStatus('syncing');
+    setTemplateSyncLog([]);
+    setShowTemplateLog(true);
+    addTemplateLog('🚀 Aloitetaan mainosmplaceiden synkronointi...');
+
+    try {
+      addTemplateLog('📡 Haetaan templatelistaa Netlify-funktiosta...');
+
+      // Get base URL for Netlify functions
+      // When using netlify dev, functions are at the same origin as the frontend
+      // In production, they're also at the same origin
+      const netlifyFunctionsUrl = `/.netlify/functions`;
+
+      const response = await fetch(`${netlifyFunctionsUrl}/sync-templates?action=sync`);
+
+      if (!response.ok) {
+        throw new Error(`Netlify-funktio palautti virheen: ${response.status}`);
+      }
+
+      const data = await response.json();
+      addTemplateLog(`✅ Vastaus vastaanotettu`);
+
+      if (data.results) {
+        let inserted = 0;
+        let updated = 0;
+        let errors = 0;
+
+        data.results.forEach((result: any) => {
+          if (result.error) {
+            addTemplateLog(`❌ ${result.size} (${result.type}): ${result.error.message || 'Virhe'}`);
+            errors++;
+          } else if (result.action === 'inserted') {
+            addTemplateLog(`✅ ${result.size} (${result.type}): Luotu uusi`);
+            inserted++;
+          } else if (result.action === 'updated') {
+            addTemplateLog(`🔄 ${result.size} (${result.type}): Päivitetty`);
+            updated++;
+          }
+        });
+
+        addTemplateLog(`🎉 Synkronointi valmis! ${inserted} luotu, ${updated} päivitetty.`);
+        setTemplateSyncStatus('success');
+      } else {
+        addTemplateLog('⚠️ Odottamaton vastausrakenne');
+        setTemplateSyncStatus('error');
+      }
+
+      await loadTemplateCount();
+
+    } catch (error: any) {
+      addTemplateLog(`❌ Virhe: ${error.message}`);
+      addTemplateLog('💡 Vinkki: Varmista, että Netlify dev server käynnissä (netlify dev)');
+      setTemplateSyncStatus('error');
+    }
+  };
+
   return (
     <div className="card p-6 space-y-6 dark:bg-slate-800/70 dark:border-white/10">
       <div className="flex items-center justify-between">
@@ -601,6 +679,94 @@ const DeveloperTab = () => {
             <div className="bg-gray-900 rounded-lg p-3 max-h-64 overflow-y-auto">
               <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
                 {syncLog.join('\n')}
+              </pre>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Creative Templates Sync Section */}
+      <div className="border border-gray-200 dark:border-white/10 rounded-xl p-4">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+              <Code size={24} className="text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <h3 className="font-medium text-gray-900 dark:text-white">Mainosmplaceiden synkronointi</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Synkronoi mainosmallukset (300x300, 300x431, 300x600, 620x891, 980x400, 1080x1920) tietokantaan
+              </p>
+              {templateCount !== null && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  Nykyinen määrä: <span className="font-medium text-gray-600 dark:text-gray-300">{templateCount} templatea</span>
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTemplateLog(!showTemplateLog)}
+              className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              title="Näytä loki"
+            >
+              <Eye size={16} />
+            </button>
+            <button
+              onClick={syncTemplates}
+              disabled={templateSyncStatus === 'syncing'}
+              className="btn-primary flex items-center gap-2"
+            >
+              {templateSyncStatus === 'syncing' ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Synkronoidaan...
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={16} />
+                  Synkronoi
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Template Sync Status */}
+        {templateSyncStatus !== 'idle' && templateSyncStatus !== 'syncing' && (
+          <div className={`mt-4 p-3 rounded-lg ${
+            templateSyncStatus === 'success'
+              ? 'bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700'
+              : 'bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700'
+          }`}>
+            <div className="flex items-center gap-2">
+              {templateSyncStatus === 'success' ? (
+                <Check size={18} className="text-green-600 dark:text-green-400" />
+              ) : (
+                <AlertCircle size={18} className="text-red-600 dark:text-red-400" />
+              )}
+              <span className={templateSyncStatus === 'success' ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}>
+                {templateSyncStatus === 'success' ? 'Template-synkronointi onnistui!' : 'Synkronointi epäonnistui'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Template Sync Log */}
+        {showTemplateLog && templateSyncLog.length > 0 && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Loki</h4>
+              <button
+                onClick={() => setShowTemplateLog(false)}
+                className="text-xs text-gray-400 hover:text-gray-600"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="bg-gray-900 rounded-lg p-3 max-h-48 overflow-y-auto">
+              <pre className="text-xs text-purple-400 font-mono whitespace-pre-wrap">
+                {templateSyncLog.join('\n')}
               </pre>
             </div>
           </div>

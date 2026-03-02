@@ -139,7 +139,7 @@ export function renderTemplateHtml(
   variables: Record<string, string>
 ): string {
   let html = template.html_template;
-  
+
   // Merge default values with provided variables
   const mergedVars = {
     ...template.default_values,
@@ -149,11 +149,95 @@ export function renderTemplateHtml(
   // Replace all placeholders
   Object.entries(mergedVars).forEach(([key, value]) => {
     const regex = new RegExp(`{{${key}}}`, 'g');
-    html = html.replace(regex, String(value));
+    // Convert newlines and | to <br> for multi-line text support
+    let processedValue = String(value)
+      .replace(/\n/g, '<br>')
+      .replace(/\|/g, '<br>');
+    html = html.replace(regex, processedValue);
   });
 
   // Fix font URLs for local dev / cross-origin iframe previews
   html = fixFontUrls(html);
+
+  // Inject CSS to fix text wrapping, alignment and spacing issues
+  const fixCss = `
+    <style>
+      /* Make text elements flexible for better wrapping */
+      .HymyileOletHy, .Hymyile, .OletHyvissKS, .SujuvampaaSuunt {
+        height: auto !important;
+        max-height: unset !important;
+        line-height: 1.15 !important;
+      }
+      /* Make address/city text flexible - allow wrapping for longer addresses */
+      .Torikatu1Laht, .Torikatu1Lahti, .branch_address {
+        height: auto !important;
+        min-height: unset !important;
+        max-height: 80px !important;
+        line-height: 1.2 !important;
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+        overflow: visible !important;
+      }
+      /* 300x300: Move address slightly down from logo (from 267px to 272px) */
+      .Torikatu1Laht[style*="top: 267px"] {
+        top: 272px !important;
+        left: 15px !important;
+        text-align: left !important;
+        width: 270px !important;
+        max-height: 28px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+      /* 300x431: Center address horizontally (from 96px to 15px for center) */
+      .Torikatu1Laht[style*="top: 384px"] {
+        top: 384px !important;
+        left: 15px !important;
+        text-align: center !important;
+        width: 270px !important;
+        max-height: 45px !important;
+      }
+      /* 300x600: Allow two lines, center (note: class is Torikatu1Lahti not Torikatu1Laht) */
+      .Torikatu1Lahti[style*="top: 547px"] {
+        top: 547px !important;
+        left: 15px !important;
+        text-align: center !important;
+        width: 270px !important;
+        max-height: 50px !important;
+      }
+      /* 620x891: Address under logo, allow two lines (move left from 220px to center) */
+      .Torikatu1Laht[style*="top: 800px"] {
+        top: 800px !important;
+        left: 110px !important;
+        text-align: center !important;
+        width: 400px !important;
+        max-height: 70px !important;
+      }
+      /* 980x400: Address at bottom, allow two lines (expand width for full address) */
+      .Torikatu1Laht[style*="top: 351px"] {
+        top: 351px !important;
+        left: 37px !important;
+        text-align: left !important;
+        width: 906px !important;
+        max-height: 50px !important;
+      }
+      /* PDOOH 1080x1920: Center address (note: class is Torikatu1Lahti) */
+      .Torikatu1Lahti[style*="top: 1656px"] {
+        top: 1656px !important;
+        left: 140px !important;
+        text-align: center !important;
+        width: 800px !important;
+        max-height: 100px !important;
+      }
+      /* Tighter line spacing for multi-line text */
+      .HymyileOletHy br, .Hymyile br, .OletHyvissKS br {
+        display: block;
+        margin-top: -0.15em;
+      }
+    </style>
+  `;
+  html = html.replace('</head>', fixCss + '</head>');
 
   return html;
 }

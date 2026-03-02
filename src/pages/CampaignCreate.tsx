@@ -157,21 +157,22 @@ interface PreviewSize {
   icon: React.ElementType;
   label: string;
   category: 'Display' | 'PDOOH' | 'Meta';
+  templateType?: 'display' | 'pdooh' | 'meta'; // Store actual template type for lookup
 }
 
 const PREVIEW_SIZES: PreviewSize[] = [
   // Display
-  { id: '300x300', name: '300×300', width: 300, height: 300, icon: Square, label: 'Neliö', category: 'Display' },
-  { id: '300x431', name: '300×431', width: 300, height: 431, icon: RectangleVertical, label: 'Pysty', category: 'Display' },
-  { id: '300x600', name: '300×600', width: 300, height: 600, icon: RectangleVertical, label: 'Half-page', category: 'Display' },
-  { id: '620x891', name: '620×891', width: 620, height: 891, icon: RectangleVertical, label: 'Iso pysty', category: 'Display' },
+  { id: '300x300', name: '300×300', width: 300, height: 300, icon: Square, label: 'Neliö', category: 'Display', templateType: 'display' },
+  { id: '300x431', name: '300×431', width: 300, height: 431, icon: RectangleVertical, label: 'Pysty', category: 'Display', templateType: 'display' },
+  { id: '300x600', name: '300×600', width: 300, height: 600, icon: RectangleVertical, label: 'Half-page', category: 'Display', templateType: 'display' },
+  { id: '620x891', name: '620×891', width: 620, height: 891, icon: RectangleVertical, label: 'Iso pysty', category: 'Display', templateType: 'display' },
   // Display (horizontal)
-  { id: '980x400', name: '980×400', width: 980, height: 400, icon: RectangleHorizontal, label: 'Vaaka', category: 'Display' },
+  { id: '980x400', name: '980×400', width: 980, height: 400, icon: RectangleHorizontal, label: 'Vaaka', category: 'Display', templateType: 'display' },
   // PDOOH
-  { id: '1080x1920', name: '1080×1920', width: 1080, height: 1920, icon: Smartphone, label: 'Pysty', category: 'PDOOH' },
+  { id: '1080x1920-pdooh', name: '1080×1920', width: 1080, height: 1920, icon: Smartphone, label: 'Pysty', category: 'PDOOH', templateType: 'pdooh' },
   // Meta (under development)
-  { id: '1080x1080', name: '1080×1080', width: 1080, height: 1080, icon: Instagram, label: 'Feed', category: 'Meta' },
-  { id: '1080x1920-meta', name: '1080×1920', width: 1080, height: 1920, icon: Smartphone, label: 'Stories/Reels', category: 'Meta' },
+  { id: '1080x1080', name: '1080×1080', width: 1080, height: 1080, icon: Instagram, label: 'Feed', category: 'Meta', templateType: 'meta' },
+  { id: '1080x1920-meta', name: '1080×1920', width: 1080, height: 1920, icon: Smartphone, label: 'Stories/Reels', category: 'Meta', templateType: 'meta' },
 ];
 
 const PREVIEW_SIZE_CATEGORIES = [
@@ -1027,15 +1028,28 @@ const CampaignCreate = () => {
   const [availableSizes, setAvailableSizes] = useState<PreviewSize[]>(PREVIEW_SIZES);
   const [previewSize, setPreviewSize] = useState<PreviewSize>(PREVIEW_SIZES[2]); // Default to 300x600
 
+  // Preview service state - for switching between services when multiple are selected
+  const [previewServiceId, setPreviewServiceId] = useState<string | null>(null);
+
   // Update available sizes when templates are loaded
   useEffect(() => {
     if (dbTemplates.length > 0) {
       // Build available sizes from database templates
-      const sizesFromDb: PreviewSize[] = dbTemplates
+      // Use a plain object to dedupe by size+type combination (unique key)
+      // Note: Can't use Map because it's shadowed by lucide-react's Map icon import
+      const sizesRecord: Record<string, PreviewSize> = {};
+
+      dbTemplates
         .filter(t => t.active)
-        .map(t => {
+        .forEach(t => {
           const sizeKey = t.size;
-          const type = t.type as 'Display' | 'PDOOH' | 'Meta';
+          const type = t.type as 'display' | 'pdooh' | 'meta';
+
+          // Create unique ID combining size and type
+          const uniqueId = `${sizeKey}-${type}`;
+
+          // Skip if we already have this size+type combo
+          if (sizesRecord[uniqueId]) return;
 
           // Map to icon and label
           let icon = RectangleVertical;
@@ -1046,24 +1060,30 @@ const CampaignCreate = () => {
           else if (sizeKey === '300x600') { icon = RectangleVertical; label = 'Half-page'; }
           else if (sizeKey === '620x891') { icon = RectangleVertical; label = 'Iso pysty'; }
           else if (sizeKey === '980x400') { icon = RectangleHorizontal; label = 'Vaaka'; }
-          else if (sizeKey === '1080x1920') { icon = Smartphone; label = type === 'Meta' ? 'Stories' : 'Pysty'; }
+          else if (sizeKey === '1080x1920') {
+            icon = Smartphone;
+            label = type === 'meta' ? 'Stories' : type === 'pdooh' ? 'PDOOH' : 'Pysty';
+          }
           else if (sizeKey === '1080x1080') { icon = Instagram; label = 'Feed'; }
 
-          return {
-            id: sizeKey,
+          sizesRecord[uniqueId] = {
+            id: uniqueId, // Use unique ID combining size and type
             name: sizeKey,
             width: t.width,
             height: t.height,
             icon,
             label,
-            category: type.charAt(0).toUpperCase() + type.slice(1) as 'Display' | 'PDOOH' | 'Meta'
+            category: type.charAt(0).toUpperCase() + type.slice(1) as 'Display' | 'PDOOH' | 'Meta',
+            templateType: type // Store the actual template type for lookup
           };
         });
 
+      const sizesFromDb = Object.values(sizesRecord);
+
       if (sizesFromDb.length > 0) {
         setAvailableSizes(sizesFromDb);
-        // Set default to 300x600 if available, otherwise first size
-        const defaultSize = sizesFromDb.find(s => s.id === '300x600') || sizesFromDb[0];
+        // Set default to 300x600-display if available, otherwise first size
+        const defaultSize = sizesFromDb.find(s => s.id === '300x600-display') || sizesFromDb[0];
         setPreviewSize(defaultSize);
       }
     }
@@ -1098,7 +1118,20 @@ const CampaignCreate = () => {
   const selectedService = selectedServices[0] || services.find(s => s.id === formData.service_id);
   const selectedBranches = branches.filter(b => formData.branch_ids.includes(b.id));
   const selectedBranch = selectedBranches[0] || branches.find(b => b.id === formData.branch_id);
-  
+
+  // Preview service - allows switching between services when multiple are selected
+  const previewService = selectedServices.find(s => s.id === previewServiceId) || selectedService;
+
+  // Update preview service when services change
+  useEffect(() => {
+    if (selectedServices.length > 0 && !previewServiceId) {
+      setPreviewServiceId(selectedServices[0].id);
+    } else if (selectedServices.length > 0 && previewServiceId && !selectedServices.find(s => s.id === previewServiceId)) {
+      // If current preview service is no longer selected, switch to first selected
+      setPreviewServiceId(selectedServices[0].id);
+    }
+  }, [selectedServices, previewServiceId]);
+
   // Helper to get service name (handles name_fi vs name)
   const getServiceName = (service: Service | undefined) => 
     service?.name_fi || service?.name || 'Palvelu';
@@ -1417,69 +1450,122 @@ const CampaignCreate = () => {
 
   // Find the database template matching the current preview size
   const getTemplateForSize = useCallback((sizeId: string): CreativeTemplate | undefined => {
-    // Handle Meta sizes that have a suffix (e.g. '1080x1920-meta' -> look for type='meta' + size='1080x1920')
-    if (sizeId.endsWith('-meta')) {
-      const baseSize = sizeId.replace('-meta', '');
-      return dbTemplates.find(t => t.size === baseSize && t.type === 'meta');
+    // Parse the size ID which may include type suffix (e.g., '1080x1920-meta', '300x600-display')
+    let baseSize = sizeId;
+    let templateType: string | undefined;
+
+    if (sizeId.includes('-')) {
+      const parts = sizeId.split('-');
+      baseSize = parts[0];
+      templateType = parts[1]; // 'display', 'pdooh', 'meta'
     }
-    // Handle 1080x1080 as Meta size (square format)
+
+    // If we have a type suffix, find exact match
+    if (templateType) {
+      return dbTemplates.find(t => t.size === baseSize && t.type === templateType && t.active);
+    }
+
+    // Legacy fallback: Handle 1080x1080 as Meta size (square format)
     if (sizeId === '1080x1080') {
-      return dbTemplates.find(t => t.size === '1080x1080' && t.type === 'meta');
+      return dbTemplates.find(t => t.size === '1080x1080' && t.type === 'meta' && t.active);
     }
-    // For non-meta, find active templates matching the size (excludes meta type to avoid collision)
-    return dbTemplates.find(t => t.size === sizeId && t.type !== 'meta' && t.active);
+
+    // For sizes without type suffix, find first active non-meta template (backward compat)
+    return dbTemplates.find(t => t.size === baseSize && t.type !== 'meta' && t.active);
   }, [dbTemplates]);
 
   // Build template variables from creativeConfig + branch data
   const buildTemplateVariables = useCallback((showAddress: boolean): Record<string, string> => {
     const baseUrl = window.location.origin;
-    const isGeneralBrandMessage = selectedService?.code === 'yleinen-brandiviesti';
+    // Use previewService for preview context, fallback to selectedService
+    const serviceForPreview = previewService || selectedService;
+    const isGeneralBrandMessage = serviceForPreview?.code === 'yleinen-brandiviesti';
 
     // Get cities for multi-location display
     const uniqueCities = [...new Set(selectedBranches.map(b => b.city))].sort();
     const isMultiLocation = selectedBranches.length > 1;
+    const isMultiService = selectedServices.length > 1;
 
-    // Build location text based on concept type
+    // Get service name
+    const serviceName = serviceForPreview?.name_fi || serviceForPreview?.name || 'Palvelu';
+    // Convert service name to elative form (e.g., "Suuhygienistikäynti" -> "Suuhygienistikäynnistä")
+    let serviceNameElative = serviceName.toLowerCase();
+    if (serviceNameElative.endsWith('äynti')) {
+      serviceNameElative = serviceNameElative.slice(0, -5) + 'äynnistä';
+    } else if (serviceNameElative.endsWith('nti')) {
+      serviceNameElative = serviceNameElative.slice(0, -3) + 'nnistä';
+    } else {
+      serviceNameElative = serviceNameElative + 'sta';
+    }
+
+    // Build location text for address position
+    // This goes in the {{branch_address}} placeholder
     let locationText = '';
     if (isMultiLocation) {
-      // Multi-location: "... • Lahti • Helsinki" style
-      locationText = uniqueCities.length > 3
-        ? `... • ${uniqueCities.slice(0, 2).join(' • ')}`
-        : uniqueCities.join(' • ');
+      // Multi-location: "Kamppi • Itäkeskus • Ogeli • Redi" style
+      locationText = uniqueCities.join(' • ');
     } else {
-      // Single location: "Lahti Suun Terveystalo"
-      locationText = `${selectedBranch?.city || ''} Suun Terveystalo`;
+      // Single location: Use actual address - e.g., "Torikatu 1, Lahti"
+      const city = selectedBranch?.city || '';
+      const address = selectedBranch?.address || '';
+      locationText = address ? `${address}, ${city}` : city;
     }
 
-    // Set headline based on concept type
-    let headlineText = creativeConfig.headline;
-    let subheadlineText = creativeConfig.subheadline;
+    // Build branch name for message (e.g., "Lahden Suun Terveystalo")
+    const branchName = selectedBranch?.name || selectedBranch?.city || '';
 
-    if (isGeneralBrandMessage) {
-      // Brandviesti: "Hymyile. Olet hyvissä käsissä."
-      headlineText = headlineText || 'Hymyile.';
-      subheadlineText = subheadlineText || 'Olet hyvissä käsissä.';
-    } else {
-      // Service-specific: Service name as headline
-      const serviceName = selectedService?.name_fi || selectedService?.name || 'Palvelu';
-      headlineText = headlineText || serviceName;
-      // For service ads, subheadline is the location
-      subheadlineText = subheadlineText || locationText;
+    // Build message for subheadline position
+    // This goes in the {{subheadline}} placeholder
+    let messageText = creativeConfig.subheadline;
+    if (!messageText) {
+      if (isGeneralBrandMessage) {
+        // Brand message: "Sujuvampaa suunterveyttä hammastarkastuksista erikoisosaamisesta vaativiin hoitoihin"
+        messageText = 'Sujuvampaa suunterveyttä hammastarkastuksista erikoisosaamisesta vaativiin hoitoihin';
+      } else if (isMultiService) {
+        // Multi-service: Include service name "Sujuvampaa suunterveyttä Suuhygienistikäynnistä erikoisosaamisesta vaativiin hoitoihin"
+        messageText = `Sujuvampaa suunterveyttä ${serviceNameElative} erikoisosaamisesta vaativiin hoitoihin`;
+      } else {
+        // Single service: Include branch name in message
+        messageText = `Sujuvampaa suunterveyttä ${branchName}`;
+      }
     }
 
-    const offerTitle = isGeneralBrandMessage ? '' : (creativeConfig.offerTitle || 'Hammas-tarkastus');
-    const priceValue = isGeneralBrandMessage ? '' : (creativeConfig.offer || '49');
+    // Headline - always use the user's input or default
+    // Use | in default which will be converted to <br> in renderTemplateHtml
+    const headlineText = creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.';
+
+    // Split headline into two parts for templates that use headline_line2
+    // Handle both | and <br> as line separator
+    const headlineParts = headlineText.split(/<br>|\|/);
+    const headlineLine2 = headlineParts.length > 1 ? headlineParts.slice(1).join('<br>') : '';
+
+    // Offer title - use service name if user hasn't entered custom text
+    let offerTitle = creativeConfig.offerTitle;
+    if (!offerTitle && !isGeneralBrandMessage) {
+      offerTitle = serviceName; // e.g., "Suuhygienistikäynti"
+    }
+
+    // Price
+    const priceValue = creativeConfig.offer || '49';
+
+    // For brand message, don't show offer
+    const finalOfferTitle = isGeneralBrandMessage ? '' : offerTitle;
+    const finalPrice = isGeneralBrandMessage ? '' : priceValue;
+
+    // Branch address - shows the location text when showAddress is true
+    const finalAddress = showAddress ? locationText : '';
 
     return {
       // Text content
       title: 'Suun Terveystalo',
-      headline: headlineText,
-      subheadline: subheadlineText.replace(/\n/g, ' '),
-      offer_title: offerTitle.replace(/\n/g, ' '),
-      price: priceValue,
+      headline: headlineParts[0], // First part only (e.g., "Hymyile.")
+      headline_line2: headlineLine2, // Second part if exists (e.g., "Olet hyvissä käsissä.")
+      subheadline: messageText,
+      offer_title: finalOfferTitle,
+      price: finalPrice,
       currency: '€',
       cta_text: creativeConfig.cta || 'Varaa aika',
-      branch_address: showAddress ? (selectedBranch?.address || 'Albertinkatu 16, Oulu') : '',
+      branch_address: finalAddress,
 
       // Scene 3 text lines (for PDOOH templates with 5-line format)
       scene3_line1: 'Sujuvampaa',
@@ -1684,7 +1770,7 @@ const CampaignCreate = () => {
       click_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
       disclaimer_text: creativeConfig.disclaimerText || '',
     };
-  }, [creativeConfig, selectedBranch, selectedBranches, selectedService]);
+  }, [creativeConfig, selectedBranch, selectedBranches, selectedService, previewService]);
 
   // Render preview template using database HTML templates in an iframe
   const renderPreviewTemplate = (showAddress: boolean) => {
@@ -1708,18 +1794,20 @@ const CampaignCreate = () => {
     }
 
     const variables = buildTemplateVariables(showAddress);
-    
+
     // If price bubble is hidden, hide it via CSS override
     let renderedHtml = renderTemplateHtml(template, variables);
-    
-    if (creativeConfig.priceBubbleMode === 'no-price') {
-      // Inject CSS to hide price bubble
-      renderedHtml = renderedHtml.replace('</head>', '<style>.price-bubble { display: none !important; }</style></head>');
+
+    // Use previewService for checking if brand message in preview
+    const serviceForPreview = previewService || selectedService;
+    if (creativeConfig.priceBubbleMode === 'no-price' || serviceForPreview?.code === 'yleinen-brandiviesti') {
+      // Inject CSS to hide price bubble elements (class names used in Figma templates)
+      renderedHtml = renderedHtml.replace('</head>', '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble { display: none !important; }</style></head>');
     }
-    
+
     if (!showAddress) {
       // Inject CSS to hide address
-      renderedHtml = renderedHtml.replace('</head>', '<style>.address { display: none !important; }</style></head>');
+      renderedHtml = renderedHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address { display: none !important; }</style></head>');
     }
 
     // Font URL rewriting is handled inside renderTemplateHtml()
@@ -2995,32 +3083,23 @@ const CampaignCreate = () => {
                           </div>
                         </div>
                         <div className="p-5">
-                          {/* Mode selector */}
-                          <div className="flex items-center gap-2 mb-4 p-1 bg-gray-100 rounded-lg">
-                            {[
-                              { id: 'price' as const, label: 'Näytä hinta' },
-                              { id: 'no-price' as const, label: 'Ilman hintaa' },
-                              { id: 'both' as const, label: 'Luo molemmat' },
-                            ].map((mode) => {
-                              const isSelected = creativeConfig.priceBubbleMode === mode.id;
-                              return (
-                                <button
-                                  key={mode.id}
-                                  type="button"
-                                  onClick={() => setCreativeConfig({ ...creativeConfig, priceBubbleMode: mode.id })}
-                                  className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                                    isSelected
-                                      ? 'bg-white text-[#00A5B5] shadow-sm'
-                                      : 'text-gray-600 hover:text-gray-900'
-                                  }`}
-                                >
-                                  {mode.label}
-                                </button>
-                              );
-                            })}
+                          {/* Show price toggle */}
+                          <div className="flex items-center justify-between mb-4">
+                            <span className="text-sm font-medium text-gray-700">Näytä hinta mainoksessa</span>
+                            <button
+                              type="button"
+                              onClick={() => setCreativeConfig({ ...creativeConfig, priceBubbleMode: creativeConfig.priceBubbleMode === 'price' ? 'no-price' : 'price' })}
+                              className={`w-12 h-6 rounded-full p-1 transition-colors ${
+                                creativeConfig.priceBubbleMode === 'price' ? 'bg-[#00A5B5]' : 'bg-gray-300'
+                              }`}
+                            >
+                              <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                                creativeConfig.priceBubbleMode === 'price' ? 'translate-x-6' : 'translate-x-0'
+                              }`} />
+                            </button>
                           </div>
 
-                          {creativeConfig.priceBubbleMode !== 'no-price' && (
+                          {creativeConfig.priceBubbleMode === 'price' && (
                             <div className="space-y-4 pt-4 border-t border-gray-100">
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
@@ -3568,6 +3647,34 @@ const CampaignCreate = () => {
                         <span className="text-xs text-gray-400">{previewSize.name}</span>
                       </div>
 
+                      {/* Service selector - only shown when multiple services are selected */}
+                      {selectedServices.length > 1 && (
+                        <div className="px-3 py-2 border-b border-gray-100 bg-gray-50">
+                          <div className="flex items-center gap-2 mb-1">
+                            <ToothIcon size={12} className="text-gray-400" />
+                            <p className="text-[10px] text-gray-400 uppercase tracking-wider">Palvelu ({selectedServices.length} valittu)</p>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedServices.map((service) => {
+                              const isSelected = previewServiceId === service.id;
+                              return (
+                                <button
+                                  key={service.id}
+                                  onClick={() => setPreviewServiceId(service.id)}
+                                  className={`px-2 py-1 text-xs rounded transition-all ${
+                                    isSelected
+                                      ? 'bg-[#00A5B5] text-white'
+                                      : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                  }`}
+                                >
+                                  {service.name_fi || service.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Size selector - grouped by category */}
                       <div className="p-3 border-b border-gray-100">
                         {/* Group sizes by category */}
@@ -3816,9 +3923,7 @@ const CampaignCreate = () => {
                 <p className="text-lg font-semibold text-gray-900">
                   {formData.creative_type === 'nationwide' ? 'Valtakunnallinen' : 'Paikallinen'}
                 </p>
-                {creativeConfig.priceBubbleMode === 'both' ? (
-                  <p className="text-sm text-gray-500">Hinta + Ilman hintaa</p>
-                ) : creativeConfig.priceBubbleMode === 'price' ? (
+                {creativeConfig.priceBubbleMode === 'price' ? (
                   <p className="text-sm text-gray-500">Hinnalla</p>
                 ) : (
                   <p className="text-sm text-gray-500">Ilman hintaa</p>
