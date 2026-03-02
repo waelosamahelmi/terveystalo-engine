@@ -3895,159 +3895,332 @@ const CampaignCreate = () => {
               />
             </div>
 
-            {/* Summary cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto mb-8">
-              <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
-                    <ToothIcon size={20} className="text-[#00A5B5]" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-500">
-                    {selectedServices.length > 1 ? `Palvelut (${selectedServices.length})` : 'Palvelu'}
-                  </span>
-                </div>
-                {selectedServices.length <= 1 ? (
-                  <p className="text-lg font-semibold text-gray-900">{getServiceName(selectedService)}</p>
-                ) : (
-                  <div className="space-y-1">
-                    {selectedServices.map(s => (
-                      <p key={s.id} className="text-sm font-medium text-gray-900">{getServiceName(s)}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {/* Summary sections */}
+            <div className="max-w-4xl mx-auto space-y-6 mb-8">
 
-              <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
-                    <MapPin size={20} className="text-[#00A5B5]" />
+              {/* --- Service & Type --- */}
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#00A5B5]/5 to-transparent">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                      <ToothIcon size={18} className="text-[#00A5B5]" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Palvelu ja tyyppi</h3>
                   </div>
-                  <span className="text-sm font-medium text-gray-500">
-                    {selectedBranches.length > 1 ? `Toimipisteet (${selectedBranches.length})` : 'Toimipiste'}
-                  </span>
                 </div>
-                {selectedBranches.length <= 1 ? (
-                  <>
-                    <p className="text-lg font-semibold text-gray-900">{selectedBranch?.name}</p>
-                    <p className="text-sm text-gray-500">{selectedBranch?.city}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-lg font-semibold text-gray-900">{selectedBranches.length} toimipistettä</p>
-                    <p className="text-sm text-gray-500">
-                      {[...new Set(selectedBranches.map(b => b.city))].sort().join(', ')}
-                    </p>
-                  </>
-                )}
-              </div>
-
-              <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
-                    <Target size={20} className="text-[#00A5B5]" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-500">Kohdealue</span>
-                </div>
-                <p className="text-lg font-semibold text-gray-900">{formData.campaign_radius} km säde</p>
-                <p className="text-sm text-gray-500">{screenInfo.total} DOOH-näyttöä</p>
-              </div>
-
-              <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
-                    <Calendar size={20} className="text-[#00A5B5]" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-500">Aikataulu</span>
-                </div>
-                <p className="text-lg font-semibold text-gray-900">
-                  {formData.is_ongoing ? (
-                    <>Jatkuva – alkaen {format(new Date(formData.start_date), 'd.M.yyyy', { locale: fi })}</>
-                  ) : (
-                    <>{format(new Date(formData.start_date), 'd.M.', { locale: fi })} - {format(new Date(formData.end_date), 'd.M.yyyy', { locale: fi })}</>
-                  )}
-                </p>
-                <p className="text-sm text-gray-500">{formData.is_ongoing ? 'Jatkuva kampanja' : `${campaignDays} päivää`}</p>
-              </div>
-
-              <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
-                    <Layers size={20} className="text-[#00A5B5]" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-500">Luovat</span>
-                </div>
-                <p className="text-lg font-semibold text-gray-900">
-                  {formData.creative_type === 'nationwide' ? 'Valtakunnallinen' : 'Paikallinen'}
-                </p>
-                {creativeConfig.priceBubbleMode === 'price' ? (
-                  <p className="text-sm text-gray-500">Hinnalla</p>
-                ) : (
-                  <p className="text-sm text-gray-500">Ilman hintaa</p>
-                )}
-                {formData.creative_type === 'both' && (
-                  <p className="text-sm text-gray-500">
-                    {formData.creative_weight_nationwide}% / {formData.creative_weight_local}%
-                  </p>
-                )}
-              </div>
-
-              <div className="card p-5 bg-gradient-to-br from-[#00A5B5]/5 to-transparent">
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="p-2 rounded-lg bg-[#00A5B5]/10">
-                    <Tv size={20} className="text-[#00A5B5]" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-500">Kanavat</span>
-                </div>
-                <p className="text-lg font-semibold text-gray-900">
-                  {[
-                    formData.channel_meta && 'Meta',
-                    formData.channel_display && 'Display',
-                    formData.channel_pdooh && 'PDOOH',
-                    formData.channel_audio && 'Audio'
-                  ].filter(Boolean).join(', ')}
-                </p>
-              </div>
-            </div>
-
-            {/* Budget summary */}
-            <div className="max-w-2xl mx-auto">
-              <div className="card p-6 bg-gradient-to-r from-[#1B365D] to-[#00A5B5] text-white">
-                <div className="flex items-center justify-between">
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <p className="text-white/80 text-sm">Kokonaisbudjetti</p>
-                    <p className="text-4xl font-bold mt-1">{formData.total_budget.toLocaleString('fi-FI')}€</p>
-                    <p className="text-white/70 text-sm mt-2">
-                      ~{Math.round(formData.total_budget / campaignDays).toLocaleString('fi-FI')}€ / päivä
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                      {selectedServices.length > 1 ? `Palvelut (${selectedServices.length})` : 'Palvelu'}
+                    </p>
+                    {selectedServices.length <= 1 ? (
+                      <p className="text-sm font-semibold text-gray-900">{getServiceName(selectedService)}</p>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {selectedServices.map(s => (
+                          <p key={s.id} className="text-sm font-medium text-gray-900">{getServiceName(s)}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Mainostyyppi</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formData.ad_type === 'nationwide' ? 'Valtakunnallinen' : formData.ad_type === 'local' ? 'Paikallinen' : 'Yhdistelmä'}
                     </p>
                   </div>
-                  <div className="text-right space-y-1">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Konseptityyppi</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {creativeConfig.conceptType === 'brandviesti' ? 'Yleinen brändiviesti' : 'Palvelumainos'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Tavoite</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formData.campaign_objective === 'traffic' ? 'Liikenne (klikkaukset)' : 'Reach (näkyvyys)'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* --- Locations & Radius --- */}
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#00A5B5]/5 to-transparent">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                      <MapPin size={18} className="text-[#00A5B5]" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">
+                      {selectedBranches.length > 1 ? `Toimipisteet (${selectedBranches.length})` : 'Toimipiste'}
+                    </h3>
+                    {selectedBranches.length > 1 && (
+                      <span className="ml-auto text-xs font-medium text-[#00A5B5] bg-[#00A5B5]/10 px-2 py-1 rounded-full">
+                        {creativeConfig.multiLocationMode === 'multi' ? 'Yhdistetty' : 'Erilliset mainokset'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {formData.ad_type === 'nationwide' ? (
+                    <div className="p-5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">Koko Suomi</p>
+                          <p className="text-xs text-gray-500">Valtakunnallinen kampanja</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-[#00A5B5]">{screenInfo.total} näyttöä</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    selectedBranches.map(branch => {
+                      const radius = branchRadiusSettings[branch.id]?.radius || formData.campaign_radius || 10;
+                      const screens = branchScreenCounts[branch.id] ?? 0;
+                      return (
+                        <div key={branch.id} className="p-4 flex items-center gap-4">
+                          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-[#00A5B5]/10 flex items-center justify-center">
+                            <MapPin size={16} className="text-[#00A5B5]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">{branch.name}</p>
+                            <p className="text-xs text-gray-500">{branch.address}, {branch.city}</p>
+                          </div>
+                          <div className="flex-shrink-0 text-right">
+                            <p className="text-sm font-semibold text-gray-900">{radius} km</p>
+                            <p className="text-xs text-gray-500">{screens} näyttöä</p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                {formData.ad_type !== 'nationwide' && selectedBranches.length > 1 && (
+                  <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                    <p className="text-xs font-medium text-gray-600">Yhteensä</p>
+                    <p className="text-sm font-semibold text-[#00A5B5]">
+                      {Object.values(branchScreenCounts).reduce((sum, c) => sum + c, 0)} näyttöä
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* --- Target Audience --- */}
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#00A5B5]/5 to-transparent">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                      <Users size={18} className="text-[#00A5B5]" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Kohderyhmä</h3>
+                  </div>
+                </div>
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Ikäryhmä</p>
+                    <p className="text-sm font-semibold text-gray-900">{formData.target_age_min || 18} – {formData.target_age_max || 80} vuotta</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Sukupuoli</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formData.target_genders?.includes('all') ? 'Kaikki'
+                        : formData.target_genders?.map(g => g === 'male' ? 'Miehet' : g === 'female' ? 'Naiset' : g).join(', ')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* --- Schedule --- */}
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#00A5B5]/5 to-transparent">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                      <Calendar size={18} className="text-[#00A5B5]" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Aikataulu</h3>
+                  </div>
+                </div>
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Alkaa</p>
+                    <p className="text-sm font-semibold text-gray-900">{format(new Date(formData.start_date), 'd.M.yyyy', { locale: fi })}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Päättyy</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formData.is_ongoing ? 'Jatkuva' : format(new Date(formData.end_date), 'd.M.yyyy', { locale: fi })}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Kesto</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formData.is_ongoing ? 'Jatkuva kampanja' : `${campaignDays} päivää`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* --- Channels --- */}
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#00A5B5]/5 to-transparent">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                      <Tv size={18} className="text-[#00A5B5]" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Kanavat</h3>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="flex flex-wrap gap-2">
                     {formData.channel_meta && (
-                      <div className="text-sm">
-                        <span className="text-white/70">Meta: </span>
-                        <span className="font-medium">{formData.budget_meta.toLocaleString('fi-FI')}€</span>
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-blue-50 text-blue-700">
+                        <Instagram size={14} /> Meta
+                      </span>
+                    )}
+                    {formData.channel_display && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-purple-50 text-purple-700">
+                        <Monitor size={14} /> Display
+                      </span>
+                    )}
+                    {formData.channel_pdooh && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-teal-50 text-teal-700">
+                        <Tv size={14} /> PDOOH
+                      </span>
+                    )}
+                    {formData.channel_audio && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-50 text-green-700">
+                        <Volume2 size={14} /> Audio
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* --- Creative Content --- */}
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#00A5B5]/5 to-transparent">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-[#00A5B5]/10">
+                      <Palette size={18} className="text-[#00A5B5]" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Sisältö</h3>
+                  </div>
+                </div>
+                <div className="p-5 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Otsikko</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {(creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.').replace(/\|/g, ' ').replace(/<br\s*\/?>/g, ' ')}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">CTA</p>
+                      <p className="text-sm font-semibold text-gray-900">{creativeConfig.cta || 'Varaa aika'}</p>
+                    </div>
+                    {creativeConfig.priceBubbleMode === 'price' && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Hinta</p>
+                        <p className="text-sm font-semibold text-gray-900">{creativeConfig.offer || '49'}€</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Hintakupla</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {creativeConfig.priceBubbleMode === 'price' ? 'Hinnalla' : 'Ilman hintaa'}
+                      </p>
+                    </div>
+                    {creativeConfig.targetUrl && (
+                      <div className="sm:col-span-2">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Kohde-URL</p>
+                        <p className="text-sm font-semibold text-gray-900 truncate">{creativeConfig.targetUrl}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Media selections */}
+                  {(creativeConfig.videoFile || creativeConfig.selectedVideo || creativeConfig.selectedAudio || creativeConfig.audioFile) && (
+                    <div className="border-t border-gray-100 pt-4">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Media</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(creativeConfig.videoFile || creativeConfig.selectedVideo) && (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-pink-50 text-pink-700">
+                            <Video size={14} />
+                            {creativeConfig.videoFile ? creativeConfig.videoFile.name : 'Videokirjasto'}
+                          </span>
+                        )}
+                        {(creativeConfig.audioFile || creativeConfig.selectedAudio) && (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-50 text-green-700">
+                            <Volume2 size={14} />
+                            {creativeConfig.audioFile ? 'Oma äänitiedosto' : creativeConfig.selectedAudio?.split('/').pop()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.creative_type === 'both' && (
+                    <div className="border-t border-gray-100 pt-4">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Luovien jako</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        Valtakunnallinen {formData.creative_weight_nationwide}% / Paikallinen {formData.creative_weight_local}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* --- Budget --- */}
+              <div className="bg-gradient-to-r from-[#1B365D] to-[#00A5B5] rounded-2xl overflow-hidden text-white">
+                <div className="px-5 py-4 border-b border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-white/15">
+                      <Euro size={18} className="text-white" />
+                    </div>
+                    <h3 className="font-semibold text-white">Budjetti</h3>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="flex items-end justify-between mb-5">
+                    <div>
+                      <p className="text-white/70 text-sm">Kokonaisbudjetti</p>
+                      <p className="text-4xl font-bold mt-1">{formData.total_budget.toLocaleString('fi-FI')}€</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-white/70 text-sm">Päiväbudjetti</p>
+                      <p className="text-xl font-bold">~{Math.round(formData.total_budget / Math.max(campaignDays, 1)).toLocaleString('fi-FI')}€</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {formData.channel_meta && (
+                      <div className="bg-white/10 rounded-xl p-3">
+                        <p className="text-white/60 text-xs mb-1">Meta</p>
+                        <p className="text-lg font-bold">{formData.budget_meta.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
                     {formData.channel_display && (
-                      <div className="text-sm">
-                        <span className="text-white/70">Display: </span>
-                        <span className="font-medium">{formData.budget_display.toLocaleString('fi-FI')}€</span>
+                      <div className="bg-white/10 rounded-xl p-3">
+                        <p className="text-white/60 text-xs mb-1">Display</p>
+                        <p className="text-lg font-bold">{formData.budget_display.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
                     {formData.channel_pdooh && (
-                      <div className="text-sm">
-                        <span className="text-white/70">PDOOH: </span>
-                        <span className="font-medium">{formData.budget_pdooh.toLocaleString('fi-FI')}€</span>
+                      <div className="bg-white/10 rounded-xl p-3">
+                        <p className="text-white/60 text-xs mb-1">PDOOH</p>
+                        <p className="text-lg font-bold">{formData.budget_pdooh.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
                     {formData.channel_audio && (
-                      <div className="text-sm">
-                        <span className="text-white/70">Audio: </span>
-                        <span className="font-medium">{formData.budget_audio.toLocaleString('fi-FI')}€</span>
+                      <div className="bg-white/10 rounded-xl p-3">
+                        <p className="text-white/60 text-xs mb-1">Audio</p>
+                        <p className="text-lg font-bold">{formData.budget_audio.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
+
             </div>
           </div>
         )}
