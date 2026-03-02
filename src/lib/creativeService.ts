@@ -140,11 +140,63 @@ export function renderTemplateHtml(
 ): string {
   let html = template.html_template;
 
+  // Add data attribute to body for CSS targeting based on template size
+  const sizeAttr = `data-template-size="${template.size || 'unknown'}"`;
+  html = html.replace('<html', `<html ${sizeAttr}`).replace('<body', `<body ${sizeAttr}`);
+
+  // Detect if template uses split structure (has {{headline_line2}} placeholder)
+  const isSplitStructure = html.includes('{{headline_line2}}');
+  const hasHeadlinePlaceholder = html.includes('{{headline}}');
+
+  console.log('[renderTemplateHtml] Template:', template.name, 'isSplit:', isSplitStructure, 'hasHeadline:', hasHeadlinePlaceholder);
+
   // Merge default values with provided variables
   const mergedVars = {
     ...template.default_values,
     ...variables
   };
+
+  console.log('[renderTemplateHtml] Before fix - headline:', mergedVars.headline, 'headline_line2:', mergedVars.headline_line2);
+
+  // Debug for PDOOH
+  if (template.size === '1080x1920' && template.type === 'pdooh') {
+    console.log('[PDOOH Debug] headline:', mergedVars.headline, 'headline_line2:', mergedVars.headline_line2, 'default_values:', template.default_values);
+  }
+
+  // For split-structure templates, if headline_line2 is provided but headline has | in defaults,
+  // use the provided split values. Otherwise, split the headline value.
+  // NOTE: We no longer auto-split headlines with | - this allows | to be converted to <br/>
+  // for templates that want the headline in a single element with line breaks.
+  if (isSplitStructure && hasHeadlinePlaceholder) {
+    const providedLine2 = mergedVars.headline_line2;
+
+    // Only split if headline_line2 was explicitly provided by the caller (non-empty string)
+    // Do NOT auto-split headlines containing | - let | be converted to <br/> in the placeholder
+    if (providedLine2 && String(providedLine2).trim()) {
+      // Use the explicitly provided headline_line2
+      console.log('[renderTemplateHtml] SPLIT template - using provided headline_line2:', mergedVars.headline, '+', providedLine2);
+    }
+    // If headline_line2 is not provided or is empty, keep the full headline with | intact
+    // The | will be converted to <br/> in the placeholder replacement step
+  } else if (hasHeadlinePlaceholder) {
+    // For combined structure, ensure the full headline with | is used
+    // If only split parts were provided, recombine them
+    const headlineValue = String(mergedVars.headline || '');
+    const headlineLine2Value = mergedVars.headline_line2;
+
+    console.log('[renderTemplateHtml] COMBINED template - headlineValue:', headlineValue, 'headlineLine2:', headlineLine2Value);
+
+    // Check if we need to recombine
+    const needsRecombine = !headlineValue.includes('|') && !headlineValue.includes('<br>') && headlineLine2Value;
+    console.log('[renderTemplateHtml] Needs recombine:', needsRecombine);
+
+    if (needsRecombine) {
+      mergedVars.headline = `${headlineValue}|${headlineLine2Value}`;
+      console.log('[renderTemplateHtml] Recombined to:', mergedVars.headline);
+    }
+  }
+
+  console.log('[renderTemplateHtml] After fix - headline:', mergedVars.headline);
 
   // Replace all placeholders
   Object.entries(mergedVars).forEach(([key, value]) => {
@@ -159,7 +211,43 @@ export function renderTemplateHtml(
   // Fix font URLs for local dev / cross-origin iframe previews
   html = fixFontUrls(html);
 
-  // Inject CSS to fix text wrapping, alignment and spacing issues
+  // Inject CSS to hide empty headline_line2 elements (for split templates using single headline with <br/>)
+  // Also widen headline elements for 300x431 and 300x600 to fit text on one line
+  const hideEmptyLine2Css = `
+    <style>
+      .OletHyvissKS:empty, .headline_line2:empty, [class*="Olet"]:empty {
+        display: none !important;
+      }
+      /* Widen headline elements for 300x431 and 300x600 (split templates) to fit full headline on one line */
+      /* Only apply to small split templates, NOT to PDOOH 1080x1920 which uses its own layout */
+      html:has(.OletHyvissKS):not([data-template-size="1080x1920"]) .Hymyile {
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+        white-space: normal !important;
+        text-align: center !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+      }
+      /* Allow br to create line break within headline element */
+      .Hymyile br {
+        display: block !important;
+        margin-top: 4px !important;
+      }
+      /* Fix 300x300 address alignment - left align with logo and other text */
+      [data-template-size="300x300"] .Torikatu1Laht,
+      [data-template-size="300x300"] div.Torikatu1Laht {
+        text-align: left !important;
+        justify-content: flex-start !important;
+        left: 15px !important;
+        width: 270px !important;
+        margin-top: 5px !important;
+      }
+    </style>
+  `;
+  html = html.replace('</head>', hideEmptyLine2Css + '</head>');
+
+  // Inject CSS for text wrapping and line break fixes
   const fixCss = `
     <style>
       /* Make text elements flexible for better wrapping */
@@ -168,72 +256,26 @@ export function renderTemplateHtml(
         max-height: unset !important;
         line-height: 1.15 !important;
       }
-      /* Make address/city text flexible - allow wrapping for longer addresses */
-      .Torikatu1Laht, .Torikatu1Lahti, .branch_address {
-        height: auto !important;
-        min-height: unset !important;
-        max-height: 80px !important;
-        line-height: 1.2 !important;
-        white-space: normal !important;
-        word-wrap: break-word !important;
-        overflow-wrap: break-word !important;
-        overflow: visible !important;
-      }
-      /* 300x300: Move address slightly down from logo (from 267px to 272px) */
-      .Torikatu1Laht[style*="top: 267px"] {
-        top: 272px !important;
-        left: 15px !important;
-        text-align: left !important;
-        width: 270px !important;
-        max-height: 28px !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-      }
-      /* 300x431: Center address horizontally (from 96px to 15px for center) */
-      .Torikatu1Laht[style*="top: 384px"] {
-        top: 384px !important;
-        left: 15px !important;
-        text-align: center !important;
-        width: 270px !important;
-        max-height: 45px !important;
-      }
-      /* 300x600: Allow two lines, center (note: class is Torikatu1Lahti not Torikatu1Laht) */
-      .Torikatu1Lahti[style*="top: 547px"] {
-        top: 547px !important;
-        left: 15px !important;
-        text-align: center !important;
-        width: 270px !important;
-        max-height: 50px !important;
-      }
-      /* 620x891: Address under logo, allow two lines (move left from 220px to center) */
-      .Torikatu1Laht[style*="top: 800px"] {
-        top: 800px !important;
-        left: 110px !important;
-        text-align: center !important;
-        width: 400px !important;
-        max-height: 70px !important;
-      }
-      /* 980x400: Address at bottom, allow two lines (expand width for full address) */
-      .Torikatu1Laht[style*="top: 351px"] {
-        top: 351px !important;
-        left: 37px !important;
-        text-align: left !important;
-        width: 906px !important;
-        max-height: 50px !important;
-      }
-      /* PDOOH 1080x1920: Center address (note: class is Torikatu1Lahti) */
-      .Torikatu1Lahti[style*="top: 1656px"] {
-        top: 1656px !important;
-        left: 140px !important;
-        text-align: center !important;
-        width: 800px !important;
-        max-height: 100px !important;
-      }
       /* Tighter line spacing for multi-line text */
       .HymyileOletHy br, .Hymyile br, .OletHyvissKS br {
         display: block;
         margin-top: -0.15em;
+      }
+      /* Override for PDOOH 1080x1920 - positive line spacing */
+      [data-template-size="1080x1920"] .Hymyile br {
+        margin-top: 8px !important;
+      }
+      /* PDOOH 1080x1920 specific fixes - use original split layout */
+      [data-template-size="1080x1920"] .OletHyvissKS {
+        white-space: nowrap !important;
+        width: auto !important;
+        min-width: 830px !important;
+        max-width: 1080px !important;
+      }
+      [data-template-size="1080x1920"] .Hymyile {
+        width: 388px !important;
+        min-width: unset !important;
+        max-width: unset !important;
       }
     </style>
   `;

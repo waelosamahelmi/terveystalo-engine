@@ -987,7 +987,7 @@ const CampaignCreate = () => {
     headline: '',
     subheadline: '',
     offer: '49',
-    offerTitle: 'Hammas-<br/>tarkastus',
+    offerTitle: '', // Empty so service name is used by default
     offerDate: 'Varaa viimeistään<br/>28.10.',
     cta: 'Varaa aika',
     backgroundImage: null,
@@ -1040,7 +1040,7 @@ const CampaignCreate = () => {
       const sizesRecord: Record<string, PreviewSize> = {};
 
       dbTemplates
-        .filter(t => t.active)
+        .filter(t => t.active === true || t.active === 'true')
         .forEach(t => {
           const sizeKey = t.size;
           const type = t.type as 'display' | 'pdooh' | 'meta';
@@ -1073,12 +1073,18 @@ const CampaignCreate = () => {
             height: t.height,
             icon,
             label,
-            category: type.charAt(0).toUpperCase() + type.slice(1) as 'Display' | 'PDOOH' | 'Meta',
+            category: ({
+              display: 'Display',
+              pdooh: 'PDOOH',
+              meta: 'Meta'
+            })[type] || type.charAt(0).toUpperCase() + type.slice(1) as 'Display' | 'PDOOH' | 'Meta',
             templateType: type // Store the actual template type for lookup
           };
         });
 
       const sizesFromDb = Object.values(sizesRecord);
+
+      console.log('[Size Debug] Available sizes from DB:', sizesFromDb.map(s => ({ id: s.id, category: s.category, label: s.label })));
 
       if (sizesFromDb.length > 0) {
         setAvailableSizes(sizesFromDb);
@@ -1460,18 +1466,28 @@ const CampaignCreate = () => {
       templateType = parts[1]; // 'display', 'pdooh', 'meta'
     }
 
+    // Debug: Log available templates
+    console.log('[Template Debug] Looking for size:', sizeId, 'baseSize:', baseSize, 'type:', templateType);
+    console.log('[Template Debug] Available templates:', dbTemplates.map(t => ({ name: t.name, size: t.size, type: t.type, active: t.active })));
+
     // If we have a type suffix, find exact match
     if (templateType) {
-      return dbTemplates.find(t => t.size === baseSize && t.type === templateType && t.active);
+      const found = dbTemplates.find(t => t.size === baseSize && t.type === templateType && t.active);
+      console.log('[Template Debug] With type filter, found:', found?.name);
+      return found;
     }
 
     // Legacy fallback: Handle 1080x1080 as Meta size (square format)
     if (sizeId === '1080x1080') {
-      return dbTemplates.find(t => t.size === '1080x1080' && t.type === 'meta' && t.active);
+      const found = dbTemplates.find(t => t.size === '1080x1080' && t.type === 'meta' && t.active);
+      console.log('[Template Debug] 1080x1080 meta, found:', found?.name);
+      return found;
     }
 
     // For sizes without type suffix, find first active non-meta template (backward compat)
-    return dbTemplates.find(t => t.size === baseSize && t.type !== 'meta' && t.active);
+    const found = dbTemplates.find(t => t.size === baseSize && t.type !== 'meta' && t.active);
+    console.log('[Template Debug] Without type filter, found:', found?.name);
+    return found;
   }, [dbTemplates]);
 
   // Build template variables from creativeConfig + branch data
@@ -1534,15 +1550,45 @@ const CampaignCreate = () => {
     // Use | in default which will be converted to <br> in renderTemplateHtml
     const headlineText = creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.';
 
-    // Split headline into two parts for templates that use headline_line2
-    // Handle both | and <br> as line separator
-    const headlineParts = headlineText.split(/<br>|\|/);
-    const headlineLine2 = headlineParts.length > 1 ? headlineParts.slice(1).join('<br>') : '';
+    // Check if the current template uses split structure (separate {{headline_line2}} placeholder)
+    const template = getTemplateForSize(previewSize.id);
+    const isSplitTemplate = template?.html_template?.includes('{{headline_line2}}');
+
+    let headlineValue: string;
+    let headlineLine2Value: string | undefined;
+
+    if (isSplitTemplate) {
+      // For split templates, split headline at | into two separate elements
+      // Each element has its own font size in the template (e.g. PDOOH: Hymyile=89px, OletHyvissKS=79px)
+      const parts = headlineText.split('|');
+      headlineValue = parts[0]?.trim() || headlineText;
+      headlineLine2Value = parts.length > 1 ? parts.slice(1).join(' ').trim() : '';
+    } else {
+      // For combined templates (single {{headline}} placeholder),
+      // pass the full headline with | - do NOT split it
+      headlineValue = headlineText;
+      headlineLine2Value = undefined; // Don't pass headline_line2 for combined templates
+    }
 
     // Offer title - use service name if user hasn't entered custom text
     let offerTitle = creativeConfig.offerTitle;
     if (!offerTitle && !isGeneralBrandMessage) {
       offerTitle = serviceName; // e.g., "Suuhygienistikäynti"
+
+      // Add hyphenation for long Finnish service names
+      // Using | which will be converted to <br> in renderTemplateHtml
+      const hyphenationMap: Record<string, string> = {
+        'Suuhygienistikäynti': 'Suuhygieni-|stikäynti',
+        'Hammastarkastus': 'Hammas-|tarkastus',
+      };
+
+      // Match the service name with hyphenation (handle variations with/without hyphen)
+      const cleanServiceName = serviceName.replace(/-/g, '');
+      if (hyphenationMap[cleanServiceName]) {
+        offerTitle = hyphenationMap[cleanServiceName];
+      } else if (hyphenationMap[serviceName]) {
+        offerTitle = hyphenationMap[serviceName];
+      }
     }
 
     // Price
@@ -1558,8 +1604,10 @@ const CampaignCreate = () => {
     return {
       // Text content
       title: 'Suun Terveystalo',
-      headline: headlineParts[0], // First part only (e.g., "Hymyile.")
-      headline_line2: headlineLine2, // Second part if exists (e.g., "Olet hyvissä käsissä.")
+      headline: headlineValue,
+      // For split templates, headline_line2 contains the second part of the headline (e.g. "Olet hyvissä käsissä.")
+      // For combined templates, headline_line2 is undefined (not passed)
+      ...(headlineLine2Value !== undefined && { headline_line2: headlineLine2Value }),
       subheadline: messageText,
       offer_title: finalOfferTitle,
       price: finalPrice,
@@ -1770,7 +1818,7 @@ const CampaignCreate = () => {
       click_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
       disclaimer_text: creativeConfig.disclaimerText || '',
     };
-  }, [creativeConfig, selectedBranch, selectedBranches, selectedService, previewService]);
+  }, [creativeConfig, selectedBranch, selectedBranches, selectedService, previewService, getTemplateForSize, previewSize]);
 
   // Render preview template using database HTML templates in an iframe
   const renderPreviewTemplate = (showAddress: boolean) => {
@@ -1808,6 +1856,12 @@ const CampaignCreate = () => {
     if (!showAddress) {
       // Inject CSS to hide address
       renderedHtml = renderedHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address { display: none !important; }</style></head>');
+    }
+
+    // Fix address alignment for specific sizes
+    // 300x300: left-align address with logo and other text
+    if (previewSize.id === '300x300') {
+      renderedHtml = renderedHtml.replace('</head>', '<style>.Torikatu1Laht { text-align: left !important; justify-content: flex-start !important; }</style></head>');
     }
 
     // Font URL rewriting is handled inside renderTemplateHtml()
@@ -3684,6 +3738,8 @@ const CampaignCreate = () => {
                             (category === 'Display' && !formData.channel_display) ||
                             (category === 'PDOOH' && !formData.channel_pdooh) ||
                             (category === 'Meta' && !formData.channel_meta);
+
+                          console.log('[Category Debug]', category, 'sizesInCat:', sizesInCat.length, 'isChannelDisabled:', isChannelDisabled, 'channel_flags:', { display: formData.channel_display, pdooh: formData.channel_pdooh, meta: formData.channel_meta });
 
                           if (sizesInCat.length === 0 || isChannelDisabled) return null;
 
