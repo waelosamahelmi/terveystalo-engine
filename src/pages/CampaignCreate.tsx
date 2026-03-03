@@ -85,17 +85,6 @@ interface BranchRadiusSettings {
   }
 }
 
-// Finnish cities for exclusion list
-const FINNISH_CITIES = [
-  'Helsinki', 'Espoo', 'Vantaa', 'Tampere', 'Turku', 'Oulu',
-  'Jyväskylä', 'Lahti', 'Pori', 'Kouvola', 'Rovaniemi',
-  'Joensuu', 'Lappeenranta', 'Hämeenlinna', 'Vaasa', 'Seinäjoki',
-  'Kuopio', 'Kotka', 'Hyvinkää', 'Iisalmi', 'Kerava', 'Raisio',
-  'Nurmijärvi', 'Mikkeli', 'Kaarina', 'Lohja', 'Porvoo', 'Rauma',
-  'Tuusula', 'Vihti', 'Eurajoki', 'Salo', 'Kokkola', 'Oulainen',
-  'Riihimäki', 'Tornio', 'Järvenpää', 'Mäntsälä'
-];
-
 // Custom Tooth Icon Component
 const ToothIcon = ({ size = 24, className = '' }: { size?: number; className?: string }) => (
   <svg
@@ -802,14 +791,8 @@ const CampaignCreate = () => {
   // Per-branch radius settings
   const [branchRadiusSettings, setBranchRadiusSettings] = useState<BranchRadiusSettings>({});
 
-  // Excluded cities for nationwide campaigns
-  const [excludedCities, setExcludedCities] = useState<string[]>([]);
-
   // Branch screen counts - stores screen count for each branch
   const [branchScreenCounts, setBranchScreenCounts] = useState<Record<string, number>>({});
-
-  // All Finland screens for nationwide mode
-  const [allFinlandScreens, setAllFinlandScreens] = useState<MediaScreen[]>([]);
 
   // Combined screens within all selected branches' radii
   const [combinedBranchScreens, setCombinedBranchScreens] = useState<MediaScreen[]>([]);
@@ -920,24 +903,7 @@ const CampaignCreate = () => {
   // Fetch screens when branches or radii change
   useEffect(() => {
     const fetchBranchScreens = async () => {
-      if (formData.ad_type === 'nationwide') {
-        // Fetch all Finland screens for nationwide mode
-        try {
-          const { data, error } = await supabase
-            .from('media_screens')
-            .select('*')
-            .eq('status', 'active');
-          if (data) {
-            const validScreens = data.filter(s => s.latitude && s.longitude);
-            setAllFinlandScreens(validScreens);
-          }
-        } catch (error) {
-          console.error('Error loading Finland screens:', error);
-        }
-        return;
-      }
-
-      // For local mode, fetch screens for each selected branch
+      // Fetch screens for each selected branch (both local and nationwide modes)
       if (formData.branch_ids.length === 0) {
         setBranchScreenCounts({});
         setCombinedBranchScreens([]);
@@ -2069,6 +2035,12 @@ const CampaignCreate = () => {
                         onClick={() => {
                           if (type.id === 'nationwide') {
                             const allBranchIds = activeBranches.map(b => b.id);
+                            // Initialize radius settings for all branches
+                            const radiusSettings: Record<string, { radius: number; enabled: boolean }> = {};
+                            activeBranches.forEach(b => {
+                              radiusSettings[b.id] = { radius: 10, enabled: true };
+                            });
+                            setBranchRadiusSettings(prev => ({ ...prev, ...radiusSettings }));
                             setFormData({ ...formData, ad_type: type.id, creative_type: type.id, branch_ids: allBranchIds, branch_id: allBranchIds[0] || '' });
                           } else {
                             setFormData({ ...formData, ad_type: type.id, creative_type: type.id, branch_ids: [], branch_id: '' });
@@ -2177,90 +2149,17 @@ const CampaignCreate = () => {
             {/* Compact Header */}
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">
-                  {formData.ad_type === 'nationwide' ? 'Alueellinen kohdistus' : 'Toimipisteet'}
-                </h2>
+                <h2 className="text-lg font-bold text-gray-900">Toimipisteet</h2>
                 <p className="text-xs text-gray-500">
                   {formData.ad_type === 'nationwide'
-                    ? 'Valtakunnallinen kampanja'
+                    ? `${formData.branch_ids.length} / ${activeBranches.length} valittu (valtakunnallinen)`
                     : `${formData.branch_ids.length} valittu`
                   }
                 </p>
               </div>
             </div>
 
-            {formData.ad_type === 'nationwide' ? (
-              // ============================================
-              // NATIONWIDE MODE: Finland Map + City Exclusion
-              // ============================================
-              <div className="space-y-4">
-                <div className="relative rounded-xl overflow-hidden bg-gray-100">
-                  <MapComponent mode="finland" allScreens={allFinlandScreens} />
-                </div>
-
-                {/* City Exclusion */}
-                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-sm font-medium text-gray-700">
-                      Sulje pois kaupungkeja (valinnainen)
-                    </label>
-                    <span className="text-xs text-gray-500">
-                      {excludedCities.length} valittu
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Valitse kaupungkeja, jotka haluat jättää kampanjan ulkopuolelle.
-                  </p>
-                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                    {FINNISH_CITIES.map(city => {
-                      const isExcluded = excludedCities.includes(city);
-                      return (
-                        <button
-                          key={city}
-                          type="button"
-                          onClick={() => {
-                            setExcludedCities(prev =>
-                              isExcluded
-                                ? prev.filter(c => c !== city)
-                                : [...prev, city]
-                            );
-                          }}
-                          className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                            isExcluded
-                              ? 'bg-red-50 border-red-300 text-red-700 line-through'
-                              : 'bg-white border-gray-300 text-gray-700 hover:border-[#00A5B5]'
-                          }`}
-                        >
-                          {city}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {excludedCities.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <div className="text-xs text-gray-500">Pois suljetut:</div>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {excludedCities.map(city => (
-                          <span key={city} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">
-                            {city}
-                            <button
-                              type="button"
-                              onClick={() => setExcludedCities(prev => prev.filter(c => c !== city))}
-                              className="ml-1 hover:text-red-900"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              // ============================================
-              // LOCAL MODE: Branch Selection with Radii
-              // ============================================
+            {/* Branch Selection with Radii (both nationwide and local modes) */}
               <>
                 <div className="flex gap-2 mb-4">
                   <button
@@ -2412,7 +2311,6 @@ const CampaignCreate = () => {
                   </div>
                 )}
               </>
-            )}
           </div>
         )}
 
@@ -2477,6 +2375,7 @@ const CampaignCreate = () => {
                   {[
                     { label: '18-35', min: 18, max: 35, icon: Smile },
                     { label: '25-45', min: 25, max: 45, icon: UserCircle },
+                    { label: '25-64', min: 25, max: 64, icon: Users },
                     { label: '35-65', min: 35, max: 65, icon: Users },
                     { label: '45-75', min: 45, max: 75, icon: User },
                   ].map(preset => {
@@ -2745,9 +2644,7 @@ const CampaignCreate = () => {
                 }
 
                 // Adjust based on PDOOH screens availability
-                const totalScreens = formData.ad_type === 'nationwide'
-                  ? allFinlandScreens.length
-                  : Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
+                const totalScreens = Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
 
                 if (totalScreens > 0) {
                   // More screens = higher PDOOH recommendation
@@ -2798,9 +2695,7 @@ const CampaignCreate = () => {
                 toast.success('Suositus toteutettu!');
               };
 
-              const totalScreens = formData.ad_type === 'nationwide'
-                ? allFinlandScreens.length
-                : Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
+              const totalScreens = Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
 
               return (
                 <div className="bg-gradient-to-r from-[#00A5B5]/10 to-[#1B365D]/10 rounded-xl p-4 mb-6">
@@ -3962,20 +3857,7 @@ const CampaignCreate = () => {
                   </div>
                 </div>
                 <div className="divide-y divide-gray-100">
-                  {formData.ad_type === 'nationwide' ? (
-                    <div className="p-5">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">Koko Suomi</p>
-                          <p className="text-xs text-gray-500">Valtakunnallinen kampanja</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold text-[#00A5B5]">{screenInfo.total} näyttöä</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    selectedBranches.map(branch => {
+                  {selectedBranches.map(branch => {
                       const radius = branchRadiusSettings[branch.id]?.radius || formData.campaign_radius || 10;
                       const screens = branchScreenCounts[branch.id] ?? 0;
                       return (
@@ -3993,10 +3875,9 @@ const CampaignCreate = () => {
                           </div>
                         </div>
                       );
-                    })
-                  )}
+                    })}
                 </div>
-                {formData.ad_type !== 'nationwide' && selectedBranches.length > 1 && (
+                {selectedBranches.length > 1 && (
                   <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                     <p className="text-xs font-medium text-gray-600">Yhteensä</p>
                     <p className="text-sm font-semibold text-[#00A5B5]">
