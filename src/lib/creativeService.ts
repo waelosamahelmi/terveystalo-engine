@@ -265,17 +265,21 @@ export function renderTemplateHtml(
       [data-template-size="1080x1920"] .Hymyile br {
         margin-top: 8px !important;
       }
-      /* PDOOH 1080x1920 specific fixes - use original split layout */
+      /* PDOOH 1080x1920 specific fixes - bigger headline, centered */
       [data-template-size="1080x1920"] .OletHyvissKS {
         white-space: nowrap !important;
-        width: auto !important;
-        min-width: 830px !important;
+        width: 900px !important;
+        min-width: unset !important;
         max-width: 1080px !important;
+        left: 90px !important;
+        font-size: 88px !important;
       }
       [data-template-size="1080x1920"] .Hymyile {
-        width: 388px !important;
+        width: 600px !important;
         min-width: unset !important;
         max-width: unset !important;
+        left: 240px !important;
+        font-size: 100px !important;
       }
     </style>
   `;

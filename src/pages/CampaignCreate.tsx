@@ -118,6 +118,7 @@ interface CreativeConfig {
   subheadline: string;
   offer: string;
   offerTitle: string;
+  offerSubtitle: string;
   offerDate: string;
   cta: string;
   backgroundImage: string | null;
@@ -954,6 +955,7 @@ const CampaignCreate = () => {
     subheadline: '',
     offer: '49',
     offerTitle: '', // Empty so service name is used by default
+    offerSubtitle: 'uusille asiakkaille',
     offerDate: 'Varaa viimeistään<br/>28.10.',
     cta: 'Varaa aika',
     backgroundImage: null,
@@ -961,11 +963,11 @@ const CampaignCreate = () => {
     priceBubbleMode: 'price',
     targetUrl: 'https://terveystalo.com/suunterveystalo',
     audioFile: null,
-    selectedAudio: null,
+    selectedAudio: '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav',
     disclaimerText: 'Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.',
     generalBrandMessage: 'Hymyile.<br>Olet hyvissä käsissä.',
     videoFile: null,
-    selectedVideo: null,
+    selectedVideo: '/meta/vids/nainen.mp4',
     conceptType: 'service',
     multiLocationMode: 'single',
   });
@@ -1501,8 +1503,9 @@ const CampaignCreate = () => {
     let messageText = creativeConfig.subheadline;
     if (!messageText) {
       if (isGeneralBrandMessage) {
-        // Brand message: "Sujuvampaa suunterveyttä hammastarkastuksista erikoisosaamisesta vaativiin hoitoihin"
-        messageText = 'Sujuvampaa suunterveyttä hammastarkastuksista erikoisosaamisesta vaativiin hoitoihin';
+        // Brand message: "Sujuvampaa suunterveyttä [City if single location] Suun Terveystalossa."
+        const cityPart = isMultiLocation ? '' : (selectedBranch?.city ? `${selectedBranch.city} ` : '');
+        messageText = `Sujuvampaa suunterveyttä ${cityPart}Suun Terveystalossa.`;
       } else if (isMultiService) {
         // Multi-service: Include service name "Sujuvampaa suunterveyttä Suuhygienistikäynnistä erikoisosaamisesta vaativiin hoitoihin"
         messageText = `Sujuvampaa suunterveyttä ${serviceNameElative} erikoisosaamisesta vaativiin hoitoihin`;
@@ -1536,6 +1539,17 @@ const CampaignCreate = () => {
       headlineLine2Value = undefined; // Don't pass headline_line2 for combined templates
     }
 
+    // Meta templates: Scene 2 uses headline + subheadline as TWO separate animation elements
+    // headline = "Hymyile." (slides in, moves up), subheadline = "Olet hyvissä käsissä." (appears below)
+    // The brand/service message is encoded in Scene 3 (blue bg text), NOT in Scene 2
+    const isMetaTemplate = template?.type === 'meta';
+    if (isMetaTemplate) {
+      const parts = headlineText.split('|');
+      headlineValue = parts[0]?.trim() || 'Hymyile.';
+      headlineLine2Value = undefined;
+      messageText = parts.length > 1 ? parts.slice(1).join(' ').trim() : 'Olet hyvissä käsissä.';
+    }
+
     // Offer title - use service name if user hasn't entered custom text
     let offerTitle = creativeConfig.offerTitle;
     if (!offerTitle && !isGeneralBrandMessage) {
@@ -1544,7 +1558,7 @@ const CampaignCreate = () => {
       // Add hyphenation for long Finnish service names
       // Using | which will be converted to <br> in renderTemplateHtml
       const hyphenationMap: Record<string, string> = {
-        'Suuhygienistikäynti': 'Suuhygieni-|stikäynti',
+        'Suuhygienistikäynti': 'Suuhygienisti-|käynti',
         'Hammastarkastus': 'Hammas-|tarkastus',
       };
 
@@ -1576,21 +1590,27 @@ const CampaignCreate = () => {
       ...(headlineLine2Value !== undefined && { headline_line2: headlineLine2Value }),
       subheadline: messageText,
       offer_title: finalOfferTitle,
+      offer_subtitle: isGeneralBrandMessage ? '' : (creativeConfig.offerSubtitle || 'uusille asiakkaille'),
       price: finalPrice,
       currency: '€',
       cta_text: creativeConfig.cta || 'Varaa aika',
       branch_address: finalAddress,
 
-      // Scene 3 text lines (for PDOOH templates with 5-line format)
-      scene3_line1: 'Sujuvampaa',
-      scene3_line2: 'suun',
-      scene3_line3: 'terveyttä',
-      scene3_line4: selectedBranch?.city || 'Oulun',
-      scene3_line5: 'Suun Terveystalossa.',
-
-      // Scene 3 text lines (for Meta templates with 4-line format)
-      scene3_line2a: 'suun',
-      scene3_line2b: 'terveyttä',
+      // Scene 3 text lines — layout depends on template type
+      // Meta: 4 lines with suun.webm video hardcoded before line2 ("terveyttä")
+      // PDOOH: 5 lines with "suun" as text in line2
+      ...(isMetaTemplate ? {
+        scene3_line1: 'Sujuvampaa',
+        scene3_line2: 'terveyttä',
+        scene3_line3: isMultiLocation ? '' : (selectedBranch?.city || ''),
+        scene3_line4: 'Suun Terveystalossa.',
+      } : {
+        scene3_line1: 'Sujuvampaa',
+        scene3_line2: 'suun',
+        scene3_line3: 'terveyttä',
+        scene3_line4: selectedBranch?.city || 'Oulun',
+        scene3_line5: 'Suun Terveystalossa.',
+      }),
 
       city_name: selectedBranch?.city || 'Oulu',
 
@@ -3017,8 +3037,7 @@ const CampaignCreate = () => {
                         </div>
                       </div>
 
-                      {/* Price Bubble Section - Hide for general brand message */}
-                      {selectedService?.code !== 'yleinen-brandiviesti' && (
+                      {/* Price Bubble Section */}
                       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                         <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-[#004E9A]/5 to-white">
                           <div className="flex items-center gap-3">
@@ -3055,12 +3074,12 @@ const CampaignCreate = () => {
                                   <label className="block text-xs font-medium text-gray-600 mb-1.5">
                                     Tarjouksen otsikko
                                   </label>
-                                  <input
-                                    type="text"
-                                    value={creativeConfig.offerTitle.replace(/<br\s*\/?>/gi, '')}
-                                    onChange={(e) => setCreativeConfig({ ...creativeConfig, offerTitle: e.target.value })}
-                                    placeholder="Hammas-tarkastus"
-                                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                                  <textarea
+                                    rows={2}
+                                    value={creativeConfig.offerTitle.replace(/<br\s*\/?>/gi, '\n')}
+                                    onChange={(e) => setCreativeConfig({ ...creativeConfig, offerTitle: e.target.value.replace(/\n/g, '|') })}
+                                    placeholder={"Suuhygienisti-\nkäynti"}
+                                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all resize-none"
                                   />
                                 </div>
                                 <div>
@@ -3078,21 +3097,32 @@ const CampaignCreate = () => {
                               </div>
                               <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                                  Alateksti (hintalapussa)
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  value={creativeConfig.offerSubtitle.replace(/\|/g, '\n')}
+                                  onChange={(e) => setCreativeConfig({ ...creativeConfig, offerSubtitle: e.target.value.replace(/\n/g, '|') })}
+                                  placeholder="uusille asiakkaille"
+                                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all resize-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1.5">
                                   Voimassaoloaika
                                 </label>
-                                <input
-                                  type="text"
-                                  value={creativeConfig.offerDate.replace(/<br\s*\/?>/gi, ' ')}
-                                  onChange={(e) => setCreativeConfig({ ...creativeConfig, offerDate: e.target.value })}
-                                  placeholder="Varaa viimeistään 28.10."
-                                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                                <textarea
+                                  rows={2}
+                                  value={creativeConfig.offerDate.replace(/<br\s*\/?>/gi, '\n').replace(/\|/g, '\n')}
+                                  onChange={(e) => setCreativeConfig({ ...creativeConfig, offerDate: e.target.value.replace(/\n/g, '|') })}
+                                  placeholder={"Varaa viimeistään\n28.10."}
+                                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all resize-none"
                                 />
                               </div>
                             </div>
                           )}
                         </div>
                       </div>
-                      )}
 
                       {/* CTA and URL */}
                       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -3341,72 +3371,155 @@ const CampaignCreate = () => {
                             </div>
                           </div>
 
-                          {/* Video Library */}
+                          {/* Meta Background Video Selection */}
                           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                             <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-white">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className="p-2 rounded-lg bg-indigo-100">
-                                    <FolderOpen size={18} className="text-indigo-600" />
-                                  </div>
-                                  <div>
-                                    <h3 className="font-semibold text-gray-900">Videokirjasto</h3>
-                                    <p className="text-xs text-gray-500">Tallennetut videot</p>
-                                  </div>
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-lg bg-indigo-100">
+                                  <Film size={18} className="text-indigo-600" />
                                 </div>
-                                <button className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
-                                  Hallitse
-                                </button>
+                                <div>
+                                  <h3 className="font-semibold text-gray-900">Taustakuva</h3>
+                                  <p className="text-xs text-gray-500">Valitse videon taustahahmo</p>
+                                </div>
                               </div>
                             </div>
                             <div className="p-5">
-                              {videoLibrary.length === 0 ? (
-                                <div className="text-center py-8 text-gray-400">
-                                  <Film size={48} className="mx-auto mb-3 opacity-50" />
-                                  <p className="text-sm">Ei tallennettuja videoita</p>
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-3 gap-4">
-                                  {videoLibrary.map(video => (
+                              <div className="grid grid-cols-2 gap-4">
+                                {[
+                                  { id: 'nainen', name: 'Nainen', url: '/meta/vids/nainen.mp4' },
+                                  { id: 'mies', name: 'Mies', url: '/meta/vids/mies.mp4' },
+                                ].map((video) => {
+                                  const isSelected = creativeConfig.selectedVideo === video.url;
+                                  return (
                                     <button
                                       key={video.id}
-                                      onClick={() => setCreativeConfig({ ...creativeConfig, selectedVideo: video.url, videoFile: null })}
+                                      type="button"
+                                      onClick={() => {
+                                        setCreativeConfig({ ...creativeConfig, selectedVideo: video.url, videoFile: null });
+                                        toast.success(`Valittu: ${video.name}`);
+                                      }}
                                       className={`relative rounded-xl overflow-hidden border-2 transition-all group ${
-                                        creativeConfig.selectedVideo === video.url
+                                        isSelected
                                           ? 'border-[#E1306C] ring-2 ring-[#E1306C]/30'
                                           : 'border-gray-200 hover:border-[#E1306C]/50'
                                       }`}
                                     >
-                                      <div className="aspect-video bg-gray-900 relative">
-                                        {video.thumbnail ? (
-                                          <img src={video.thumbnail} alt={video.name} className="w-full h-full object-cover" />
-                                        ) : (
-                                          <div className="w-full h-full flex items-center justify-center">
-                                            <Video size={32} className="text-gray-600" />
-                                          </div>
-                                        )}
-                                        <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-0.5 rounded flex items-center gap-1">
-                                          <Clock size={10} />
-                                          {Math.floor(video.duration / 60)}:{(video.duration % 60).toString().padStart(2, '0')}
-                                        </div>
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <div className="aspect-[9/16] bg-gray-900 relative">
+                                        <video
+                                          src={video.url}
+                                          className="w-full h-full object-cover"
+                                          muted
+                                          playsInline
+                                          preload="metadata"
+                                          onMouseEnter={(e) => (e.target as HTMLVideoElement).play().catch(() => {})}
+                                          onMouseLeave={(e) => { const v = e.target as HTMLVideoElement; v.pause(); v.currentTime = 0; }}
+                                        />
+                                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                           <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
                                             <Play size={20} className="text-[#E1306C] ml-1" />
                                           </div>
                                         </div>
                                       </div>
-                                      <div className="p-2 bg-white">
-                                        <p className="text-xs font-medium text-gray-700 truncate">{video.name}</p>
+                                      <div className="p-3 bg-white flex items-center justify-between">
+                                        <p className="text-sm font-medium text-gray-700">{video.name}</p>
+                                        {isSelected && (
+                                          <div className="w-5 h-5 bg-[#E1306C] rounded-full flex items-center justify-center">
+                                            <Check size={12} className="text-white" />
+                                          </div>
+                                        )}
                                       </div>
-                                      {creativeConfig.selectedVideo === video.url && (
-                                        <div className="absolute top-2 right-2 w-6 h-6 bg-[#E1306C] rounded-full flex items-center justify-center">
-                                          <Check size={14} className="text-white" />
-                                        </div>
-                                      )}
                                     </button>
-                                  ))}
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Meta Audio Selection */}
+                          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-green-50 to-white">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-lg bg-green-100">
+                                  <Volume2 size={18} className="text-green-600" />
                                 </div>
-                              )}
+                                <div>
+                                  <h3 className="font-semibold text-gray-900">Ääniraita</h3>
+                                  <p className="text-xs text-gray-500">Valitse videon ääniraita</p>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="p-5">
+                              <div className="grid grid-cols-2 gap-3">
+                                {[
+                                  { id: 'brandillinen', name: 'Brändillinen', url: '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav' },
+                                  { id: 'geneerinen', name: 'Geneerinen', url: '/meta/audio/Terveystalo Suun TT TVC Geneerinen 15s i2 2025 09 23 Net Master -14LUFS.wav' },
+                                ].map((audio) => {
+                                  const isSelected = creativeConfig.selectedAudio === audio.url;
+                                  return (
+                                    <button
+                                      key={audio.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setCreativeConfig({ ...creativeConfig, selectedAudio: audio.url, audioFile: null });
+                                        toast.success(`Valittu: ${audio.name}`);
+                                      }}
+                                      className={`p-4 rounded-xl border-2 text-left transition-all ${
+                                        isSelected
+                                          ? 'border-[#1DB954] bg-[#1DB954]/10'
+                                          : 'border-gray-200 hover:border-[#1DB954]/50'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <div className={`p-2 rounded-lg ${
+                                            isSelected ? 'bg-[#1DB954]/20' : 'bg-gray-100'
+                                          }`}>
+                                            <Volume2 size={16} className={isSelected ? 'text-[#1DB954]' : 'text-gray-400'} />
+                                          </div>
+                                          <span className={`text-sm font-medium ${
+                                            isSelected ? 'text-[#1DB954]' : 'text-gray-700'
+                                          }`}>{audio.name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          {isSelected && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (playingAudio === audio.url) {
+                                                  if (audioRef.current) {
+                                                    audioRef.current.pause();
+                                                    setPlayingAudio(null);
+                                                  }
+                                                } else {
+                                                  if (audioRef.current) {
+                                                    audioRef.current.pause();
+                                                  }
+                                                  const audioEl = new Audio(audio.url);
+                                                  audioEl.onended = () => setPlayingAudio(null);
+                                                  audioEl.play().then(() => {
+                                                    setPlayingAudio(audio.url);
+                                                    audioRef.current = audioEl;
+                                                  }).catch(() => toast.error('Ei voitu toistaa'));
+                                                }
+                                              }}
+                                              className="text-[#1DB954] hover:scale-110 transition-transform"
+                                            >
+                                              {playingAudio === audio.url ? <Pause size={16} /> : <Play size={16} />}
+                                            </button>
+                                          )}
+                                          {isSelected && (
+                                            <div className="w-5 h-5 bg-[#1DB954] rounded-full flex items-center justify-center">
+                                              <Check size={12} className="text-white" />
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
                         </>
@@ -4028,13 +4141,17 @@ const CampaignCreate = () => {
                         {(creativeConfig.videoFile || creativeConfig.selectedVideo) && (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-pink-50 text-pink-700">
                             <Video size={14} />
-                            {creativeConfig.videoFile ? creativeConfig.videoFile.name : 'Videokirjasto'}
+                            {creativeConfig.videoFile
+                              ? creativeConfig.videoFile.name
+                              : creativeConfig.selectedVideo?.includes('nainen') ? 'Nainen' : creativeConfig.selectedVideo?.includes('mies') ? 'Mies' : 'Video'}
                           </span>
                         )}
                         {(creativeConfig.audioFile || creativeConfig.selectedAudio) && (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-50 text-green-700">
                             <Volume2 size={14} />
-                            {creativeConfig.audioFile ? 'Oma äänitiedosto' : creativeConfig.selectedAudio?.split('/').pop()}
+                            {creativeConfig.audioFile
+                              ? 'Oma äänitiedosto'
+                              : creativeConfig.selectedAudio?.includes('Brändillinen') ? 'Brändillinen' : creativeConfig.selectedAudio?.includes('Geneerinen') ? 'Geneerinen' : creativeConfig.selectedAudio?.split('/').pop()}
                           </span>
                         )}
                       </div>

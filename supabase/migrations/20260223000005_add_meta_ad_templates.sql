@@ -1,7 +1,8 @@
 -- ============================================================================
 -- SUUN TERVEYSTALO - Meta Ad Templates Migration
 -- Adds 1080x1080 (Square) and 1080x1920 (Stories/Reels) Meta ad templates
--- These match the reference HTML exactly with text-based logo and proper variables
+-- Features: polku transition video, suun.webm animation, inlined price SVG,
+-- TerveystaloSansDisplay + TerveystaloSans fonts, logo as image
 -- ============================================================================
 
 -- Square Meta Ad (1080x1080)
@@ -39,6 +40,13 @@ INSERT INTO creative_templates (
     font-weight: 900;
     font-style: normal;
   }
+  @font-face {
+    font-family: 'TerveystaloSans';
+    src: url('/font/TerveystaloSans-Regular.woff2') format('woff2'),
+         url('/font/TerveystaloSans-Regular.woff') format('woff');
+    font-weight: 400;
+    font-style: normal;
+  }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -51,49 +59,16 @@ INSERT INTO creative_templates (
     font-family: 'TerveystaloSansDisplay', sans-serif;
   }
 
-  /* ===== SCENE 1: Dark dental close-up (0s - ~7s) ===== */
-  .scene-1 {
+  /* ===== BACKGROUND VIDEO (plays throughout) ===== */
+  .bg-video-wrap {
     position: absolute; top: 0; left: 0;
     width: 100%; height: 100%;
-    z-index: 10;
-    animation: scene1Life 15s linear forwards;
+    z-index: 5; overflow: hidden;
   }
-  @keyframes scene1Life {
-    0%   { opacity: 1; }
-    44%  { opacity: 1; }
-    48%  { opacity: 0; }
-    100% { opacity: 0; }
-  }
-  .scene-1-bg {
-    position: absolute; top: 0; left: 0;
+  .bg-video-wrap video {
     width: 100%; height: 100%;
-    animation: slowZoom 8s ease-out forwards;
-    overflow: hidden;
+    object-fit: cover;
   }
-  .scene-1-bg img { width: 100%; height: 100%; object-fit: cover; }
-  @keyframes slowZoom {
-    0%   { transform: scale(1); }
-    100% { transform: scale(1.08); }
-  }
-
-  /* ===== SCENE 2: Bright dental (~6.5s-8.5s) ===== */
-  .scene-2 {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 100%;
-    z-index: 5; opacity: 0;
-    animation: scene2Life 15s linear forwards;
-  }
-  @keyframes scene2Life {
-    0%   { opacity: 0; }
-    42%  { opacity: 0; }
-    47%  { opacity: 1; }
-    100% { opacity: 1; }
-  }
-  .scene-2-bg {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 100%; overflow: hidden;
-  }
-  .scene-2-bg img { width: 100%; height: 100%; object-fit: cover; }
 
   /* ===== LOGO bottom center ===== */
   .logo-bottom {
@@ -110,8 +85,6 @@ INSERT INTO creative_templates (
     57%  { opacity: 0; }
     100% { opacity: 0; }
   }
-  .logo-bottom .logo-suun { font-size: 46px; font-weight: 300; color: #fff; letter-spacing: -0.5px; }
-  .logo-bottom .logo-terveystalo { font-size: 46px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
 
   /* ===== PRICE BADGE: SVG organic blob ===== */
   .price-badge-wrap {
@@ -122,9 +95,8 @@ INSERT INTO creative_templates (
   }
   @keyframes badgePop {
     0%    { opacity: 0; transform: scale(0.3); }
-    27%   { opacity: 0; transform: scale(0.3); }
-    30%   { opacity: 1; transform: scale(1.05); }
-    32%   { opacity: 1; transform: scale(1); }
+    2%    { opacity: 1; transform: scale(1.05); }
+    4%    { opacity: 1; transform: scale(1); }
     55%   { opacity: 1; transform: scale(1); }
     57%   { opacity: 0; transform: scale(1); }
     100%  { opacity: 0; }
@@ -135,11 +107,12 @@ INSERT INTO creative_templates (
     width: 100%; height: 100%;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    padding-bottom: 5px; padding-right: 10px;
+    padding-bottom: 5px;
   }
   .badge-content .badge-label {
-    font-size: 26px; font-weight: 700;
-    color: #0a3d91; line-height: 1.1; text-align: center;
+    font-family: 'TerveystaloSans', sans-serif;
+    font-size: 22px; font-weight: 400;
+    color: #0a3d91; line-height: 1.2; text-align: center;
   }
   .badge-content .badge-price {
     font-size: 82px; font-weight: 900;
@@ -148,7 +121,8 @@ INSERT INTO creative_templates (
   }
   .badge-content .badge-price .euro {
     font-size: 52px; font-weight: 700;
-    margin-top: 6px; margin-left: 2px;
+    margin-left: 2px;
+    align-self: flex-end; margin-bottom: 4px;
   }
 
   /* ===== "{{headline}}" ===== */
@@ -156,7 +130,7 @@ INSERT INTO creative_templates (
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     z-index: 25; font-size: 70px; font-weight: 800;
-    color: #fff;
+    color: #fff; width: 100%; text-align: center;
     text-shadow: 0 2px 30px rgba(0,0,0,0.5);
     opacity: 0;
     animation: hymyileAnim 15s linear forwards;
@@ -177,9 +151,9 @@ INSERT INTO creative_templates (
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -10%);
     z-index: 25; font-size: 62px; font-weight: 800;
-    color: #fff;
+    color: #fff; width: 100%; text-align: center;
     text-shadow: 0 2px 30px rgba(0,0,0,0.5);
-    text-align: center; line-height: 1.15; white-space: nowrap;
+    line-height: 1.15;
     opacity: 0;
     animation: sublineAnim 15s linear forwards;
   }
@@ -192,114 +166,23 @@ INSERT INTO creative_templates (
     100%  { opacity: 0; }
   }
 
-  /* ===== CIRCLE WIPE TRANSITION =====
-     Circles appear bottom-left ~7.25s then SCALE UP to fill screen */
-  .circle-wipe {
-    position: absolute; bottom: 0; left: 0;
+  /* ===== POLKU TRANSITION VIDEO ===== */
+  .polku-transition {
+    position: absolute; top: 0; left: 0;
     width: 100%; height: 100%;
     z-index: 30; pointer-events: none;
+    opacity: 0;
+    animation: polkuShow 15s linear forwards;
   }
-  .circle-wipe .cw {
-    position: absolute; border-radius: 50%;
-    background: #0a3d91; opacity: 0;
+  .polku-transition video {
+    width: 100%; height: 100%;
+    object-fit: cover;
   }
-  .circle-wipe .cw-1 {
-    width: 140px; height: 140px; bottom: -20px; left: -30px;
-    animation: cw1 15s linear forwards;
-  }
-  @keyframes cw1 {
-    0%    { opacity: 0; transform: scale(0); }
-    48%   { opacity: 0; transform: scale(0); }
-    50%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(15); }
-    100%  { opacity: 1; transform: scale(15); }
-  }
-  .circle-wipe .cw-2 {
-    width: 100px; height: 100px; bottom: 90px; left: 60px;
-    animation: cw2 15s linear forwards;
-  }
-  @keyframes cw2 {
-    0%    { opacity: 0; transform: scale(0); }
-    49%   { opacity: 0; transform: scale(0); }
-    51%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(15); }
-    100%  { opacity: 1; transform: scale(15); }
-  }
-  .circle-wipe .cw-3 {
-    width: 70px; height: 70px; bottom: 50px; left: 150px;
-    animation: cw3 15s linear forwards;
-  }
-  @keyframes cw3 {
-    0%    { opacity: 0; transform: scale(0); }
-    49%   { opacity: 0; transform: scale(0); }
-    51.5% { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(18); }
-    100%  { opacity: 1; transform: scale(18); }
-  }
-  .circle-wipe .cw-4 {
-    width: 55px; height: 55px; bottom: 160px; left: 20px;
-    animation: cw4 15s linear forwards;
-  }
-  @keyframes cw4 {
-    0%    { opacity: 0; transform: scale(0); }
-    49.5% { opacity: 0; transform: scale(0); }
-    52%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(22); }
-    100%  { opacity: 1; transform: scale(22); }
-  }
-  .circle-wipe .cw-5 {
-    width: 90px; height: 90px; bottom: 130px; left: 130px;
-    animation: cw5 15s linear forwards;
-  }
-  @keyframes cw5 {
-    0%    { opacity: 0; transform: scale(0); }
-    50%   { opacity: 0; transform: scale(0); }
-    52%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(15); }
-    100%  { opacity: 1; transform: scale(15); }
-  }
-  .circle-wipe .cw-6 {
-    width: 120px; height: 120px; bottom: 30px; left: 200px;
-    animation: cw6 15s linear forwards;
-  }
-  @keyframes cw6 {
-    0%    { opacity: 0; transform: scale(0); }
-    50%   { opacity: 0; transform: scale(0); }
-    52.5% { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(12); }
-    100%  { opacity: 1; transform: scale(12); }
-  }
-  .circle-wipe .cw-7 {
-    width: 45px; height: 45px; bottom: 190px; left: 100px;
-    animation: cw7 15s linear forwards;
-  }
-  @keyframes cw7 {
-    0%    { opacity: 0; transform: scale(0); }
-    50.5% { opacity: 0; transform: scale(0); }
-    53%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(28); }
-    100%  { opacity: 1; transform: scale(28); }
-  }
-  /* Big final wipe circle */
-  .circle-wipe .cw-big {
-    width: 400px; height: 400px;
-    bottom: -200px; left: -200px;
-    background: #0a1e5c;
-    animation: cwBig 15s linear forwards;
-  }
-  @keyframes cwBig {
-    0%    { opacity: 0; transform: scale(0); }
-    55%   { opacity: 0; transform: scale(0); }
-    56%   { opacity: 1; transform: scale(1); }
-    59%   { opacity: 1; transform: scale(8); }
-    100%  { opacity: 1; transform: scale(8); }
+  @keyframes polkuShow {
+    0%    { opacity: 0; }
+    48%   { opacity: 0; }
+    48.1% { opacity: 1; }
+    100%  { opacity: 1; }
   }
 
   /* ===== SCENE 3: Blue text screen ===== */
@@ -324,7 +207,6 @@ INSERT INTO creative_templates (
     text-align: center;
     font-size: 78px; font-weight: 800;
     line-height: 1.15; padding: 0 60px;
-    font-style: italic;
   }
   .scene-3-text .w {
     display: inline-block; color: #6b82b8;
@@ -337,16 +219,27 @@ INSERT INTO creative_templates (
     100% { color: #ffffff; }
   }
   .scene-3-text .w-suun {
-    display: inline-block; color: #6b82b8;
-    transform-origin: center bottom;
-    animation: suunArc 15s linear forwards;
+    display: inline-block;
+    position: relative;
+    width: 170px; height: 70px;
+    vertical-align: middle;
+    overflow: hidden;
+    margin-right: -8px;
+    opacity: 0;
+    animation: suunFade 15s linear forwards;
   }
-  @keyframes suunArc {
-    0%   { color: #6b82b8; transform: rotate(0deg) scale(1); }
-    60%  { color: #6b82b8; transform: rotate(0deg) scale(1); }
-    67%  { color: #ffffff; transform: rotate(0deg) scale(1); }
-    72%  { color: #ffffff; transform: rotate(-18deg) scale(0.82); }
-    100% { color: #ffffff; transform: rotate(-18deg) scale(0.82); }
+  @keyframes suunFade {
+    0%   { opacity: 0; }
+    59%  { opacity: 0; }
+    60%  { opacity: 0.45; }
+    67%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .scene-3-text .w-suun video {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    height: 100%;
+    object-fit: contain;
   }
   .scene-3-logo {
     position: absolute; bottom: 95px;
@@ -362,8 +255,6 @@ INSERT INTO creative_templates (
     85%  { opacity: 0; }
     100% { opacity: 0; }
   }
-  .scene-3-logo .logo-suun { font-size: 46px; font-weight: 300; color: #fff; }
-  .scene-3-logo .logo-terveystalo { font-size: 46px; font-weight: 700; color: #fff; }
 
   /* ===== SCENE 4: End card ===== */
   .scene-4 {
@@ -396,11 +287,10 @@ INSERT INTO creative_templates (
     87%  { opacity: 1; }
     100% { opacity: 1; }
   }
-  .scene-4-logo .logo-suun { font-size: 54px; font-weight: 300; color: #fff; }
-  .scene-4-logo .logo-terveystalo { font-size: 54px; font-weight: 700; color: #fff; }
   .scene-4-address {
-    margin-top: 18px; font-size: 40px; font-weight: 300;
-    color: rgba(255,255,255,0.6); letter-spacing: 0.5px;
+    font-family: 'TerveystaloSans', sans-serif;
+    margin-top: 22px; font-size: 48px; font-weight: 400;
+    color: #ffffff; letter-spacing: 0.5px;
     opacity: 0;
     animation: addrIn 15s linear forwards;
   }
@@ -411,49 +301,32 @@ INSERT INTO creative_templates (
     100% { opacity: 1; transform: translateY(0); }
   }
 
-  /* Replay */
-  .replay-btn {
-    position: absolute; bottom: 20px; right: 20px;
-    z-index: 100;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.25);
-    color: #fff; padding: 8px 18px; border-radius: 6px;
-    cursor: pointer; font-family: 'Inter', sans-serif;
-    font-size: 13px; font-weight: 500;
-    transition: background 0.2s;
-    backdrop-filter: blur(4px);
-  }
-  .replay-btn:hover { background: rgba(255,255,255,0.22); }
 </style>
 </head>
 <body>
 
 <div class="ad-container" id="adContainer">
 
-  <!-- SCENE 1 -->
-  <div class="scene-1">
-    <div class="scene-1-bg">
-      <img src="{{scene1_image}}" alt="Scene 1">
-    </div>
+  <!-- BACKGROUND VIDEO -->
+  <div class="bg-video-wrap">
+    <video id="bgVideo" src="{{background_video}}" muted autoplay playsinline></video>
   </div>
 
-  <!-- SCENE 2 -->
-  <div class="scene-2">
-    <div class="scene-2-bg">
-      <img src="{{scene2_image}}" alt="Scene 2">
-    </div>
-  </div>
+  <!-- AUDIO TRACK -->
+  <audio id="audioTrack" src="{{audio_track}}" autoplay></audio>
 
   <!-- LOGO bottom -->
   <div class="logo-bottom">
-    <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 46px; width: auto;">
+    <img src="{{logo_url}}" alt="Suun Terveystalo" style="height: 58px; width: auto;">
   </div>
 
-  <!-- PRICE BADGE - SVG from /price.svg -->
+  <!-- PRICE BADGE -->
   <div class="price-badge-wrap">
-    <img src="/price.svg" alt="" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 328.99 331.38" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+      <path fill="#ffffff" d="M327.95,185.48l-15.4-87.12c-3.59-20.32-16.27-37.91-34.45-47.78L200.17,8.26c-18.18-9.87-39.88-10.95-58.96-2.94L59.42,39.68c-19.08,8.01-33.46,24.25-39.07,44.12l-15.3,54.18c-11.14,39.44-3.65,81.78,20.34,115.05l16.16,22.41c22.7,31.48,58.54,50.94,97.39,52.88l59.89,2.99c20.68,1.03,40.7-7.38,54.4-22.85l58.73-66.32c13.7-15.47,19.59-36.32,16-56.64"/>
+    </svg>
     <div class="badge-content">
-      <div class="badge-label">{{offer_title}}</div>
+      <div class="badge-label">{{offer_title}}<br>{{offer_subtitle}}</div>
       <div class="badge-price">{{price}}<span class="euro">€</span></div>
     </div>
   </div>
@@ -462,28 +335,21 @@ INSERT INTO creative_templates (
   <div class="text-hymyile">{{headline}}</div>
   <div class="text-subline">{{subheadline}}</div>
 
-  <!-- CIRCLE WIPE TRANSITION -->
-  <div class="circle-wipe">
-    <div class="cw cw-1"></div>
-    <div class="cw cw-2"></div>
-    <div class="cw cw-3"></div>
-    <div class="cw cw-4"></div>
-    <div class="cw cw-5"></div>
-    <div class="cw cw-6"></div>
-    <div class="cw cw-7"></div>
-    <div class="cw cw-big"></div>
+  <!-- POLKU TRANSITION -->
+  <div class="polku-transition">
+    <video id="polkuVideo" src="/meta/elements/polku1-1.webm" muted playsinline preload="auto"></video>
   </div>
 
   <!-- SCENE 3: Blue text -->
   <div class="scene-3">
     <div class="scene-3-text">
       <span class="w">{{scene3_line1}}</span><br>
-      <span class="w w-suun">{{scene3_line2a}}</span><span class="w">{{scene3_line2b}}</span><br>
+      <span class="w w-suun"><video id="suunVideo" src="/meta/elements/suun.webm" muted playsinline preload="auto"></video></span><span class="w">{{scene3_line2}}</span><br>
       <span class="w">{{scene3_line3}}</span><br>
       <span class="w">{{scene3_line4}}</span>
     </div>
     <div class="scene-3-logo">
-      <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 46px; width: auto;">
+      <img src="{{logo_url}}" alt="Suun Terveystalo" style="height: 58px; width: auto;">
     </div>
   </div>
 
@@ -491,26 +357,45 @@ INSERT INTO creative_templates (
   <div class="scene-4">
     <div class="scene-4-inner">
       <div class="scene-4-logo">
-        <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 54px; width: auto;">
+        <img src="{{logo_url}}" alt="Suun Terveystalo" style="height: 68px; width: auto;">
       </div>
       <div class="scene-4-address">{{branch_address}}</div>
     </div>
   </div>
 
-  <button class="replay-btn" onclick="replayAd()">↻ Replay</button>
 </div>
 
 <script>
-function replayAd() {
-  const c = document.getElementById('adContainer');
-  const clone = c.cloneNode(true);
-  clone.querySelector('.replay-btn').onclick = replayAd;
-  c.parentNode.replaceChild(clone, c);
+// Play suun video when scene 3 appears (60% of 15s = 9s)
+var suunTimer;
+function startSuunTimer() {
+  var sv = document.getElementById('suunVideo');
+  if (sv) { sv.pause(); sv.currentTime = 0; }
+  suunTimer = setTimeout(function() {
+    var sv = document.getElementById('suunVideo');
+    if (sv) { sv.currentTime = 0; sv.play(); }
+  }, 9000);
 }
+startSuunTimer();
+
+// Play polku transition at 48% of 15s = 7.2s
+setTimeout(function() {
+  var pv = document.getElementById('polkuVideo');
+  if (pv) { pv.currentTime = 0; pv.play(); }
+}, 7200);
+
+// Hide price badge when no offer (brand message)
+(function() {
+  var bp = document.querySelector('.badge-price');
+  if (bp && (!bp.textContent.trim() || bp.textContent.trim() === '€')) {
+    var wrap = document.querySelector('.price-badge-wrap');
+    if (wrap) wrap.style.display = 'none';
+  }
+})();
 </script>
 </body>
 </html>$template_square$,
-  '{"headline": "Hymyile.", "subheadline": "Olet hyvissä käsissä.", "offer_title": "Hammas-tarkastus", "price": "49", "scene1_image": "https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces", "scene2_image": "https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces", "scene3_line1": "Sujuvampaa", "scene3_line2a": "suun", "scene3_line2b": "terveyttä", "scene3_line3": "{{city_name}}", "scene3_line4": "Suun Terveystalossa.", "branch_address": "{{branch_address}}"}',
+  '{"headline": "Hymyile.", "subheadline": "Olet hyvissä käsissä.", "offer_title": "Hammastarkastus", "offer_subtitle": "uusille asiakkaille", "price": "49", "background_video": "/meta/vids/nainen.mp4", "audio_track": "/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav", "logo_url": "https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png", "scene3_line1": "Sujuvampaa", "scene3_line2": "terveyttä", "scene3_line3": "{{city_name}}", "scene3_line4": "Suun Terveystalossa.", "branch_address": "{{branch_address}}"}',
   ARRAY['meta', 'social', 'square', '1080x1080'],
   true,
   1
@@ -551,6 +436,13 @@ INSERT INTO creative_templates (
     font-weight: 900;
     font-style: normal;
   }
+  @font-face {
+    font-family: 'TerveystaloSans';
+    src: url('/font/TerveystaloSans-Regular.woff2') format('woff2'),
+         url('/font/TerveystaloSans-Regular.woff') format('woff');
+    font-weight: 400;
+    font-style: normal;
+  }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -563,49 +455,16 @@ INSERT INTO creative_templates (
     font-family: 'TerveystaloSansDisplay', sans-serif;
   }
 
-  /* ===== SCENE 1: Dark dental close-up ===== */
-  .scene-1 {
+  /* ===== BACKGROUND VIDEO (plays throughout) ===== */
+  .bg-video-wrap {
     position: absolute; top: 0; left: 0;
     width: 100%; height: 100%;
-    z-index: 10;
-    animation: scene1Life 15s linear forwards;
+    z-index: 5; overflow: hidden;
   }
-  @keyframes scene1Life {
-    0%   { opacity: 1; }
-    44%  { opacity: 1; }
-    48%  { opacity: 0; }
-    100% { opacity: 0; }
-  }
-  .scene-1-bg {
-    position: absolute; top: 0; left: 0;
+  .bg-video-wrap video {
     width: 100%; height: 100%;
-    animation: slowZoom 8s ease-out forwards;
-    overflow: hidden;
+    object-fit: cover;
   }
-  .scene-1-bg img { width: 100%; height: 100%; object-fit: cover; }
-  @keyframes slowZoom {
-    0%   { transform: scale(1); }
-    100% { transform: scale(1.08); }
-  }
-
-  /* ===== SCENE 2: Bright dental ===== */
-  .scene-2 {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 100%;
-    z-index: 5; opacity: 0;
-    animation: scene2Life 15s linear forwards;
-  }
-  @keyframes scene2Life {
-    0%   { opacity: 0; }
-    42%  { opacity: 0; }
-    47%  { opacity: 1; }
-    100% { opacity: 1; }
-  }
-  .scene-2-bg {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 100%; overflow: hidden;
-  }
-  .scene-2-bg img { width: 100%; height: 100%; object-fit: cover; }
 
   /* ===== LOGO bottom center ===== */
   .logo-bottom {
@@ -622,8 +481,6 @@ INSERT INTO creative_templates (
     57%  { opacity: 0; }
     100% { opacity: 0; }
   }
-  .logo-bottom .logo-suun { font-size: 82px; font-weight: 300; color: #fff; letter-spacing: -0.5px; }
-  .logo-bottom .logo-terveystalo { font-size: 82px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
 
   /* ===== PRICE BADGE: SVG organic blob ===== */
   .price-badge-wrap {
@@ -634,9 +491,8 @@ INSERT INTO creative_templates (
   }
   @keyframes badgePop {
     0%    { opacity: 0; transform: scale(0.3); }
-    27%   { opacity: 0; transform: scale(0.3); }
-    30%   { opacity: 1; transform: scale(1.05); }
-    32%   { opacity: 1; transform: scale(1); }
+    2%    { opacity: 1; transform: scale(1.05); }
+    4%    { opacity: 1; transform: scale(1); }
     55%   { opacity: 1; transform: scale(1); }
     57%   { opacity: 0; transform: scale(1); }
     100%  { opacity: 0; }
@@ -647,11 +503,12 @@ INSERT INTO creative_templates (
     width: 100%; height: 100%;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    padding-bottom: 10px; padding-right: 20px;
+    padding-bottom: 10px;
   }
   .badge-content .badge-label {
-    font-size: 46px; font-weight: 700;
-    color: #0a3d91; line-height: 1.1; text-align: center;
+    font-family: 'TerveystaloSans', sans-serif;
+    font-size: 40px; font-weight: 400;
+    color: #0a3d91; line-height: 1.2; text-align: center;
   }
   .badge-content .badge-price {
     font-size: 146px; font-weight: 900;
@@ -660,7 +517,8 @@ INSERT INTO creative_templates (
   }
   .badge-content .badge-price .euro {
     font-size: 92px; font-weight: 700;
-    margin-top: 10px; margin-left: 4px;
+    margin-left: 4px;
+    align-self: flex-end; margin-bottom: 6px;
   }
 
   /* ===== "{{headline}}" ===== */
@@ -668,7 +526,7 @@ INSERT INTO creative_templates (
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     z-index: 25; font-size: 125px; font-weight: 800;
-    color: #fff;
+    color: #fff; width: 100%; text-align: center;
     text-shadow: 0 2px 30px rgba(0,0,0,0.5);
     opacity: 0;
     animation: hymyileAnim 15s linear forwards;
@@ -689,9 +547,9 @@ INSERT INTO creative_templates (
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -10%);
     z-index: 25; font-size: 110px; font-weight: 800;
-    color: #fff;
+    color: #fff; width: 100%; text-align: center;
     text-shadow: 0 2px 30px rgba(0,0,0,0.5);
-    text-align: center; line-height: 1.15; white-space: nowrap;
+    line-height: 1.15;
     opacity: 0;
     animation: sublineAnim 15s linear forwards;
   }
@@ -704,113 +562,23 @@ INSERT INTO creative_templates (
     100%  { opacity: 0; }
   }
 
-  /* ===== CIRCLE WIPE TRANSITION ===== */
-  .circle-wipe {
-    position: absolute; bottom: 0; left: 0;
+  /* ===== POLKU TRANSITION VIDEO ===== */
+  .polku-transition {
+    position: absolute; top: 0; left: 0;
     width: 100%; height: 100%;
     z-index: 30; pointer-events: none;
+    opacity: 0;
+    animation: polkuShow 15s linear forwards;
   }
-  .circle-wipe .cw {
-    position: absolute; border-radius: 50%;
-    background: #0a3d91; opacity: 0;
+  .polku-transition video {
+    width: 100%; height: 100%;
+    object-fit: cover;
   }
-  .circle-wipe .cw-1 {
-    width: 250px; height: 250px; bottom: -40px; left: -60px;
-    animation: cw1 15s linear forwards;
-  }
-  @keyframes cw1 {
-    0%    { opacity: 0; transform: scale(0); }
-    48%   { opacity: 0; transform: scale(0); }
-    50%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(15); }
-    100%  { opacity: 1; transform: scale(15); }
-  }
-  .circle-wipe .cw-2 {
-    width: 180px; height: 180px; bottom: 160px; left: 110px;
-    animation: cw2 15s linear forwards;
-  }
-  @keyframes cw2 {
-    0%    { opacity: 0; transform: scale(0); }
-    49%   { opacity: 0; transform: scale(0); }
-    51%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(15); }
-    100%  { opacity: 1; transform( scale(15)); }
-  }
-  .circle-wipe .cw-3 {
-    width: 125px; height: 125px; bottom: 90px; left: 270px;
-    animation: cw3 15s linear forwards;
-  }
-  @keyframes cw3 {
-    0%    { opacity: 0; transform: scale(0); }
-    49%   { opacity: 0; transform: scale(0); }
-    51.5% { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(18); }
-    100%  { opacity: 1; transform: scale(18); }
-  }
-  .circle-wipe .cw-4 {
-    width: 98px; height: 98px; bottom: 285px; left: 36px;
-    animation: cw4 15s linear forwards;
-  }
-  @keyframes cw4 {
-    0%    { opacity: 0; transform: scale(0); }
-    49.5% { opacity: 0; transform: scale(0); }
-    52%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(22); }
-    100%  { opacity: 1; transform: scale(22); }
-  }
-  .circle-wipe .cw-5 {
-    width: 160px; height: 160px; bottom: 230px; left: 230px;
-    animation: cw5 15s linear forwards;
-  }
-  @keyframes cw5 {
-    0%    { opacity: 0; transform: scale(0); }
-    50%   { opacity: 0; transform: scale(0); }
-    52%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(15); }
-    100%  { opacity: 1; transform( scale(15)); }
-  }
-  .circle-wipe .cw-6 {
-    width: 215px; height: 215px; bottom: 54px; left: 360px;
-    animation: cw6 15s linear forwards;
-  }
-  @keyframes cw6 {
-    0%    { opacity: 0; transform: scale(0); }
-    50%   { opacity: 0; transform: scale(0); }
-    52.5% { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform: scale(12); }
-    100%  { opacity: 1; transform: scale(12); }
-  }
-  .circle-wipe .cw-7 {
-    width: 80px; height: 80px; bottom: 340px; left: 180px;
-    animation: cw7 15s linear forwards;
-  }
-  @keyframes cw7 {
-    0%    { opacity: 0; transform: scale(0); }
-    50.5% { opacity: 0; transform: scale(0); }
-    53%   { opacity: 1; transform: scale(1); }
-    54%   { opacity: 1; transform: scale(1); }
-    57%   { opacity: 1; transform( scale(28)); }
-    100%  { opacity: 1; transform: scale(28); }
-  }
-  /* Big final wipe circle */
-  .circle-wipe .cw-big {
-    width: 710px; height: 710px;
-    bottom: -355px; left: -355px;
-    background: #0a1e5c;
-    animation: cwBig 15s linear forwards;
-  }
-  @keyframes cwBig {
-    0%    { opacity: 0; transform: scale(0); }
-    55%   { opacity: 0; transform: scale(0); }
-    56%   { opacity: 1; transform: scale(1); }
-    59%   { opacity: 1; transform: scale(8); }
-    100%  { opacity: 1; transform: scale(8); }
+  @keyframes polkuShow {
+    0%    { opacity: 0; }
+    48%   { opacity: 0; }
+    48.1% { opacity: 1; }
+    100%  { opacity: 1; }
   }
 
   /* ===== SCENE 3: Blue text screen ===== */
@@ -833,9 +601,8 @@ INSERT INTO creative_templates (
   }
   .scene-3-text {
     text-align: center;
-    font-size: 140px; font-weight: 800;
+    font-size: 96px; font-weight: 800;
     line-height: 1.15; padding: 0 110px;
-    font-style: italic;
   }
   .scene-3-text .w {
     display: inline-block; color: #6b82b8;
@@ -848,16 +615,27 @@ INSERT INTO creative_templates (
     100% { color: #ffffff; }
   }
   .scene-3-text .w-suun {
-    display: inline-block; color: #6b82b8;
-    transform-origin: center bottom;
-    animation: suunArc 15s linear forwards;
+    display: inline-block;
+    position: relative;
+    width: 210px; height: 85px;
+    vertical-align: middle;
+    overflow: hidden;
+    margin-right: -10px;
+    opacity: 0;
+    animation: suunFade 15s linear forwards;
   }
-  @keyframes suunArc {
-    0%   { color: #6b82b8; transform: rotate(0deg) scale(1); }
-    60%  { color: #6b82b8; transform: rotate(0deg) scale(1); }
-    67%  { color: #ffffff; transform: rotate(0deg) scale(1); }
-    72%  { color: #ffffff; transform: rotate(-18deg) scale(0.82); }
-    100% { color: #ffffff; transform: rotate(-18deg) scale(0.82); }
+  @keyframes suunFade {
+    0%   { opacity: 0; }
+    59%  { opacity: 0; }
+    60%  { opacity: 0.45; }
+    67%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .scene-3-text .w-suun video {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    height: 100%;
+    object-fit: contain;
   }
   .scene-3-logo {
     position: absolute; bottom: 170px;
@@ -873,8 +651,6 @@ INSERT INTO creative_templates (
     85%  { opacity: 0; }
     100% { opacity: 0; }
   }
-  .scene-3-logo .logo-suun { font-size: 82px; font-weight: 300; color: #fff; }
-  .scene-3-logo .logo-terveystalo { font-size: 82px; font-weight: 700; color: #fff; }
 
   /* ===== SCENE 4: End card ===== */
   .scene-4 {
@@ -907,11 +683,10 @@ INSERT INTO creative_templates (
     87%  { opacity: 1; }
     100% { opacity: 1; }
   }
-  .scene-4-logo .logo-suun { font-size: 96px; font-weight: 300; color: #fff; }
-  .scene-4-logo .logo-terveystalo { font-size: 96px; font-weight: 700; color: #fff; }
   .scene-4-address {
-    margin-top: 32px; font-size: 71px; font-weight: 300;
-    color: rgba(255,255,255,0.6); letter-spacing: 0.5px;
+    font-family: 'TerveystaloSans', sans-serif;
+    margin-top: 38px; font-size: 84px; font-weight: 400;
+    color: #ffffff; letter-spacing: 0.5px;
     opacity: 0;
     animation: addrIn 15s linear forwards;
   }
@@ -922,49 +697,32 @@ INSERT INTO creative_templates (
     100% { opacity: 1; transform: translateY(0); }
   }
 
-  /* Replay */
-  .replay-btn {
-    position: absolute; bottom: 35px; right: 35px;
-    z-index: 100;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.25);
-    color: #fff; padding: 14px 32px; border-radius: 6px;
-    cursor: pointer; font-family: 'Inter', sans-serif;
-    font-size: 23px; font-weight: 500;
-    transition: background 0.2s;
-    backdrop-filter: blur(4px);
-  }
-  .replay-btn:hover { background: rgba(255,255,255,0.22); }
 </style>
 </head>
 <body>
 
 <div class="ad-container" id="adContainer">
 
-  <!-- SCENE 1 -->
-  <div class="scene-1">
-    <div class="scene-1-bg">
-      <img src="{{scene1_image}}" alt="Scene 1">
-    </div>
+  <!-- BACKGROUND VIDEO -->
+  <div class="bg-video-wrap">
+    <video id="bgVideo" src="{{background_video}}" muted autoplay playsinline></video>
   </div>
 
-  <!-- SCENE 2 -->
-  <div class="scene-2">
-    <div class="scene-2-bg">
-      <img src="{{scene2_image}}" alt="Scene 2">
-    </div>
-  </div>
+  <!-- AUDIO TRACK -->
+  <audio id="audioTrack" src="{{audio_track}}" autoplay></audio>
 
   <!-- LOGO bottom -->
   <div class="logo-bottom">
-    <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 82px; width: auto;">
+    <img src="{{logo_url}}" alt="Suun Terveystalo" style="height: 100px; width: auto;">
   </div>
 
-  <!-- PRICE BADGE - SVG from /price.svg -->
+  <!-- PRICE BADGE -->
   <div class="price-badge-wrap">
-    <img src="/price.svg" alt="" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 328.99 331.38" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+      <path fill="#ffffff" d="M327.95,185.48l-15.4-87.12c-3.59-20.32-16.27-37.91-34.45-47.78L200.17,8.26c-18.18-9.87-39.88-10.95-58.96-2.94L59.42,39.68c-19.08,8.01-33.46,24.25-39.07,44.12l-15.3,54.18c-11.14,39.44-3.65,81.78,20.34,115.05l16.16,22.41c22.7,31.48,58.54,50.94,97.39,52.88l59.89,2.99c20.68,1.03,40.7-7.38,54.4-22.85l58.73-66.32c13.7-15.47,19.59-36.32,16-56.64"/>
+    </svg>
     <div class="badge-content">
-      <div class="badge-label">{{offer_title}}</div>
+      <div class="badge-label">{{offer_title}}<br>{{offer_subtitle}}</div>
       <div class="badge-price">{{price}}<span class="euro">€</span></div>
     </div>
   </div>
@@ -973,28 +731,21 @@ INSERT INTO creative_templates (
   <div class="text-hymyile">{{headline}}</div>
   <div class="text-subline">{{subheadline}}</div>
 
-  <!-- CIRCLE WIPE TRANSITION -->
-  <div class="circle-wipe">
-    <div class="cw cw-1"></div>
-    <div class="cw cw-2"></div>
-    <div class="cw cw-3"></div>
-    <div class="cw cw-4"></div>
-    <div class="cw cw-5"></div>
-    <div class="cw cw-6"></div>
-    <div class="cw cw-7"></div>
-    <div class="cw cw-big"></div>
+  <!-- POLKU TRANSITION -->
+  <div class="polku-transition">
+    <video id="polkuVideo" src="/meta/elements/polku9-16.webm" muted playsinline preload="auto"></video>
   </div>
 
   <!-- SCENE 3: Blue text -->
   <div class="scene-3">
     <div class="scene-3-text">
       <span class="w">{{scene3_line1}}</span><br>
-      <span class="w w-suun">{{scene3_line2a}}</span><span class="w">{{scene3_line2b}}</span><br>
+      <span class="w w-suun"><video id="suunVideo" src="/meta/elements/suun.webm" muted playsinline preload="auto"></video></span><span class="w">{{scene3_line2}}</span><br>
       <span class="w">{{scene3_line3}}</span><br>
       <span class="w">{{scene3_line4}}</span>
     </div>
     <div class="scene-3-logo">
-      <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 82px; width: auto;">
+      <img src="{{logo_url}}" alt="Suun Terveystalo" style="height: 100px; width: auto;">
     </div>
   </div>
 
@@ -1002,26 +753,45 @@ INSERT INTO creative_templates (
   <div class="scene-4">
     <div class="scene-4-inner">
       <div class="scene-4-logo">
-        <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 96px; width: auto;">
+        <img src="{{logo_url}}" alt="Suun Terveystalo" style="height: 116px; width: auto;">
       </div>
       <div class="scene-4-address">{{branch_address}}</div>
     </div>
   </div>
 
-  <button class="replay-btn" onclick="replayAd()">↻ Replay</button>
 </div>
 
 <script>
-function replayAd() {
-  const c = document.getElementById('adContainer');
-  const clone = c.cloneNode(true);
-  clone.querySelector('.replay-btn').onclick = replayAd;
-  c.parentNode.replaceChild(clone, c);
+// Play suun video when scene 3 appears (60% of 15s = 9s)
+var suunTimer;
+function startSuunTimer() {
+  var sv = document.getElementById('suunVideo');
+  if (sv) { sv.pause(); sv.currentTime = 0; }
+  suunTimer = setTimeout(function() {
+    var sv = document.getElementById('suunVideo');
+    if (sv) { sv.currentTime = 0; sv.play(); }
+  }, 9000);
 }
+startSuunTimer();
+
+// Play polku transition at 48% of 15s = 7.2s
+setTimeout(function() {
+  var pv = document.getElementById('polkuVideo');
+  if (pv) { pv.currentTime = 0; pv.play(); }
+}, 7200);
+
+// Hide price badge when no offer (brand message)
+(function() {
+  var bp = document.querySelector('.badge-price');
+  if (bp && (!bp.textContent.trim() || bp.textContent.trim() === '€')) {
+    var wrap = document.querySelector('.price-badge-wrap');
+    if (wrap) wrap.style.display = 'none';
+  }
+})();
 </script>
 </body>
 </html>$template_portrait$,
-  '{"headline": "Hymyile.", "subheadline": "Olet hyvissä käsissä.", "offer_title": "Hammas-tarkastus", "price": "49", "scene1_image": "https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1920&fit=crop&crop=faces", "scene2_image": "https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1920&fit=crop&crop=faces", "scene3_line1": "Sujuvampaa", "scene3_line2a": "suun", "scene3_line2b": "terveyttä", "scene3_line3": "{{city_name}}", "scene3_line4": "Suun Terveystalossa.", "branch_address": "{{branch_address}}"}',
+  '{"headline": "Hymyile.", "subheadline": "Olet hyvissä käsissä.", "offer_title": "Hammastarkastus", "offer_subtitle": "uusille asiakkaille", "price": "49", "background_video": "/meta/vids/nainen.mp4", "audio_track": "/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav", "logo_url": "https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png", "scene3_line1": "Sujuvampaa", "scene3_line2": "terveyttä", "scene3_line3": "{{city_name}}", "scene3_line4": "Suun Terveystalossa.", "branch_address": "{{branch_address}}"}',
   ARRAY['meta', 'social', 'portrait', 'stories', 'reels', '1080x1920'],
   true,
   2

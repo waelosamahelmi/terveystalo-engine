@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suun Terveystalo - Hammas-tarkastus 49</title>
+<style>
+  /* Terveystalo Display Font */
+  @font-face {
+    font-family: 'TerveystaloSansDisplay';
+    src: url('/font/TerveystaloSansDisplay-Super.woff2') format('woff2'),
+         url('/font/TerveystaloSansDisplay-Super.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'TerveystaloSans';
+    src: url('/font/TerveystaloSans-Regular.woff2') format('woff2'),
+         url('/font/TerveystaloSans-Regular.woff') format('woff');
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  .ad-container {
+    width: 1080px;
+    height: 1920px;
+    position: relative;
+    overflow: hidden;
+    background: #0a1e5c;
+    font-family: 'TerveystaloSansDisplay', sans-serif;
+  }
+
+  /* ===== BACKGROUND VIDEO (plays throughout) ===== */
+  .bg-video-wrap {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 5; overflow: hidden;
+  }
+  .bg-video-wrap video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  /* ===== LOGO bottom center ===== */
+  .logo-bottom {
+    position: absolute; bottom: 120px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex; align-items: baseline; gap: 1px;
+    white-space: nowrap;
+    animation: logoBotLife 15s linear forwards;
+  }
+  @keyframes logoBotLife {
+    0%   { opacity: 1; }
+    54%  { opacity: 1; }
+    57%  { opacity: 0; }
+    100% { opacity: 0; }
+  }
+  .logo-bottom .logo-suun { font-size: 82px; font-weight: 300; color: #fff; letter-spacing: -0.5px; }
+  .logo-bottom .logo-terveystalo { font-size: 82px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+
+  /* ===== PRICE BADGE: SVG organic blob ===== */
+  .price-badge-wrap {
+    position: absolute; top: 40px; left: 30px;
+    z-index: 25; width: 520px; height: 520px;
+    opacity: 0; transform: scale(0.3);
+    animation: badgePop 15s linear forwards;
+  }
+  @keyframes badgePop {
+    0%    { opacity: 0; transform: scale(0.3); }
+    2%    { opacity: 1; transform: scale(1.05); }
+    4%    { opacity: 1; transform: scale(1); }
+    55%   { opacity: 1; transform: scale(1); }
+    57%   { opacity: 0; transform: scale(1); }
+    100%  { opacity: 0; }
+  }
+  .price-badge-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .badge-content {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding-bottom: 10px; padding-right: 20px;
+  }
+  .badge-content .badge-label {
+    font-family: 'TerveystaloSans', sans-serif;
+    font-size: 40px; font-weight: 400;
+    color: #0a3d91; line-height: 1.2; text-align: center;
+  }
+  .badge-content .badge-price {
+    font-size: 146px; font-weight: 900;
+    color: #0a3d91; line-height: 0.85;
+    display: flex; align-items: flex-start;
+  }
+  .badge-content .badge-price .euro {
+    font-size: 92px; font-weight: 700;
+    margin-left: 4px;
+    align-self: flex-end; margin-bottom: 6px;
+  }
+
+  /* ===== "Hymyile." ===== */
+  .text-hymyile {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 25; font-size: 125px; font-weight: 800;
+    color: #fff;
+    text-shadow: 0 2px 30px rgba(0,0,0,0.5);
+    opacity: 0;
+    animation: hymyileAnim 15s linear forwards;
+  }
+  @keyframes hymyileAnim {
+    0%    { opacity: 0; transform: translate(-50%, -30%); }
+    27%   { opacity: 0; transform: translate(-50%, -30%); }
+    30%   { opacity: 1; transform: translate(-50%, -50%); }
+    35%   { opacity: 1; transform: translate(-50%, -50%); }
+    38%   { opacity: 1; transform: translate(-50%, -90%); }
+    55%   { opacity: 1; transform: translate(-50%, -90%); }
+    57%   { opacity: 0; transform: translate(-50%, -90%); }
+    100%  { opacity: 0; }
+  }
+
+  /* ===== "Olet hyvissä käsissä." ===== */
+  .text-subline {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -10%);
+    z-index: 25; font-size: 110px; font-weight: 800;
+    color: #fff;
+    text-shadow: 0 2px 30px rgba(0,0,0,0.5);
+    text-align: center; line-height: 1.15; white-space: nowrap;
+    opacity: 0;
+    animation: sublineAnim 15s linear forwards;
+  }
+  @keyframes sublineAnim {
+    0%    { opacity: 0; transform: translate(-50%, 10%); }
+    36%   { opacity: 0; transform: translate(-50%, 10%); }
+    40%   { opacity: 1; transform: translate(-50%, -10%); }
+    55%   { opacity: 1; transform: translate(-50%, -10%); }
+    57%   { opacity: 0; }
+    100%  { opacity: 0; }
+  }
+
+  /* ===== POLKU TRANSITION VIDEO ===== */
+  .polku-transition {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 30; pointer-events: none;
+    opacity: 0;
+    animation: polkuShow 15s linear forwards;
+  }
+  .polku-transition video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  @keyframes polkuShow {
+    0%    { opacity: 0; }
+    48%   { opacity: 0; }
+    48.1% { opacity: 1; }
+    100%  { opacity: 1; }
+  }
+
+  /* ===== SCENE 3: Blue text screen ===== */
+  .scene-3 {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 35; background: #0a1e5c;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    opacity: 0;
+    animation: scene3Life 15s linear forwards;
+  }
+  @keyframes scene3Life {
+    0%   { opacity: 0; }
+    58%  { opacity: 0; }
+    60%  { opacity: 1; }
+    82%  { opacity: 1; }
+    85%  { opacity: 0; }
+    100% { opacity: 0; }
+  }
+  .scene-3-text {
+    text-align: center;
+    font-size: 96px; font-weight: 800;
+    line-height: 1.15; padding: 0 110px;
+  }
+  .scene-3-text .w {
+    display: inline-block; color: #6b82b8;
+    animation: wBright 15s linear forwards;
+  }
+  @keyframes wBright {
+    0%   { color: #6b82b8; }
+    60%  { color: #6b82b8; }
+    67%  { color: #ffffff; }
+    100% { color: #ffffff; }
+  }
+  .scene-3-text .w-suun {
+    display: inline-block;
+    position: relative;
+    width: 210px; height: 85px;
+    vertical-align: middle;
+    overflow: hidden;
+    margin-right: -10px;
+    opacity: 0;
+    animation: suunFade 15s linear forwards;
+  }
+  @keyframes suunFade {
+    0%   { opacity: 0; }
+    59%  { opacity: 0; }
+    60%  { opacity: 0.45; }
+    67%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .scene-3-text .w-suun video {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    height: 100%;
+    object-fit: contain;
+  }
+  /* suunArc keyframes kept but no longer used on text */
+  .scene-3-logo {
+    position: absolute; bottom: 170px;
+    display: flex; align-items: baseline; gap: 1px;
+    opacity: 0;
+    animation: s3Logo 15s linear forwards;
+  }
+  @keyframes s3Logo {
+    0%   { opacity: 0; }
+    61%  { opacity: 0; }
+    64%  { opacity: 1; }
+    82%  { opacity: 1; }
+    85%  { opacity: 0; }
+    100% { opacity: 0; }
+  }
+  .scene-3-logo .logo-suun { font-size: 82px; font-weight: 300; color: #fff; }
+  .scene-3-logo .logo-terveystalo { font-size: 82px; font-weight: 700; color: #fff; }
+
+  /* ===== SCENE 4: End card ===== */
+  .scene-4 {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 40; background: #0a1e5c;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    opacity: 0;
+    animation: scene4Life 15s linear forwards;
+  }
+  @keyframes scene4Life {
+    0%   { opacity: 0; }
+    83%  { opacity: 0; }
+    86%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .scene-4-inner {
+    display: flex; flex-direction: column;
+    align-items: center; margin-top: -110px;
+  }
+  .scene-4-logo {
+    display: flex; align-items: baseline; gap: 2px;
+    opacity: 0;
+    animation: endLogo 15s linear forwards;
+  }
+  @keyframes endLogo {
+    0%   { opacity: 0; }
+    84%  { opacity: 0; }
+    87%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .scene-4-logo .logo-suun { font-size: 96px; font-weight: 300; color: #fff; }
+  .scene-4-logo .logo-terveystalo { font-size: 96px; font-weight: 700; color: #fff; }
+  .scene-4-address {
+    font-family: 'TerveystaloSans', sans-serif;
+    margin-top: 38px; font-size: 84px; font-weight: 400;
+    color: #ffffff; letter-spacing: 0.5px;
+    opacity: 0;
+    animation: addrIn 15s linear forwards;
+  }
+  @keyframes addrIn {
+    0%   { opacity: 0; transform: translateY(8px); }
+    89%  { opacity: 0; transform: translateY(8px); }
+    94%  { opacity: 1; transform: translateY(0); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+
+</style>
+</head>
+<body>
+
+<div class="ad-container" id="adContainer">
+
+  <!-- BACKGROUND VIDEO -->
+  <div class="bg-video-wrap">
+    <video id="bgVideo" src="/meta/vids/nainen.mp4" muted autoplay playsinline></video>
+  </div>
+
+  <!-- AUDIO TRACK -->
+  <audio id="audioTrack" src="/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav" autoplay></audio>
+
+  <!-- LOGO bottom -->
+  <div class="logo-bottom">
+    <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 100px; width: auto;">
+  </div>
+
+  <!-- PRICE BADGE -->
+  <div class="price-badge-wrap">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 328.99 331.38" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+      <path fill="#ffffff" d="M327.95,185.48l-15.4-87.12c-3.59-20.32-16.27-37.91-34.45-47.78L200.17,8.26c-18.18-9.87-39.88-10.95-58.96-2.94L59.42,39.68c-19.08,8.01-33.46,24.25-39.07,44.12l-15.3,54.18c-11.14,39.44-3.65,81.78,20.34,115.05l16.16,22.41c22.7,31.48,58.54,50.94,97.39,52.88l59.89,2.99c20.68,1.03,40.7-7.38,54.4-22.85l58.73-66.32c13.7-15.47,19.59-36.32,16-56.64"/>
+    </svg>
+    <div class="badge-content">
+      <div class="badge-label">Hammastarkastus<br>uusille asiakkaille</div>
+      <div class="badge-price">49<span class="euro">€</span></div>
+    </div>
+  </div>
+
+  <!-- TEXT overlays -->
+  <div class="text-hymyile">Hymyile.</div>
+  <div class="text-subline">Olet hyvissä käsissä.</div>
+
+  <!-- POLKU TRANSITION -->
+  <div class="polku-transition">
+    <video id="polkuVideo" src="/meta/elements/polku9-16.webm" muted playsinline preload="auto"></video>
+  </div>
+
+  <!-- SCENE 3: Blue text -->
+  <div class="scene-3">
+    <div class="scene-3-text">
+      <span class="w">Sujuvampaa</span><br>
+      <span class="w w-suun"><video id="suunVideo" src="/meta/elements/suun.webm" muted playsinline preload="auto"></video></span><span class="w">terveyttä</span><br>
+      <span class="w">Helsingissä</span><br>
+      <span class="w">Suun Terveystalossa.</span>
+    </div>
+    <div class="scene-3-logo">
+      <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 100px; width: auto;">
+    </div>
+  </div>
+
+  <!-- SCENE 4: End card -->
+  <div class="scene-4">
+    <div class="scene-4-inner">
+      <div class="scene-4-logo">
+        <img src="https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png" alt="Suun Terveystalo" style="height: 116px; width: auto;">
+      </div>
+      <div class="scene-4-address">Jaakonkatu 3, Helsinki</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Play suun video when scene 3 appears (60% of 15s = 9s)
+var suunTimer;
+function startSuunTimer() {
+  var sv = document.getElementById('suunVideo');
+  if (sv) { sv.pause(); sv.currentTime = 0; }
+  suunTimer = setTimeout(function() {
+    var sv = document.getElementById('suunVideo');
+    if (sv) { sv.currentTime = 0; sv.play(); }
+  }, 9000);
+}
+startSuunTimer();
+
+// Play polku transition at 48% of 15s = 7.2s
+setTimeout(function() {
+  var pv = document.getElementById('polkuVideo');
+  if (pv) { pv.currentTime = 0; pv.play(); }
+}, 7200);
+</script>
+</body>
+</html>
