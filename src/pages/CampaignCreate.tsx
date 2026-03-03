@@ -60,7 +60,10 @@ import {
   MoreHorizontal,
   ChevronDown,
   Settings,
-  Download
+  Download,
+  Building2,
+  PieChart,
+  Percent
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
@@ -794,6 +797,8 @@ const CampaignCreate = () => {
 
   // Branch screen counts - stores screen count for each branch
   const [branchScreenCounts, setBranchScreenCounts] = useState<Record<string, number>>({});
+  // Per-branch budget allocation percentages (should sum to 100)
+  const [branchBudgetAllocations, setBranchBudgetAllocations] = useState<Record<string, number>>({});
 
   // Combined screens within all selected branches' radii
   const [combinedBranchScreens, setCombinedBranchScreens] = useState<MediaScreen[]>([]);
@@ -948,6 +953,37 @@ const CampaignCreate = () => {
 
     fetchBranchScreens();
   }, [formData.branch_ids, formData.ad_type, branchRadiusSettings, branches]);
+
+  // Auto-initialize branch budget allocations when selected branches change
+  useEffect(() => {
+    if (formData.branch_ids.length <= 1) {
+      setBranchBudgetAllocations({});
+      return;
+    }
+    setBranchBudgetAllocations(prev => {
+      const selectedIds = new Set(formData.branch_ids);
+      // Check if all selected branches already have allocations
+      const existingIds = new Set(Object.keys(prev).filter(id => selectedIds.has(id)));
+      if (existingIds.size === selectedIds.size && [...selectedIds].every(id => existingIds.has(id))) {
+        // Clean up removed branches only
+        const cleaned: Record<string, number> = {};
+        for (const id of formData.branch_ids) {
+          cleaned[id] = prev[id] ?? 0;
+        }
+        return cleaned;
+      }
+      // Initialize evenly
+      const evenPct = Math.round(100 / formData.branch_ids.length);
+      return Object.fromEntries(
+        formData.branch_ids.map((id, i) => [
+          id,
+          i === formData.branch_ids.length - 1
+            ? 100 - evenPct * (formData.branch_ids.length - 1)
+            : evenPct
+        ])
+      );
+    });
+  }, [formData.branch_ids]);
 
   // Creative config - initialize with defaults, will update based on selections
   const [creativeConfig, setCreativeConfig] = useState<CreativeConfig>({
@@ -2900,6 +2936,219 @@ const CampaignCreate = () => {
                 </span>
               </div>
             </div>
+
+            {/* ============================================================= */}
+            {/* BRANCH BUDGET ALLOCATION */}
+            {/* ============================================================= */}
+            {selectedBranches.length > 1 && (() => {
+              // Initialize allocations for newly selected branches
+              const currentAllocations = { ...branchBudgetAllocations };
+              let needsInit = false;
+              for (const b of selectedBranches) {
+                if (currentAllocations[b.id] === undefined) {
+                  needsInit = true;
+                  break;
+                }
+              }
+              // Clean up removed branches
+              const selectedIds = new Set(selectedBranches.map(b => b.id));
+              const cleanedAllocations: Record<string, number> = {};
+              for (const [id, pct] of Object.entries(currentAllocations)) {
+                if (selectedIds.has(id)) {
+                  cleanedAllocations[id] = pct;
+                }
+              }
+
+              const allocations = needsInit
+                ? Object.fromEntries(selectedBranches.map(b => [b.id, Math.round(100 / selectedBranches.length)]))
+                : cleanedAllocations;
+
+              const totalPct = Object.values(allocations).reduce((s, v) => s + v, 0);
+
+              // Per-branch channel breakdowns
+              const getBranchChannelBudgets = (branchId: string) => {
+                const branchPct = allocations[branchId] || 0;
+                const branchTotal = Math.round(enabledChannelsBudget * branchPct / 100);
+                const screens = branchScreenCounts[branchId] ?? 0;
+                const hasPdooh = screens > 0;
+
+                // Start with proportional split of each enabled channel
+                let meta = formData.channel_meta ? Math.round(branchTotal * (formData.budget_meta / Math.max(enabledChannelsBudget, 1))) : 0;
+                let display = formData.channel_display ? Math.round(branchTotal * (formData.budget_display / Math.max(enabledChannelsBudget, 1))) : 0;
+                let pdooh = formData.channel_pdooh ? Math.round(branchTotal * (formData.budget_pdooh / Math.max(enabledChannelsBudget, 1))) : 0;
+                let audio = formData.channel_audio ? Math.round(branchTotal * (formData.budget_audio / Math.max(enabledChannelsBudget, 1))) : 0;
+
+                // If branch has no PDOOH screens, redistribute PDOOH budget to other channels
+                if (!hasPdooh && pdooh > 0) {
+                  const pdoohAmount = pdooh;
+                  pdooh = 0;
+                  const otherTotal = meta + display + audio;
+                  if (otherTotal > 0) {
+                    const metaShare = meta / otherTotal;
+                    const displayShare = display / otherTotal;
+                    const audioShare = audio / otherTotal;
+                    meta = Math.round(meta + pdoohAmount * metaShare);
+                    display = Math.round(display + pdoohAmount * displayShare);
+                    audio = Math.round(audio + pdoohAmount * audioShare);
+                  } else {
+                    // Fallback: split evenly among meta and display
+                    meta = Math.round(pdoohAmount / 2);
+                    display = pdoohAmount - meta;
+                  }
+                }
+
+                return { meta, display, pdooh, audio, total: meta + display + pdooh + audio, screens, hasPdooh };
+              };
+
+              const handleDistributeEvenly = () => {
+                const evenPct = Math.round(100 / selectedBranches.length);
+                const newAllocations = Object.fromEntries(
+                  selectedBranches.map((b, i) => [
+                    b.id,
+                    i === selectedBranches.length - 1
+                      ? 100 - evenPct * (selectedBranches.length - 1)
+                      : evenPct
+                  ])
+                );
+                setBranchBudgetAllocations(newAllocations);
+              };
+
+              const handlePctChange = (branchId: string, newPct: number) => {
+                const clamped = Math.max(0, Math.min(100, newPct));
+                const updated = { ...allocations, [branchId]: clamped };
+                setBranchBudgetAllocations(updated);
+              };
+
+              return (
+                <div className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <PieChart size={16} className="text-[#00A5B5]" />
+                      <h3 className="text-sm font-semibold text-gray-900">Budjetin jako toimipisteittäin</h3>
+                      <span className="text-xs text-gray-500">({selectedBranches.length} toimipistettä)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-medium ${
+                        totalPct === 100 ? 'text-green-600' : totalPct > 100 ? 'text-red-600' : 'text-amber-600'
+                      }`}>
+                        {totalPct}% / 100%
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleDistributeEvenly}
+                        className="px-3 py-1 text-xs font-medium bg-[#00A5B5] text-white rounded-lg hover:bg-[#0095a5] transition-colors"
+                      >
+                        Jaa tasaisesti
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-gray-100">
+                    {selectedBranches.map(branch => {
+                      const pct = allocations[branch.id] || 0;
+                      const cb = getBranchChannelBudgets(branch.id);
+                      return (
+                        <div key={branch.id} className="px-4 py-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Building2 size={14} className="text-[#1B365D] flex-shrink-0" />
+                              <div className="min-w-0">
+                                <span className="text-sm font-medium text-gray-900 truncate block">{branch.name}</span>
+                                <span className="text-xs text-gray-500">{branch.city}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              {/* Screen badge */}
+                              <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                                cb.hasPdooh
+                                  ? 'bg-[#1B365D]/10 text-[#1B365D]'
+                                  : 'bg-amber-50 text-amber-600'
+                              }`}>
+                                <Monitor size={10} />
+                                {cb.screens} näyttöä
+                              </div>
+                              {/* Percentage input */}
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={pct}
+                                  onChange={(e) => handlePctChange(branch.id, Number(e.target.value))}
+                                  className="w-14 px-2 py-1 text-sm font-bold text-center border border-gray-200 rounded-lg focus:border-[#00A5B5] outline-none"
+                                />
+                                <Percent size={12} className="text-gray-400" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Percentage slider */}
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={pct}
+                            onChange={(e) => handlePctChange(branch.id, Number(e.target.value))}
+                            className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00A5B5] mb-2"
+                          />
+
+                          {/* Channel breakdown for this branch */}
+                          <div className="flex gap-2 flex-wrap">
+                            {formData.channel_meta && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#E1306C' }} />
+                                <span className="text-gray-500">Meta</span>
+                                <span className="font-medium">{cb.meta}€</span>
+                              </div>
+                            )}
+                            {formData.channel_display && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#00A5B5' }} />
+                                <span className="text-gray-500">Display</span>
+                                <span className="font-medium">{cb.display}€</span>
+                              </div>
+                            )}
+                            {formData.channel_pdooh && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cb.hasPdooh ? '#1B365D' : '#d1d5db' }} />
+                                <span className={cb.hasPdooh ? 'text-gray-500' : 'text-gray-400 line-through'}>PDOOH</span>
+                                <span className={`font-medium ${cb.hasPdooh ? '' : 'text-gray-400'}`}>{cb.pdooh}€</span>
+                                {!cb.hasPdooh && (
+                                  <span className="text-amber-500 text-[10px]">(jaettu muihin)</span>
+                                )}
+                              </div>
+                            )}
+                            {formData.channel_audio && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#1DB954' }} />
+                                <span className="text-gray-500">Audio</span>
+                                <span className="font-medium">{cb.audio}€</span>
+                              </div>
+                            )}
+                            <div className="ml-auto text-xs font-semibold text-gray-700">
+                              Yht. {cb.total}€
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Allocation total warning */}
+                  {totalPct !== 100 && (
+                    <div className={`px-4 py-2 text-xs flex items-center gap-2 ${
+                      totalPct > 100 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+                    }`}>
+                      <AlertCircle size={12} />
+                      {totalPct > 100
+                        ? `Prosenttien summa ylittää 100% (${totalPct}%). Vähennä jostakin toimipisteestä.`
+                        : `Prosenttien summa on alle 100% (${totalPct}%). ${100 - totalPct}% budjetista jakamatta.`
+                      }
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
