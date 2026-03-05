@@ -196,8 +196,6 @@ async function createCampaignCreatives(
           size: `${template.width}x${template.height}`,
           width: template.width,
           height: template.height,
-          variables: variables as any,
-          html_content: renderedHtml,
           status: 'draft' as const,
         };
       });

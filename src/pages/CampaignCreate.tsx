@@ -1102,9 +1102,9 @@ const CampaignCreate = () => {
     selectedVideo: '/meta/vids/nainen.mp4',
     conceptType: 'service',
     multiLocationMode: 'single',
-    metaPrimaryText: '',
-    metaHeadline: '',
-    metaDescription: '',
+    metaPrimaryText: 'Suun Terveystalo – Sujuvampaa suunterveyttä. Varaa aika helposti verkossa!',
+    metaHeadline: 'Varaa aika Suun Terveystaloon',
+    metaDescription: 'Kokeneet hammaslääkärit ja nopea ajanvaraus. Tervetuloa!',
   });
 
   // Video library state

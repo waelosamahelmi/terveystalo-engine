@@ -908,7 +908,6 @@ export async function generateAndUploadMetaCreative(
         height: size.height,
         image_url: uploadResult.url,
         preview_url: uploadResult.url,
-        variables: overlayConfig as any,
         status: 'ready',
       })
       .select()
@@ -983,7 +982,12 @@ export async function generateAllMetaCreatives(
       // Build ad name for folder structure
       const serviceName = service.name_fi || service.name;
       const branchCity = branch.city || '';
-      const adName = `${serviceName}${branchCity ? ` - ${branchCity}` : ''}`.replace(/[/\\:*?"<>|]/g, '_');
+      // Sanitize for Supabase storage: ASCII only, no spaces or special chars
+      const adName = `${serviceName}${branchCity ? `-${branchCity}` : ''}`
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // Remove diacritics (ä→a, ö→o)
+        .replace(/[^a-zA-Z0-9-]/g, '_')                    // Replace non-alphanumeric with _
+        .replace(/_+/g, '_')                                // Collapse multiple underscores
+        .replace(/^_|_$/g, '');                             // Trim leading/trailing underscores
 
       // Build overlay config for this branch+service combination
       const overlayConfig = {
