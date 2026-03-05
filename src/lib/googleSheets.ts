@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus } from '../types';
+import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus, Branch } from '../types';
 import { parseISO, format } from 'date-fns';
 import { supabase } from './supabase';
 
@@ -13,9 +13,9 @@ const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
 // Sheet name for Suun Terveystalo feed
 const SHEET_NAME = 'FEED';
 
-// Extended column range (A:BE = 57 columns for new fields)
-const SHEET_RANGE = `${SHEET_NAME}!A:BE`;
-const COLUMN_COUNT = 57;
+// Extended column range (A:BM = 65 columns for all fields including meta copy, smartly address, excluded locations, meta video)
+const SHEET_RANGE = `${SHEET_NAME}!A:BM`;
+const COLUMN_COUNT = 65;
 
 // ============================================================================
 // SHEET SYNC TRACKING — update sheet_row_id & sheet_last_sync in DB
@@ -237,15 +237,54 @@ export async function addCampaignToSheet(
   }
 }
 
-// Helper: safely format an ISO date string to dd/MM/yyyy
+// Helper: safely format an ISO date string to DD-MM-YYYY
 function safeFormatDate(raw?: string | null): string {
   if (!raw) return '';
   if (raw.toUpperCase() === 'ONGOING') return 'Ongoing';
   try {
-    return format(parseISO(raw), 'dd/MM/yyyy');
+    return format(parseISO(raw), 'dd-MM-yyyy');
   } catch {
     return raw;
   }
+}
+
+// Helper: pad postal code to 5 digits with leading zeros
+function formatPostalCode(postalCode?: string | null): string {
+  if (!postalCode) return '';
+  const cleaned = postalCode.replace(/\D/g, '');
+  return cleaned.padStart(5, '0');
+}
+
+// Helper: format address for Smartly feed — "Streetname X, City, Finland /radius/kilometer"
+function formatSmartlyAddress(address?: string, city?: string, radius?: number): string {
+  if (!address) return '';
+  const cityPart = city || '';
+  const r = radius || 10;
+  return `${address}, ${cityPart}, Finland /${r}/kilometer`;
+}
+
+// Helper: format address for creative — "Streetname X, City"
+function formatCreativeAddress(address?: string, city?: string): string {
+  if (!address) return '';
+  return city ? `${address}, ${city}` : address;
+}
+
+// Helper: format excluded branches for Smartly feed
+function formatExcludedBranches(branches: Array<{ address: string; city: string }>, radius: number): string {
+  return branches
+    .map(b => `${b.address}, ${b.city}, Finland /${radius}/kilometer`)
+    .join('; ');
+}
+
+// Helper: format gender for sheet (Male / Female / all)
+function formatGender(genders?: string[]): string {
+  if (!genders || genders.length === 0) return 'all';
+  if (genders.includes('all')) return 'all';
+  return genders.map(g => {
+    if (g === 'male') return 'Male';
+    if (g === 'female') return 'Female';
+    return g;
+  }).join(', ');
 }
 
 // Helper: strip leading characters that Google Sheets would interpret as formulas (+, -, =, @)
@@ -254,27 +293,75 @@ function sheetSafe(val: string): string {
   return val;
 }
 
-// Helper to format a dental campaign into a sheet row (50 columns A-AX)
-function formatDentalCampaignRow(campaign: DentalCampaign): string[] {
+// Helper to format a dental campaign into a sheet row
+// Accepts optional overrides for multi-location rows (branch override, budget override)
+function formatDentalCampaignRow(
+  campaign: DentalCampaign,
+  options?: {
+    branchOverride?: { name: string; address: string; postal_code: string; city: string; region?: string; phone?: string };
+    budgetOverride?: { total: number; meta: number; display: number; pdooh: number; audio: number };
+    excludedBranchesData?: Array<{ address: string; city: string }>;
+  }
+): string[] {
   const startDate = safeFormatDate(campaign.campaign_start_date || campaign.start_date);
   const endDate = (campaign.is_ongoing || campaign.campaign_end_date?.toUpperCase() === 'ONGOING')
     ? 'Ongoing'
     : safeFormatDate(campaign.campaign_end_date || campaign.end_date);
 
   const svc = campaign.service;
-  const br = campaign.branch;
+  const br = options?.branchOverride || campaign.branch;
+  const budgetOv = options?.budgetOverride;
+
+  // Calculate campaign duration in days for daily budget
+  let campaignDays = 1;
+  try {
+    const rawStart = campaign.campaign_start_date || campaign.start_date;
+    const rawEnd = campaign.campaign_end_date || campaign.end_date;
+    if (rawStart && rawEnd && rawEnd.toUpperCase() !== 'ONGOING') {
+      const s = parseISO(rawStart);
+      const e = parseISO(rawEnd);
+      const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+      if (diff > 0) campaignDays = diff;
+    }
+  } catch { /* use default 1 */ }
+
+  const metaBudget = budgetOv?.meta ?? campaign.budget_meta ?? 0;
+  const displayBudget = budgetOv?.display ?? campaign.budget_display ?? 0;
+  const pdoohBudget = budgetOv?.pdooh ?? campaign.budget_pdooh ?? 0;
+  const audioBudget = budgetOv?.audio ?? campaign.budget_audio ?? 0;
+  const totalBudget = budgetOv?.total ?? campaign.total_budget ?? 0;
+
+  // Calculate daily budgets from total budgets
+  const dailyMeta = metaBudget / campaignDays;
+  const dailyDisplay = displayBudget / campaignDays;
+  const dailyPdooh = pdoohBudget / campaignDays;
+  const dailyAudio = audioBudget / campaignDays;
+
+  const radius = campaign.campaign_radius || 10;
+
+  // Smartly address format: "Streetname X, City, Finland /radius/kilometer"
+  const smartlyAddress = formatSmartlyAddress(br?.address, br?.city, radius);
+
+  // Creative address format: "Streetname X, City"
+  const creativeAddr = formatCreativeAddress(br?.address, br?.city);
+
+  // Excluded locations in Smartly format
+  const excludedLocations = options?.excludedBranchesData
+    ? formatExcludedBranches(options.excludedBranchesData, radius)
+    : '';
+
+  // Age: always have min and max, default 18 and 65
+  const ageMin = campaign.target_age_min ?? 18;
+  const ageMax = campaign.target_age_max ?? 65;
+
+  // Gender: Male / Female / all
+  const genderStr = formatGender(campaign.target_genders);
 
   // Summarise creatives: count per channel + list of sizes
   const creatives = campaign.creatives || [];
   const creativeCount = creatives.length;
   const creativeSizes = [...new Set(creatives.map(c => c.size))].join(', ');
   const creativeChannels = [...new Set(creatives.map(c => c.channel))].join(', ');
-  const creativeStatuses = [...new Set(creatives.map(c => c.status))].join(', ');
-  // BidTheatre creative IDs
-  const btCreativeIds = creatives
-    .filter(c => c.bt_creative_id)
-    .map(c => c.bt_creative_id)
-    .join(', ');
 
   return [
     // ── Core campaign (A-G) ──
@@ -293,23 +380,23 @@ function formatDentalCampaignRow(campaign: DentalCampaign): string[] {
 
     // ── Branch (K-P) ──
     br?.name || '',                                               // K: branch_name
-    br?.address || '',                                            // L: branch_address
-    br?.postal_code || '',                                        // M: branch_postal_code
+    creativeAddr,                                                 // L: branch_address (creative format: "Streetname X, City")
+    formatPostalCode(br?.postal_code),                            // M: branch_postal_code (5-digit padded)
     br?.city || '',                                               // N: branch_city
     br?.region || '',                                             // O: branch_region
     sheetSafe(br?.phone || ''),                                  // P: branch_phone
 
     // ── Location targeting (Q-V) ──
-    campaign.campaign_address || '',                              // Q: target_address
-    campaign.campaign_postal_code || '',                          // R: target_postal_code
+    smartlyAddress,                                               // Q: target_address (Smartly format: "Streetname X, City, Finland /radius/kilometer")
+    formatPostalCode(campaign.campaign_postal_code),              // R: target_postal_code (5-digit padded)
     campaign.campaign_city || '',                                 // S: target_city
-    (campaign.campaign_radius || 0).toString(),                   // T: target_radius
+    radius.toString(),                                            // T: target_radius
     campaign.campaign_coordinates?.lat?.toString() || '',         // U: target_lat
     campaign.campaign_coordinates?.lng?.toString() || '',         // V: target_lng
 
     // ── Schedule (W-Y) ──
-    startDate,                                                    // W: start_date
-    endDate,                                                      // X: end_date
+    startDate,                                                    // W: start_date (DD-MM-YYYY)
+    endDate,                                                      // X: end_date (DD-MM-YYYY)
     campaign.is_ongoing ? 'Yes' : 'No',                          // Y: is_ongoing
 
     // ── Channels (Z-AC) ──
@@ -319,15 +406,15 @@ function formatDentalCampaignRow(campaign: DentalCampaign): string[] {
     campaign.channel_audio ? 'Yes' : 'No',                       // AC: channel_audio
 
     // ── Budget (AD-AM) ──
-    (campaign.total_budget || 0).toString(),                      // AD: total_budget
-    (campaign.budget_meta || 0).toString(),                       // AE: budget_meta
-    (campaign.budget_display || 0).toString(),                    // AF: budget_display
-    (campaign.budget_pdooh || 0).toString(),                      // AG: budget_pdooh
-    (campaign.budget_audio || 0).toString(),                      // AH: budget_audio
-    (campaign.daily_budget_meta || 0).toFixed(2),                 // AI: daily_budget_meta
-    (campaign.daily_budget_display || 0).toFixed(2),              // AJ: daily_budget_display
-    (campaign.daily_budget_pdooh || 0).toFixed(2),                // AK: daily_budget_pdooh
-    (campaign.daily_budget_audio || 0).toFixed(2),                // AL: daily_budget_audio
+    totalBudget.toString(),                                       // AD: total_budget
+    metaBudget.toString(),                                        // AE: budget_meta
+    displayBudget.toString(),                                     // AF: budget_display
+    pdoohBudget.toString(),                                       // AG: budget_pdooh
+    audioBudget.toString(),                                       // AH: budget_audio
+    dailyMeta.toFixed(2),                                         // AI: daily_budget_meta (calculated from total meta / days)
+    dailyDisplay.toFixed(2),                                      // AJ: daily_budget_display
+    dailyPdooh.toFixed(2),                                        // AK: daily_budget_pdooh
+    dailyAudio.toFixed(2),                                        // AL: daily_budget_audio
     (campaign.spent_budget || 0).toString(),                      // AM: spent_budget
 
     // ── Creative content (AN-AT) ──
@@ -341,11 +428,11 @@ function formatDentalCampaignRow(campaign: DentalCampaign): string[] {
     (campaign.target_screens_count || 0).toString(),              // AU: target_screens_count
 
     // ── Audience (AV-AX) ──
-    (campaign.target_age_min ?? '').toString(),                   // AV: target_age_min
-    (campaign.target_age_max ?? '').toString(),                   // AW: target_age_max
-    (campaign.target_genders || []).join(', '),                   // AX: target_genders
+    ageMin.toString(),                                            // AV: target_age_min (default 18)
+    ageMax.toString(),                                            // AW: target_age_max (default 65)
+    genderStr,                                                    // AX: target_genders (Male / Female / all)
 
-    // ── New fields (AY-BB) ──
+    // ── Campaign settings (AY-BB) ──
     campaign.campaign_objective || '',                            // AY: campaign_objective
     campaign.ad_type || '',                                       // AZ: ad_type (for reference)
     svc?.code === 'yleinen-brandiviesti' ? 'Yes' : 'No',         // BA: is_general_brand_message
@@ -355,10 +442,37 @@ function formatDentalCampaignRow(campaign: DentalCampaign): string[] {
     creativeCount.toString(),                                     // BC: creatives_count
     creativeSizes,                                                // BD: creative_sizes
     creativeChannels,                                             // BE: creative_channels
+
+    // ── Meta ad copy (BF-BH) ──
+    (campaign as any).meta_primary_text || '',                    // BF: meta_primary_text
+    (campaign as any).meta_headline || '',                        // BG: meta_headline
+    (campaign as any).meta_description || '',                     // BH: meta_description
+
+    // ── Smartly fields (BI-BL) ──
+    smartlyAddress,                                               // BI: smartly_address (duplicate for Smartly column)
+    dailyMeta.toFixed(2),                                         // BJ: smartly_daily_budget (always the daily meta budget)
+    excludedLocations,                                            // BK: excluded_locations (semicolon-separated Smartly format)
+    creativeAddr,                                                 // BL: creative_address (Streetname X, City)
+    (campaign as any).meta_video_url || '',                        // BM: meta_video_url
   ];
 }
 
-// Function to add a dental campaign to Google Sheet (one row per campaign, no apartments)
+// Helper: fetch branches by IDs from Supabase
+async function fetchBranchesByIds(branchIds: string[]): Promise<Branch[]> {
+  if (!branchIds || branchIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('branches')
+    .select('*')
+    .in('id', branchIds);
+  if (error) {
+    console.error('Failed to fetch branches for sheet sync:', error);
+    return [];
+  }
+  return data || [];
+}
+
+// Function to add a dental campaign to Google Sheet
+// For multi-location campaigns: creates one row per branch with budget split evenly, same campaign ID
 export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promise<boolean> {
   try {
     const accessToken = await getAccessToken();
@@ -368,11 +482,58 @@ export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promis
       return true;
     }
 
-    const row = formatDentalCampaignRow(campaign);
+    // Fetch excluded branches data for the exclusion column
+    const excludedBranchIds = (campaign as any).excluded_branch_ids || [];
+    let excludedBranchesData: Array<{ address: string; city: string }> = [];
+    if (excludedBranchIds.length > 0) {
+      const excludedBranches = await fetchBranchesByIds(excludedBranchIds);
+      excludedBranchesData = excludedBranches.map(b => ({ address: b.address, city: b.city }));
+    }
+
+    // Determine if this is a multi-location campaign
+    const branchIds = (campaign as any).branch_ids || [];
+    const isMultiLocation = branchIds.length > 1;
+
+    let rows: string[][];
+
+    if (isMultiLocation) {
+      // Fetch all branches for this campaign
+      const allBranches = await fetchBranchesByIds(branchIds);
+      const locationCount = allBranches.length || 1;
+
+      // Split budget evenly across locations
+      const splitBudget = {
+        total: (campaign.total_budget || 0) / locationCount,
+        meta: (campaign.budget_meta || 0) / locationCount,
+        display: (campaign.budget_display || 0) / locationCount,
+        pdooh: (campaign.budget_pdooh || 0) / locationCount,
+        audio: (campaign.budget_audio || 0) / locationCount,
+      };
+
+      rows = allBranches.map(branch => formatDentalCampaignRow(campaign, {
+        branchOverride: {
+          name: branch.name,
+          address: branch.address,
+          postal_code: branch.postal_code,
+          city: branch.city,
+          region: branch.region,
+          phone: branch.phone,
+        },
+        budgetOverride: splitBudget,
+        excludedBranchesData,
+      }));
+    } else {
+      // Single location — one row
+      rows = [formatDentalCampaignRow(campaign, { excludedBranchesData })];
+    }
+
+    if (rows.length === 0) {
+      rows = [formatDentalCampaignRow(campaign, { excludedBranchesData })];
+    }
 
     const response = await axios.post(
       `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_RANGE}:append?valueInputOption=USER_ENTERED`,
-      { values: [row] },
+      { values: rows },
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -383,7 +544,7 @@ export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promis
 
     // Extract appended row range to store as sheet_row_id
     const updatedRange = response.data?.updates?.updatedRange || '';
-    console.log(`Successfully added dental campaign ${campaign.id} to Google Sheet (${updatedRange})`);
+    console.log(`Successfully added dental campaign ${campaign.id} to Google Sheet (${rows.length} rows, ${updatedRange})`);
 
     // Track sync in database
     await updateSheetSyncTracking(campaign.id, updatedRange);
@@ -395,7 +556,8 @@ export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promis
   }
 }
 
-// Function to update a dental campaign in Google Sheet (delete + re-add)
+// Function to update a dental campaign in Google Sheet (delete existing rows + re-add)
+// For multi-location campaigns, this ensures row count changes are handled correctly
 export async function updateDentalCampaignInSheet(campaign: DentalCampaign): Promise<boolean> {
   try {
     const accessToken = await getAccessToken();
@@ -404,33 +566,14 @@ export async function updateDentalCampaignInSheet(campaign: DentalCampaign): Pro
       return true;
     }
 
-    // Find existing rows for this campaign
+    // Find and delete existing rows for this campaign
     const existingRows = await findCampaignRows(campaign.id);
-
     if (existingRows.length > 0) {
-      // Update in place — overwrite the first matching row
-      const rowIndex = existingRows[0].rowIndex;
-      const row = formatDentalCampaignRow(campaign);
-
-      await axios.put(
-        `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:BE${rowIndex}?valueInputOption=USER_ENTERED`,
-        { values: [row] },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      console.log(`Successfully updated dental campaign ${campaign.id} in Google Sheet (row ${rowIndex})`);
-      await updateSheetSyncTracking(campaign.id, `${SHEET_NAME}!A${rowIndex}:BE${rowIndex}`);
-    } else {
-      // No existing row found — append as new
-      return await addDentalCampaignToSheet(campaign);
+      await deleteCampaignFromSheet(campaign.id);
     }
 
-    return true;
+    // Re-add with current data (handles multi-location automatically)
+    return await addDentalCampaignToSheet(campaign);
   } catch (error) {
     console.error('Error updating dental campaign in sheet:', error instanceof Error ? error.message : 'Unknown error');
     return false;
@@ -548,9 +691,9 @@ export async function deleteCampaignFromSheet(campaignId: string) {
       // First, clear the row to ensure no leftover data (use A:AX since we know the sheet structure)
       try {
         await axios.put(
-          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:AX${rowIndex}?valueInputOption=RAW`,
+          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:BM${rowIndex}?valueInputOption=RAW`,
           {
-            values: [Array(COLUMN_COUNT).fill('')], // Clear exactly 50 columns (A:AX)
+            values: [Array(COLUMN_COUNT).fill('')], // Clear all columns (A:BL)
           },
           {
             headers: {

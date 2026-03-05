@@ -12,7 +12,7 @@ import {
   updateDentalCampaignStatusInSheet,
   deleteCampaignFromSheet,
 } from './googleSheets';
-import { getCreativeTemplates, renderTemplateHtml } from './creativeService';
+import { getCreativeTemplates, renderTemplateHtml, generateAndUploadMetaCreative } from './creativeService';
 import type {
   DentalCampaign,
   CampaignFormData,
@@ -213,6 +213,45 @@ async function createCampaignCreatives(
         console.log(`Created ${creativesToInsert.length} creative records for campaign ${campaignId}`);
       }
     }
+
+    // Generate Meta video creatives (MP4) if Meta channel is enabled
+    if (formData.channel_meta) {
+      try {
+        const isGeneralBrandMessage = formData.general_brand_message && formData.general_brand_message.length > 0;
+        const backgroundVideo = '/meta/vids/nainen.mp4'; // Default background
+        const audioTrack = '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav';
+
+        const overlayConfig = {
+          headline: formData.headline || 'Hymyile.\nOlet hyvissä käsissä.',
+          subheadline: formData.subheadline || 'Sujuvampaa suunterveyttä.',
+          offerTitle: isGeneralBrandMessage ? undefined : 'Hammastarkastus',
+          price: isGeneralBrandMessage ? undefined : (formData.offer_text || '49'),
+          cta: formData.cta_text || 'Varaa aika',
+          branchAddress: showAddress ? formData.campaign_address : undefined,
+          logoUrl: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
+        };
+
+        const result = await generateAndUploadMetaCreative(
+          campaignId,
+          formData.name || 'Campaign',
+          backgroundVideo,
+          overlayConfig,
+          audioTrack
+        );
+
+        if (result) {
+          console.log(`Meta video creative uploaded: ${result.url}`);
+
+          // Also update the Google Sheet with the video URL
+          await supabase
+            .from('dental_campaigns')
+            .update({ meta_video_url: result.url })
+            .eq('id', campaignId);
+        }
+      } catch (metaError) {
+        console.error('Meta video creative generation failed (non-blocking):', metaError);
+      }
+    }
   } catch (error) {
     console.error('Error creating campaign creatives:', error);
   }
@@ -283,6 +322,14 @@ export async function createCampaign(
     target_age_max: formData.target_age_max,
     target_genders: formData.target_genders,
     campaign_objective: formData.campaign_objective || 'traffic',
+
+    // Meta ad copy
+    meta_primary_text: formData.meta_primary_text || null,
+    meta_headline: formData.meta_headline || null,
+    meta_description: formData.meta_description || null,
+
+    // Excluded branches
+    excluded_branch_ids: formData.excluded_branch_ids || [],
 
     status: 'draft' as CampaignStatus,
     created_by: userId

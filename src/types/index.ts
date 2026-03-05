@@ -189,6 +189,17 @@ export interface DentalCampaign {
   general_brand_message?: string;
   campaign_objective?: 'traffic' | 'reach';
 
+  // Meta ad copy
+  meta_primary_text?: string;
+  meta_headline?: string;
+  meta_description?: string;
+
+  // Excluded branches (toimipisteet)
+  excluded_branch_ids?: string[];
+
+  // Meta video creative
+  meta_video_url?: string;
+
   // Audience targeting (age and gender)
   target_age_min?: number;
   target_age_max?: number;
@@ -279,6 +290,14 @@ export interface CampaignFormData {
   background_image_url?: string;
   landing_url?: string;
   general_brand_message?: string;
+
+  // Meta ad copy
+  meta_primary_text?: string;
+  meta_headline?: string;
+  meta_description?: string;
+
+  // Excluded branches
+  excluded_branch_ids?: string[];
 
   // Step 7: Review (name)
   name: string;

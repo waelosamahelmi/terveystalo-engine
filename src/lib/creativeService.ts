@@ -623,6 +623,303 @@ export async function deleteMedia(filePath: string): Promise<boolean> {
 }
 
 /**
+ * Generate MP4 video creative for Meta ads by compositing overlay text onto a background video.
+ * Uses Canvas + MediaRecorder to produce a WebM/MP4 blob.
+ *
+ * @param backgroundVideoUrl - URL of the background video (e.g. /meta/vids/nainen.mp4)
+ * @param overlayConfig - Text overlay configuration (headline, offer, CTA, address, etc.)
+ * @param audioUrl - Optional audio track URL
+ * @param size - Video dimensions { width, height } (default 1080x1920)
+ * @returns Blob of the recorded video
+ */
+export async function generateMetaVideoCreative(
+  backgroundVideoUrl: string,
+  overlayConfig: {
+    headline?: string;
+    subheadline?: string;
+    offerTitle?: string;
+    price?: string;
+    cta?: string;
+    branchAddress?: string;
+    logoUrl?: string;
+  },
+  audioUrl?: string | null,
+  size: { width: number; height: number } = { width: 1080, height: 1920 }
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      reject(new Error('Failed to create canvas context'));
+      return;
+    }
+
+    // Create video element for background
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = backgroundVideoUrl;
+
+    // Create audio element if provided
+    let audio: HTMLAudioElement | null = null;
+    if (audioUrl) {
+      audio = document.createElement('audio');
+      audio.crossOrigin = 'anonymous';
+      audio.src = audioUrl;
+    }
+
+    // Load logo image
+    let logoImg: HTMLImageElement | null = null;
+    if (overlayConfig.logoUrl) {
+      logoImg = new Image();
+      logoImg.crossOrigin = 'anonymous';
+      logoImg.src = overlayConfig.logoUrl;
+    }
+
+    video.addEventListener('loadeddata', async () => {
+      try {
+        // Set up MediaRecorder with canvas stream
+        const stream = canvas.captureStream(30); // 30 FPS
+
+        // If we have audio, try to add the audio track
+        if (audio && audioUrl) {
+          try {
+            const audioCtx = new AudioContext();
+            const audioSource = audioCtx.createMediaElementSource(audio);
+            const dest = audioCtx.createMediaStreamDestination();
+            audioSource.connect(dest);
+            audioSource.connect(audioCtx.destination);
+            dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
+          } catch {
+            console.warn('Could not add audio track to video recording');
+          }
+        }
+
+        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+          ? 'video/webm;codecs=vp9'
+          : 'video/webm';
+        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+        const chunks: Blob[] = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: mimeType });
+          resolve(blob);
+        };
+
+        recorder.onerror = (e) => reject(e);
+
+        // Start recording
+        recorder.start();
+
+        // Play video (and audio)
+        video.play();
+        if (audio) audio.play().catch(() => {});
+
+        // Draw frames
+        const drawFrame = () => {
+          if (video.ended || video.paused) {
+            recorder.stop();
+            return;
+          }
+
+          // Draw background video
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          // Draw semi-transparent overlay at bottom
+          const overlayY = canvas.height * 0.55;
+          const gradient = ctx.createLinearGradient(0, overlayY, 0, canvas.height);
+          gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+          gradient.addColorStop(0.3, 'rgba(0, 0, 0, 0.7)');
+          gradient.addColorStop(1, 'rgba(0, 0, 0, 0.85)');
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, overlayY, canvas.width, canvas.height - overlayY);
+
+          // Draw logo at top
+          if (logoImg && logoImg.complete) {
+            const logoH = 60;
+            const logoW = (logoImg.width / logoImg.height) * logoH;
+            ctx.drawImage(logoImg, (canvas.width - logoW) / 2, 40, logoW, logoH);
+          }
+
+          // Draw text overlay
+          const textX = canvas.width / 2;
+          let textY = canvas.height * 0.65;
+
+          // Headline
+          if (overlayConfig.headline) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 64px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            const lines = overlayConfig.headline.replace(/<br\s*\/?>/gi, '\n').split(/[|\n]/);
+            for (const line of lines) {
+              ctx.fillText(line.trim(), textX, textY);
+              textY += 75;
+            }
+          }
+
+          // Subheadline
+          if (overlayConfig.subheadline) {
+            ctx.fillStyle = '#E0E0E0';
+            ctx.font = '36px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(overlayConfig.subheadline.replace(/<br\s*\/?>/gi, ' '), textX, textY + 10);
+            textY += 60;
+          }
+
+          // Price bubble
+          if (overlayConfig.price && overlayConfig.offerTitle) {
+            const bubbleY = textY + 20;
+            // Draw price circle
+            ctx.fillStyle = '#E31E24';
+            ctx.beginPath();
+            ctx.arc(textX, bubbleY + 50, 80, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Offer title
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 24px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(overlayConfig.offerTitle.replace(/[|\n]/g, ' '), textX, bubbleY + 30);
+
+            // Price
+            ctx.font = 'bold 48px Inter, sans-serif';
+            ctx.fillText(`${overlayConfig.price}€`, textX, bubbleY + 75);
+
+            textY = bubbleY + 140;
+          }
+
+          // CTA button
+          if (overlayConfig.cta) {
+            const ctaY = textY + 20;
+            const ctaW = 300;
+            const ctaH = 60;
+            const ctaX = (canvas.width - ctaW) / 2;
+
+            // Button background
+            ctx.fillStyle = '#00A5B5';
+            ctx.beginPath();
+            ctx.roundRect(ctaX, ctaY, ctaW, ctaH, 30);
+            ctx.fill();
+
+            // Button text
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 28px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(overlayConfig.cta, textX, ctaY + 40);
+            textY = ctaY + ctaH + 20;
+          }
+
+          // Branch address at bottom
+          if (overlayConfig.branchAddress) {
+            ctx.fillStyle = '#CCCCCC';
+            ctx.font = '24px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(overlayConfig.branchAddress, textX, canvas.height - 40);
+          }
+
+          requestAnimationFrame(drawFrame);
+        };
+
+        drawFrame();
+
+        // Stop recording after video ends (max 30 seconds safety)
+        const maxDuration = Math.min((video.duration || 15) * 1000, 30000);
+        setTimeout(() => {
+          if (recorder.state === 'recording') {
+            video.pause();
+            recorder.stop();
+          }
+        }, maxDuration);
+
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    video.addEventListener('error', () => reject(new Error('Failed to load background video')));
+    video.load();
+  });
+}
+
+/**
+ * Generate and upload Meta video creative for a campaign.
+ * Creates the MP4, uploads to Supabase storage, and creates a creative record.
+ */
+export async function generateAndUploadMetaCreative(
+  campaignId: string,
+  campaignName: string,
+  backgroundVideoUrl: string,
+  overlayConfig: {
+    headline?: string;
+    subheadline?: string;
+    offerTitle?: string;
+    price?: string;
+    cta?: string;
+    branchAddress?: string;
+    logoUrl?: string;
+  },
+  audioUrl?: string | null,
+  templateId?: string
+): Promise<{ url: string; creativeId: string } | null> {
+  try {
+    console.log(`Generating Meta video creative for campaign ${campaignId}...`);
+
+    // Generate the video blob
+    const videoBlob = await generateMetaVideoCreative(backgroundVideoUrl, overlayConfig, audioUrl);
+
+    // Create a File object for upload
+    const fileName = `meta-${campaignId}-${Date.now()}.webm`;
+    const videoFile = new File([videoBlob], fileName, { type: videoBlob.type });
+
+    // Upload to Supabase storage
+    const uploadResult = await uploadMedia(videoFile, 'meta-creatives');
+    if (!uploadResult) {
+      console.error('Failed to upload Meta video creative');
+      return null;
+    }
+
+    // Create creative record in database
+    const { data, error } = await supabase
+      .from('creatives')
+      .insert({
+        campaign_id: campaignId,
+        template_id: templateId || 'meta-video',
+        name: `${campaignName} - Meta Video`,
+        type: 'meta',
+        channel: 'meta',
+        size: '1080x1920',
+        width: 1080,
+        height: 1920,
+        image_url: uploadResult.url,
+        preview_url: uploadResult.url,
+        variables: overlayConfig as any,
+        status: 'ready',
+        version: 1,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to create Meta video creative record:', error);
+      return null;
+    }
+
+    console.log(`Meta video creative created: ${data.id} -> ${uploadResult.url}`);
+    return { url: uploadResult.url, creativeId: data.id };
+  } catch (error) {
+    console.error('Error generating Meta video creative:', error);
+    return null;
+  }
+}
+
+/**
  * Get all brand assets from database
  */
 export async function getBrandAssets(): Promise<{

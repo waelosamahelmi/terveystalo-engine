@@ -139,6 +139,10 @@ interface CreativeConfig {
   conceptType: 'brandviesti' | 'service';
   // Multi-location mode
   multiLocationMode: 'single' | 'multi';
+  // Meta ad copy
+  metaPrimaryText: string;
+  metaHeadline: string;
+  metaDescription: string;
 }
 
 // Preview size options
@@ -900,10 +904,16 @@ const CampaignCreate = () => {
     // New fields for campaign creation
     ad_type: undefined,
     target_age_min: 18,
-    target_age_max: 80,
+    target_age_max: 65,
     target_genders: ['all'],
     campaign_objective: 'traffic',
-    is_ongoing: false
+    is_ongoing: false,
+    // Meta ad copy
+    meta_primary_text: '',
+    meta_headline: '',
+    meta_description: '',
+    // Excluded branches
+    excluded_branch_ids: [],
   });
 
   // Fetch screens when branches or radii change
@@ -1006,6 +1016,9 @@ const CampaignCreate = () => {
     selectedVideo: '/meta/vids/nainen.mp4',
     conceptType: 'service',
     multiLocationMode: 'single',
+    metaPrimaryText: '',
+    metaHeadline: '',
+    metaDescription: '',
   });
 
   // Video library state
@@ -1956,6 +1969,9 @@ const CampaignCreate = () => {
         background_image_url: creativeConfig.backgroundImage || undefined,
         landing_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
         general_brand_message: creativeConfig.generalBrandMessage || 'Hymyile.<br>Olet hyvissä käsissä.',
+        meta_primary_text: creativeConfig.metaPrimaryText || undefined,
+        meta_headline: creativeConfig.metaHeadline || undefined,
+        meta_description: creativeConfig.metaDescription || undefined,
       }, user?.id || '');
 
       if (campaign) {
@@ -3417,6 +3433,62 @@ const CampaignCreate = () => {
                         </div>
                       </div>
 
+                      {/* Meta Ad Copy - shown when Meta channel enabled */}
+                      {formData.channel_meta && (
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-pink-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-pink-100">
+                              <Instagram size={18} className="text-pink-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Meta-mainostekstit</h3>
+                              <p className="text-xs text-gray-500">Pääviesti, otsikko ja kuvaus Meta-mainoksille</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5 space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Pääviesti (Primary Text)
+                            </label>
+                            <AutoExpandTextarea
+                              value={creativeConfig.metaPrimaryText}
+                              onChange={(value) => setCreativeConfig({ ...creativeConfig, metaPrimaryText: value })}
+                              placeholder="Suun Terveystalo - Sujuvampaa suunterveyttä. Varaa aika nyt!"
+                              minHeight={80}
+                              maxHeight={200}
+                              className="text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Otsikko (Headline)
+                            </label>
+                            <input
+                              type="text"
+                              value={creativeConfig.metaHeadline}
+                              onChange={(e) => setCreativeConfig({ ...creativeConfig, metaHeadline: e.target.value })}
+                              placeholder="Hammastarkastus alk. 49€"
+                              className="w-full px-4 py-3 text-sm rounded-xl border border-gray-200 focus:border-[#E1306C] focus:ring-2 focus:ring-[#E1306C]/20 outline-none transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Kuvaus (Description)
+                            </label>
+                            <input
+                              type="text"
+                              value={creativeConfig.metaDescription}
+                              onChange={(e) => setCreativeConfig({ ...creativeConfig, metaDescription: e.target.value })}
+                              placeholder="Varaa aika helposti verkossa"
+                              className="w-full px-4 py-3 text-sm rounded-xl border border-gray-200 focus:border-[#E1306C] focus:ring-2 focus:ring-[#E1306C]/20 outline-none transition-all"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      )}
+
                       {/* Legal Text - for PDOOH */}
                       {formData.channel_pdooh && (
                       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -3827,6 +3899,74 @@ const CampaignCreate = () => {
                           ) : (
                             <p className="text-sm text-gray-500 text-center py-4">
                               Valitse useampi toimipiste nähdäksesi sijaintiasetukset.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Excluded Branches (Toimipisteet) */}
+                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-red-50 to-white">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-red-100">
+                              <X size={18} className="text-red-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-gray-900">Poissuljetut toimipisteet</h3>
+                              <p className="text-xs text-gray-500">Valitse toimipisteet, jotka haluat sulkea pois kohdennuksesta</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5">
+                          {branches.filter(b => b.active && !formData.branch_ids.includes(b.id)).length > 0 ? (
+                            <div className="space-y-3">
+                              {(formData.excluded_branch_ids || []).length > 0 && (
+                                <div className="flex flex-wrap gap-2 mb-3">
+                                  {(formData.excluded_branch_ids || []).map(id => {
+                                    const branch = branches.find(b => b.id === id);
+                                    if (!branch) return null;
+                                    return (
+                                      <span key={id} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-full text-xs font-medium">
+                                        {branch.address}, {branch.city}
+                                        <button
+                                          type="button"
+                                          onClick={() => setFormData(prev => ({
+                                            ...prev,
+                                            excluded_branch_ids: (prev.excluded_branch_ids || []).filter(eid => eid !== id)
+                                          }))}
+                                          className="hover:text-red-900"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              <select
+                                value=""
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      excluded_branch_ids: [...(prev.excluded_branch_ids || []), e.target.value]
+                                    }));
+                                  }
+                                }}
+                                className="w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-[#00A5B5] outline-none"
+                              >
+                                <option value="">Lisää poissuljettu toimipiste...</option>
+                                {branches
+                                  .filter(b => b.active && !formData.branch_ids.includes(b.id) && !(formData.excluded_branch_ids || []).includes(b.id))
+                                  .map(b => (
+                                    <option key={b.id} value={b.id}>{b.address}, {b.city}</option>
+                                  ))
+                                }
+                              </select>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 text-center py-4">
+                              Ei poissulkemattomia toimipisteitä.
                             </p>
                           )}
                         </div>
