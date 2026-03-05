@@ -849,12 +849,21 @@ export async function generateMetaVideoCreative(
 }
 
 /**
- * Generate and upload Meta video creative for a campaign.
- * Creates the MP4, uploads to Supabase storage, and creates a creative record.
+ * Generate and upload a single Meta video creative.
+ * Uploads to Supabase storage under a structured folder path and creates a creative DB record.
+ *
+ * @param campaignId - Campaign ID
+ * @param creativeName - Human-readable name for the creative record
+ * @param storagePath - Supabase storage folder path (e.g. "meta-creatives/{campaignId}/{adName}")
+ * @param backgroundVideoUrl - Background video URL
+ * @param overlayConfig - Text overlay config
+ * @param audioUrl - Audio track URL
+ * @param size - Video dimensions
  */
 export async function generateAndUploadMetaCreative(
   campaignId: string,
-  campaignName: string,
+  creativeName: string,
+  storagePath: string,
   backgroundVideoUrl: string,
   overlayConfig: {
     headline?: string;
@@ -866,22 +875,23 @@ export async function generateAndUploadMetaCreative(
     logoUrl?: string;
   },
   audioUrl?: string | null,
-  templateId?: string
+  size: { width: number; height: number } = { width: 1080, height: 1920 }
 ): Promise<{ url: string; creativeId: string } | null> {
   try {
-    console.log(`Generating Meta video creative for campaign ${campaignId}...`);
+    const sizeStr = `${size.width}x${size.height}`;
+    console.log(`Generating Meta video ${sizeStr} for "${creativeName}"...`);
 
-    // Generate the video blob
-    const videoBlob = await generateMetaVideoCreative(backgroundVideoUrl, overlayConfig, audioUrl);
+    // Generate the video blob at the requested size
+    const videoBlob = await generateMetaVideoCreative(backgroundVideoUrl, overlayConfig, audioUrl, size);
 
-    // Create a File object for upload
-    const fileName = `meta-${campaignId}-${Date.now()}.webm`;
+    // Create a File object for upload with structured path
+    const fileName = `${sizeStr}-${Date.now()}.webm`;
     const videoFile = new File([videoBlob], fileName, { type: videoBlob.type });
 
-    // Upload to Supabase storage
-    const uploadResult = await uploadMedia(videoFile, 'meta-creatives');
+    // Upload to Supabase storage under the structured folder
+    const uploadResult = await uploadMedia(videoFile, storagePath);
     if (!uploadResult) {
-      console.error('Failed to upload Meta video creative');
+      console.error(`Failed to upload Meta video creative ${sizeStr}`);
       return null;
     }
 
@@ -890,18 +900,16 @@ export async function generateAndUploadMetaCreative(
       .from('creatives')
       .insert({
         campaign_id: campaignId,
-        template_id: templateId || 'meta-video',
-        name: `${campaignName} - Meta Video`,
+        template_id: 'meta-video',
+        name: `${creativeName} - ${sizeStr}`,
         type: 'meta',
-        channel: 'meta',
-        size: '1080x1920',
-        width: 1080,
-        height: 1920,
+        size: sizeStr,
+        width: size.width,
+        height: size.height,
         image_url: uploadResult.url,
         preview_url: uploadResult.url,
         variables: overlayConfig as any,
         status: 'ready',
-        version: 1,
       })
       .select()
       .single();
@@ -914,9 +922,107 @@ export async function generateAndUploadMetaCreative(
     console.log(`Meta video creative created: ${data.id} -> ${uploadResult.url}`);
     return { url: uploadResult.url, creativeId: data.id };
   } catch (error) {
-    console.error('Error generating Meta video creative:', error);
+    console.error(`Error generating Meta video creative ${creativeName}:`, error);
     return null;
   }
+}
+
+/**
+ * Generate all Meta video creatives for a campaign.
+ * Creates videos for each combination of: branch × service × dimension.
+ * Organized in Supabase storage as: meta-creatives/{campaignId}/{adName}/{dimension}.webm
+ */
+export async function generateAllMetaCreatives(
+  campaignId: string,
+  campaignName: string,
+  formData: {
+    service_ids: string[];
+    branch_ids: string[];
+    headline?: string;
+    subheadline?: string;
+    offer_text?: string;
+    cta_text?: string;
+    general_brand_message?: string;
+    creative_type: string;
+    campaign_address?: string;
+    meta_video_url?: string;
+    meta_audio_url?: string;
+  },
+  branches: Array<{ id: string; name: string; address: string; city: string }>,
+  services: Array<{ id: string; name: string; name_fi: string; default_price?: string; default_offer_fi?: string }>
+): Promise<{ url: string; creativeId: string }[]> {
+  const results: { url: string; creativeId: string }[] = [];
+
+  const backgroundVideo = formData.meta_video_url || '/meta/vids/nainen.mp4';
+  const audioTrack = formData.meta_audio_url || '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav';
+  const isGeneralBrandMessage = formData.general_brand_message && formData.general_brand_message.length > 0;
+  const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
+
+  // Meta video dimensions
+  const metaSizes = [
+    { width: 1080, height: 1080 },  // Feed (Square)
+    { width: 1080, height: 1920 },  // Stories/Reels (Portrait)
+  ];
+
+  // Get the branch and service lists to iterate
+  const branchList = branches.filter(b => formData.branch_ids.includes(b.id));
+  const serviceList = services.filter(s => formData.service_ids.includes(s.id));
+
+  // If no branches/services found, use fallback
+  if (branchList.length === 0) {
+    branchList.push({ id: 'default', name: 'Default', address: formData.campaign_address || '', city: '' });
+  }
+  if (serviceList.length === 0) {
+    serviceList.push({ id: 'default', name: campaignName, name_fi: campaignName, default_price: formData.offer_text });
+  }
+
+  console.log(`Generating Meta creatives: ${branchList.length} branches × ${serviceList.length} services × ${metaSizes.length} sizes = ${branchList.length * serviceList.length * metaSizes.length} total`);
+
+  for (const branch of branchList) {
+    for (const service of serviceList) {
+      // Build ad name for folder structure
+      const serviceName = service.name_fi || service.name;
+      const branchCity = branch.city || '';
+      const adName = `${serviceName}${branchCity ? ` - ${branchCity}` : ''}`.replace(/[/\\:*?"<>|]/g, '_');
+
+      // Build overlay config for this branch+service combination
+      const overlayConfig = {
+        headline: formData.headline || 'Hymyile.\nOlet hyvissä käsissä.',
+        subheadline: formData.subheadline || 'Sujuvampaa suunterveyttä.',
+        offerTitle: isGeneralBrandMessage ? undefined : (service.default_offer_fi || serviceName),
+        price: isGeneralBrandMessage ? undefined : (service.default_price || formData.offer_text || '49'),
+        cta: formData.cta_text || 'Varaa aika',
+        branchAddress: showAddress ? `${branch.address}, ${branch.city}` : undefined,
+        logoUrl: '/refs/assets/SuunTerveystalo_logo.png',
+      };
+
+      // Storage folder: meta-creatives/{campaignId}/{adName}/
+      const storagePath = `meta-creatives/${campaignId}/${adName}`;
+
+      for (const size of metaSizes) {
+        try {
+          const result = await generateAndUploadMetaCreative(
+            campaignId,
+            `${campaignName} - ${adName}`,
+            storagePath,
+            backgroundVideo,
+            overlayConfig,
+            audioTrack,
+            size
+          );
+
+          if (result) {
+            results.push(result);
+          }
+        } catch (err) {
+          console.error(`Failed to generate Meta creative ${adName} ${size.width}x${size.height}:`, err);
+        }
+      }
+    }
+  }
+
+  console.log(`Generated ${results.length} Meta video creatives for campaign ${campaignId}`);
+  return results;
 }
 
 /**

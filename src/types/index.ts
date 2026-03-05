@@ -299,6 +299,11 @@ export interface CampaignFormData {
   // Excluded branches
   excluded_branch_ids?: string[];
 
+  // Meta creative config (video/audio selections from UI)
+  meta_video_url?: string;       // Selected background video URL
+  meta_video_file?: File | null; // Uploaded custom video file
+  meta_audio_url?: string;       // Selected audio track URL
+
   // Step 7: Review (name)
   name: string;
   description?: string;

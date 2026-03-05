@@ -12,7 +12,7 @@ import {
   updateDentalCampaignStatusInSheet,
   deleteCampaignFromSheet,
 } from './googleSheets';
-import { getCreativeTemplates, renderTemplateHtml, generateAndUploadMetaCreative } from './creativeService';
+import { getCreativeTemplates, renderTemplateHtml, generateAllMetaCreatives } from './creativeService';
 import type {
   DentalCampaign,
   CampaignFormData,
@@ -193,12 +193,12 @@ async function createCampaignCreatives(
           template_id: template.id,
           name: `${formData.name || 'Campaign'} - ${template.name}`,
           type: template.type,
+          size: `${template.width}x${template.height}`,
           width: template.width,
           height: template.height,
           variables: variables as any,
-          rendered_html: renderedHtml,
+          html_content: renderedHtml,
           status: 'draft' as const,
-          version: 1,
         };
       });
 
@@ -214,39 +214,43 @@ async function createCampaignCreatives(
       }
     }
 
-    // Generate Meta video creatives (MP4) if Meta channel is enabled
+    // Generate Meta video creatives if Meta channel is enabled
+    // Creates videos for each branch × service × dimension (1080x1080, 1080x1920)
     if (formData.channel_meta) {
       try {
-        const isGeneralBrandMessage = formData.general_brand_message && formData.general_brand_message.length > 0;
-        const backgroundVideo = '/meta/vids/nainen.mp4'; // Default background
-        const audioTrack = '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav';
+        // Fetch branches and services for the campaign
+        const { data: branchData } = await supabase
+          .from('branches')
+          .select('id, name, address, city')
+          .in('id', formData.branch_ids || [formData.branch_id]);
 
-        const overlayConfig = {
-          headline: formData.headline || 'Hymyile.\nOlet hyvissä käsissä.',
-          subheadline: formData.subheadline || 'Sujuvampaa suunterveyttä.',
-          offerTitle: isGeneralBrandMessage ? undefined : 'Hammastarkastus',
-          price: isGeneralBrandMessage ? undefined : (formData.offer_text || '49'),
-          cta: formData.cta_text || 'Varaa aika',
-          branchAddress: showAddress ? formData.campaign_address : undefined,
-          logoUrl: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
-        };
+        const { data: serviceData } = await supabase
+          .from('services')
+          .select('id, name, name_fi, default_price, default_offer_fi')
+          .in('id', formData.service_ids || [formData.service_id]);
 
-        const result = await generateAndUploadMetaCreative(
+        const results = await generateAllMetaCreatives(
           campaignId,
           formData.name || 'Campaign',
-          backgroundVideo,
-          overlayConfig,
-          audioTrack
+          {
+            service_ids: formData.service_ids || [formData.service_id],
+            branch_ids: formData.branch_ids || [formData.branch_id],
+            headline: formData.headline,
+            subheadline: formData.subheadline,
+            offer_text: formData.offer_text,
+            cta_text: formData.cta_text,
+            general_brand_message: formData.general_brand_message,
+            creative_type: formData.creative_type,
+            campaign_address: formData.campaign_address,
+            meta_video_url: formData.meta_video_url,
+            meta_audio_url: formData.meta_audio_url,
+          },
+          branchData || [],
+          serviceData || []
         );
 
-        if (result) {
-          console.log(`Meta video creative uploaded: ${result.url}`);
-
-          // Also update the Google Sheet with the video URL
-          await supabase
-            .from('dental_campaigns')
-            .update({ meta_video_url: result.url })
-            .eq('id', campaignId);
+        if (results.length > 0) {
+          console.log(`Generated ${results.length} Meta video creatives`);
         }
       } catch (metaError) {
         console.error('Meta video creative generation failed (non-blocking):', metaError);
@@ -323,14 +327,6 @@ export async function createCampaign(
     target_genders: formData.target_genders,
     campaign_objective: formData.campaign_objective || 'traffic',
 
-    // Meta ad copy
-    meta_primary_text: formData.meta_primary_text || null,
-    meta_headline: formData.meta_headline || null,
-    meta_description: formData.meta_description || null,
-
-    // Excluded branches
-    excluded_branch_ids: formData.excluded_branch_ids || [],
-
     status: 'draft' as CampaignStatus,
     created_by: userId
   };
@@ -371,7 +367,15 @@ export async function createCampaign(
     ).catch(() => {}); // Fire and forget
 
     // Sync to Google Sheets master feed (fire and forget)
-    addDentalCampaignToSheet(data)
+    // Augment with meta fields that aren't stored in DB but needed for the sheet
+    const sheetData = {
+      ...data,
+      meta_primary_text: formData.meta_primary_text || '',
+      meta_headline: formData.meta_headline || '',
+      meta_description: formData.meta_description || '',
+      excluded_branch_ids: formData.excluded_branch_ids || [],
+    };
+    addDentalCampaignToSheet(sheetData)
       .then(ok => {
         if (!ok) console.warn('Sheet sync returned false for campaign', data.id);
       })
