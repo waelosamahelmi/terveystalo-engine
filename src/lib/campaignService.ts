@@ -6,12 +6,19 @@
 import { supabase } from './supabase';
 import { sendSlackNotification } from './slackService';
 import { updateBranchUsedBudget } from './branchService';
+import axios from 'axios';
 import {
   addDentalCampaignToSheet,
   updateDentalCampaignInSheet,
   updateDentalCampaignStatusInSheet,
   deleteCampaignFromSheet,
+  findCampaignRows,
+  getAccessToken as getSheetAccessToken,
 } from './googleSheets';
+
+const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
+const SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID || '1c2nbTb3nwwoO3bzQWcxI32F7WiFQ4PgPk16aUF8-Fdk';
+const SHEET_NAME = 'FEED';
 import { getCreativeTemplates, renderTemplateHtml, generateAllMetaCreatives } from './creativeService';
 import type {
   DentalCampaign,
@@ -249,6 +256,31 @@ async function createCampaignCreatives(
 
         if (results.length > 0) {
           console.log(`Generated ${results.length} Meta video creatives`);
+
+          // Update Google Sheet rows with video URLs
+          const videoUrls = results.map(r => r.url).join(', ');
+          try {
+            const rows = await findCampaignRows(campaignId);
+            if (rows.length > 0) {
+              const accessToken = await getSheetAccessToken();
+              if (accessToken) {
+                // Update column BM (meta_video_url) for each row
+                for (const row of rows) {
+                  await axios.put(
+                    `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!BM${row.rowIndex}`,
+                    { values: [[videoUrls]] },
+                    {
+                      params: { valueInputOption: 'RAW' },
+                      headers: { Authorization: `Bearer ${accessToken}` },
+                    }
+                  );
+                }
+                console.log(`Updated ${rows.length} sheet rows with video URLs`);
+              }
+            }
+          } catch (sheetErr) {
+            console.error('Failed to update sheet with video URLs (non-blocking):', sheetErr);
+          }
         }
       } catch (metaError) {
         console.error('Meta video creative generation failed (non-blocking):', metaError);
@@ -364,8 +396,7 @@ export async function createCampaign(
       }
     ).catch(() => {}); // Fire and forget
 
-    // Sync to Google Sheets master feed (fire and forget)
-    // Augment with meta fields that aren't stored in DB but needed for the sheet
+    // 1. Sync campaign data to Google Sheets FIRST (await it)
     const sheetData = {
       ...data,
       meta_primary_text: formData.meta_primary_text || '',
@@ -373,13 +404,15 @@ export async function createCampaign(
       meta_description: formData.meta_description || '',
       excluded_branch_ids: formData.excluded_branch_ids || [],
     };
-    addDentalCampaignToSheet(sheetData)
-      .then(ok => {
-        if (!ok) console.warn('Sheet sync returned false for campaign', data.id);
-      })
-      .catch(e => console.error('Google Sheets sync failed (non-blocking):', e));
+    try {
+      const sheetOk = await addDentalCampaignToSheet(sheetData);
+      if (!sheetOk) console.warn('Sheet sync returned false for campaign', data.id);
+      else console.log('Campaign data synced to Google Sheet');
+    } catch (e) {
+      console.error('Google Sheets sync failed (non-blocking):', e);
+    }
 
-    // Create creative records for the campaign (fire and forget)
+    // 2. Create creative records (fire and forget — will update sheet with video URLs when done)
     createCampaignCreatives(data.id, formData)
       .catch(e => console.error('Creative creation failed (non-blocking):', e));
   }

@@ -39,7 +39,7 @@ async function updateSheetSyncTracking(campaignId: string, sheetRowId?: string):
 }
 
 // Function to get a new access token using the refresh token
-async function getAccessToken() {
+export async function getAccessToken() {
   try {
     // Check if all required credentials are present
     if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
