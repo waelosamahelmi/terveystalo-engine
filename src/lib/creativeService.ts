@@ -949,8 +949,8 @@ export async function generateAllMetaCreatives(
   },
   branches: Array<{ id: string; name: string; address: string; city: string }>,
   services: Array<{ id: string; name: string; name_fi: string; default_price?: string; default_offer_fi?: string }>
-): Promise<{ url: string; creativeId: string }[]> {
-  const results: { url: string; creativeId: string }[] = [];
+): Promise<{ url: string; creativeId: string; width: number; height: number }[]> {
+  const results: { url: string; creativeId: string; width: number; height: number }[] = [];
 
   const backgroundVideo = formData.meta_video_url || '/meta/vids/nainen.mp4';
   const audioTrack = formData.meta_audio_url || '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav';
@@ -1016,7 +1016,7 @@ export async function generateAllMetaCreatives(
           );
 
           if (result) {
-            results.push(result);
+            results.push({ ...result, width: size.width, height: size.height });
           }
         } catch (err) {
           console.error(`Failed to generate Meta creative ${adName} ${size.width}x${size.height}:`, err);

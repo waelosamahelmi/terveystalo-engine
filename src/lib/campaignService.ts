@@ -258,24 +258,26 @@ async function createCampaignCreatives(
           console.log(`Generated ${results.length} Meta video creatives`);
 
           // Update Google Sheet rows with video URLs
-          const videoUrls = results.map(r => r.url).join(', ');
+          // BM = meta_video_url (1080x1080 feed), BN = meta_story_url (1080x1920 stories/reels)
+          const feedUrls = results.filter(r => r.width === 1080 && r.height === 1080).map(r => r.url).join(', ');
+          const storyUrls = results.filter(r => r.width === 1080 && r.height === 1920).map(r => r.url).join(', ');
           try {
             const rows = await findCampaignRows(campaignId);
             if (rows.length > 0) {
               const accessToken = await getSheetAccessToken();
               if (accessToken) {
-                // Update column BM (meta_video_url) for each row
                 for (const row of rows) {
+                  // Update BM (feed) and BN (story) in one call
                   await axios.put(
-                    `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!BM${row.rowIndex}`,
-                    { values: [[videoUrls]] },
+                    `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!BM${row.rowIndex}:BN${row.rowIndex}`,
+                    { values: [[feedUrls, storyUrls]] },
                     {
                       params: { valueInputOption: 'RAW' },
                       headers: { Authorization: `Bearer ${accessToken}` },
                     }
                   );
                 }
-                console.log(`Updated ${rows.length} sheet rows with video URLs`);
+                console.log(`Updated ${rows.length} sheet rows with video URLs (feed: ${feedUrls ? 'yes' : 'none'}, story: ${storyUrls ? 'yes' : 'none'})`);
               }
             }
           } catch (sheetErr) {

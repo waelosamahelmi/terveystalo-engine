@@ -13,9 +13,9 @@ const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
 // Sheet name for Suun Terveystalo feed
 const SHEET_NAME = 'FEED';
 
-// Extended column range (A:BM = 65 columns for all fields including meta copy, smartly address, excluded locations, meta video)
-const SHEET_RANGE = `${SHEET_NAME}!A:BM`;
-const COLUMN_COUNT = 65;
+// Extended column range (A:BN = 66 columns for all fields including meta copy, smartly address, excluded locations, meta video + story)
+const SHEET_RANGE = `${SHEET_NAME}!A:BN`;
+const COLUMN_COUNT = 66;
 
 // ============================================================================
 // SHEET SYNC TRACKING — update sheet_row_id & sheet_last_sync in DB
@@ -453,7 +453,8 @@ function formatDentalCampaignRow(
     dailyMeta.toFixed(2),                                         // BJ: smartly_daily_budget (always the daily meta budget)
     excludedLocations,                                            // BK: excluded_locations (semicolon-separated Smartly format)
     creativeAddr,                                                 // BL: creative_address (Streetname X, City)
-    (campaign as any).meta_video_url || '',                        // BM: meta_video_url
+    (campaign as any).meta_video_url || '',                        // BM: meta_video_url (1080x1080 feed)
+    (campaign as any).meta_story_url || '',                       // BN: meta_story_url (1080x1920 stories/reels)
   ];
 }
 
