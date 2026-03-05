@@ -804,6 +804,12 @@ const CampaignCreate = () => {
   // Per-branch budget allocation percentages (should sum to 100)
   const [branchBudgetAllocations, setBranchBudgetAllocations] = useState<Record<string, number>>({});
 
+  // Per-branch channel budget overrides (branchId -> { meta, display, pdooh, audio })
+  const [branchChannelOverrides, setBranchChannelOverrides] = useState<Record<string, { meta?: number; display?: number; pdooh?: number; audio?: number }>>({});
+
+  // Track whether budget recommendation has been auto-applied
+  const [recommendationApplied, setRecommendationApplied] = useState(false);
+
   // Combined screens within all selected branches' radii
   const [combinedBranchScreens, setCombinedBranchScreens] = useState<MediaScreen[]>([]);
 
@@ -915,6 +921,86 @@ const CampaignCreate = () => {
     // Excluded branches
     excluded_branch_ids: [],
   });
+
+  // Calculate channel budget recommendation based on campaign factors
+  const getChannelBudgetRecommendation = useCallback(() => {
+    const recs = {
+      meta: 35,    // Default: 35% Meta
+      display: 35,  // Default: 35% Display
+      pdooh: 25,   // Default: 25% PDOOH
+      audio: 5     // Default: 5% Audio
+    };
+
+    // Adjust based on campaign objective
+    if (formData.campaign_objective === 'traffic') {
+      recs.meta = 40;
+      recs.display = 30;
+      recs.pdooh = 25;
+      recs.audio = 5;
+    } else if (formData.campaign_objective === 'reach') {
+      recs.meta = 30;
+      recs.display = 40;
+      recs.pdooh = 25;
+      recs.audio = 5;
+    }
+
+    // Adjust based on PDOOH screens availability
+    const totalScreens = Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
+
+    if (totalScreens > 0) {
+      const screenFactor = Math.min(totalScreens / 20, 1);
+      recs.pdooh = Math.round(20 + (screenFactor * 20));
+      const reduction = recs.pdooh - 25;
+      recs.meta = Math.max(20, recs.meta - Math.round(reduction * 0.4));
+      recs.display = Math.max(20, recs.display - Math.round(reduction * 0.4));
+      recs.audio = Math.max(0, recs.audio - Math.round(reduction * 0.2));
+    } else {
+      recs.pdooh = 0;
+      recs.meta = Math.round(recs.meta + 12);
+      recs.display = Math.round(recs.display + 13);
+    }
+
+    // Adjust based on campaign type
+    if (formData.ad_type === 'nationwide') {
+      recs.display = Math.round(recs.display * 1.1);
+      recs.pdooh = Math.round(recs.pdooh * 1.1);
+      recs.meta = Math.round(100 - recs.display - recs.pdooh - recs.audio);
+    }
+
+    return recs;
+  }, [formData.campaign_objective, formData.ad_type, branchScreenCounts]);
+
+  // Apply budget recommendation
+  const applyBudgetRecommendation = useCallback((silent = false) => {
+    const recommendation = getChannelBudgetRecommendation();
+    const newBudgets = {
+      budget_meta: Math.round(formData.total_budget * recommendation.meta / 100),
+      budget_display: Math.round(formData.total_budget * recommendation.display / 100),
+      budget_pdooh: recommendation.pdooh > 0 ? Math.round(formData.total_budget * recommendation.pdooh / 100) : 0,
+      budget_audio: Math.round(formData.total_budget * recommendation.audio / 100),
+    };
+    setFormData(prev => ({
+      ...prev,
+      ...newBudgets,
+      channel_meta: newBudgets.budget_meta > 0,
+      channel_display: newBudgets.budget_display > 0,
+      channel_pdooh: newBudgets.budget_pdooh > 0,
+      channel_audio: newBudgets.budget_audio > 0,
+    }));
+    setRecommendationApplied(true);
+    // Clear branch overrides when applying recommendation
+    setBranchChannelOverrides({});
+    if (!silent) {
+      toast.success('Suositus toteutettu!');
+    }
+  }, [getChannelBudgetRecommendation, formData.total_budget]);
+
+  // Auto-apply recommendation when first entering budget step
+  useEffect(() => {
+    if (currentStep === 3 && !recommendationApplied && formData.total_budget > 0) {
+      applyBudgetRecommendation(true);
+    }
+  }, [currentStep, recommendationApplied, formData.total_budget, applyBudgetRecommendation]);
 
   // Fetch screens when branches or radii change
   useEffect(() => {
@@ -2648,9 +2734,14 @@ const CampaignCreate = () => {
             {/* Budget Selection - Compact */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-semibold text-gray-700">Kampanjan budjetti</label>
+                <label className="text-sm font-semibold text-gray-700">
+                  {formData.is_ongoing ? 'Kuukausibudjetti' : 'Kampanjan budjetti'}
+                </label>
                 <span className="text-sm text-gray-500">
-                  {campaignDays > 0 ? `${Math.round(formData.total_budget / campaignDays)}€/päivä` : '-'}
+                  {formData.is_ongoing
+                    ? `${formData.total_budget.toLocaleString('fi-FI')}€/kk`
+                    : campaignDays > 0 ? `${Math.round(formData.total_budget / campaignDays)}€/päivä` : '-'
+                  }
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -2669,7 +2760,7 @@ const CampaignCreate = () => {
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
-                    {amount}€
+                    {amount}€{formData.is_ongoing ? '/kk' : ''}
                   </button>
                 ))}
                 <div className="relative">
@@ -2693,80 +2784,7 @@ const CampaignCreate = () => {
 
             {/* Budget Recommendation */}
             {(() => {
-              // Calculate recommendation based on campaign factors
-              const getRecommendation = () => {
-                const recs = {
-                  meta: 35,    // Default: 35% Meta
-                  display: 35,  // Default: 35% Display
-                  pdooh: 25,   // Default: 25% PDOOH
-                  audio: 5     // Default: 5% Audio
-                };
-
-                // Adjust based on campaign objective
-                if (formData.campaign_objective === 'traffic') {
-                  recs.meta = 40;    // Meta is good for clicks/traffic
-                  recs.display = 30;
-                  recs.pdooh = 25;
-                  recs.audio = 5;
-                } else if (formData.campaign_objective === 'reach') {
-                  recs.meta = 30;
-                  recs.display = 40;  // Display is good for reach
-                  recs.pdooh = 25;
-                  recs.audio = 5;
-                }
-
-                // Adjust based on PDOOH screens availability
-                const totalScreens = Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
-
-                if (totalScreens > 0) {
-                  // More screens = higher PDOOH recommendation
-                  const screenFactor = Math.min(totalScreens / 20, 1); // Cap at 20 screens
-                  recs.pdooh = Math.round(20 + (screenFactor * 20)); // 20-40%
-
-                  // Reduce others proportionally
-                  const reduction = recs.pdooh - 25;
-                  recs.meta = Math.max(20, recs.meta - Math.round(reduction * 0.4));
-                  recs.display = Math.max(20, recs.display - Math.round(reduction * 0.4));
-                  recs.audio = Math.max(0, recs.audio - Math.round(reduction * 0.2));
-                } else {
-                  // No screens available = reduce PDOOH
-                  recs.pdooh = 0;
-                  recs.meta = Math.round(recs.meta + 12);
-                  recs.display = Math.round(recs.display + 13);
-                }
-
-                // Adjust based on campaign type
-                if (formData.ad_type === 'nationwide') {
-                  // Nationwide campaigns benefit more from display/PDOOH for broad reach
-                  recs.display = Math.round(recs.display * 1.1);
-                  recs.pdooh = Math.round(recs.pdooh * 1.1);
-                  recs.meta = Math.round(100 - recs.display - recs.pdooh - recs.audio);
-                }
-
-                return recs;
-              };
-
-              const recommendation = getRecommendation();
-              const applyRecommendation = () => {
-                const newBudgets = {
-                  budget_meta: Math.round(formData.total_budget * recommendation.meta / 100),
-                  budget_display: Math.round(formData.total_budget * recommendation.display / 100),
-                  budget_pdooh: recommendation.pdooh > 0 ? Math.round(formData.total_budget * recommendation.pdooh / 100) : 0,
-                  budget_audio: Math.round(formData.total_budget * recommendation.audio / 100),
-                };
-                setFormData(prev => ({ ...prev, ...newBudgets }));
-                // Also enable channels with budget > 0
-                setFormData(prev => ({
-                  ...prev,
-                  ...newBudgets,
-                  channel_meta: newBudgets.budget_meta > 0,
-                  channel_display: newBudgets.budget_display > 0,
-                  channel_pdooh: newBudgets.budget_pdooh > 0,
-                  channel_audio: newBudgets.budget_audio > 0,
-                }));
-                toast.success('Suositus toteutettu!');
-              };
-
+              const recommendation = getChannelBudgetRecommendation();
               const totalScreens = Object.values(branchScreenCounts).reduce((sum, count) => sum + count, 0);
 
               return (
@@ -2786,7 +2804,7 @@ const CampaignCreate = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={applyRecommendation}
+                      onClick={() => applyBudgetRecommendation()}
                       className="px-3 py-1.5 text-xs font-medium bg-[#00A5B5] text-white rounded-lg hover:bg-[#0095a5] transition-colors"
                     >
                       Käytä suositusta
@@ -2941,7 +2959,7 @@ const CampaignCreate = () => {
 
               {/* Summary row */}
               <div className="flex items-center justify-between px-4 py-2 bg-gray-50 text-xs text-gray-600">
-                <span>Yhteensä: <strong>{enabledChannelsBudget}€</strong></span>
+                <span>Yhteensä: <strong>{enabledChannelsBudget}€{formData.is_ongoing ? '/kk' : ''}</strong></span>
                 <span className={enabledChannelsBudget > formData.total_budget ? 'text-red-600' : 'text-green-600'}>
                   {enabledChannelsBudget > formData.total_budget
                     ? `${((enabledChannelsBudget / formData.total_budget) * 100).toFixed(0)}% yli budjetin`
@@ -2981,39 +2999,90 @@ const CampaignCreate = () => {
 
               const totalPct = Object.values(allocations).reduce((s, v) => s + v, 0);
 
-              // Per-branch channel breakdowns
+              // Per-branch channel breakdowns - smart allocation based on screen counts
               const getBranchChannelBudgets = (branchId: string) => {
                 const branchPct = allocations[branchId] || 0;
                 const branchTotal = Math.round(enabledChannelsBudget * branchPct / 100);
                 const screens = branchScreenCounts[branchId] ?? 0;
                 const hasPdooh = screens > 0;
+                const overrides = branchChannelOverrides[branchId];
 
-                // Start with proportional split of each enabled channel
-                let meta = formData.channel_meta ? Math.round(branchTotal * (formData.budget_meta / Math.max(enabledChannelsBudget, 1))) : 0;
-                let display = formData.channel_display ? Math.round(branchTotal * (formData.budget_display / Math.max(enabledChannelsBudget, 1))) : 0;
-                let pdooh = formData.channel_pdooh ? Math.round(branchTotal * (formData.budget_pdooh / Math.max(enabledChannelsBudget, 1))) : 0;
-                let audio = formData.channel_audio ? Math.round(branchTotal * (formData.budget_audio / Math.max(enabledChannelsBudget, 1))) : 0;
-
-                // If branch has no PDOOH screens, redistribute PDOOH budget to other channels
-                if (!hasPdooh && pdooh > 0) {
-                  const pdoohAmount = pdooh;
-                  pdooh = 0;
-                  const otherTotal = meta + display + audio;
-                  if (otherTotal > 0) {
-                    const metaShare = meta / otherTotal;
-                    const displayShare = display / otherTotal;
-                    const audioShare = audio / otherTotal;
-                    meta = Math.round(meta + pdoohAmount * metaShare);
-                    display = Math.round(display + pdoohAmount * displayShare);
-                    audio = Math.round(audio + pdoohAmount * audioShare);
-                  } else {
-                    // Fallback: split evenly among meta and display
-                    meta = Math.round(pdoohAmount / 2);
-                    display = pdoohAmount - meta;
-                  }
+                // If we have manual overrides for this branch, use them
+                if (overrides) {
+                  const meta = overrides.meta ?? 0;
+                  const display = overrides.display ?? 0;
+                  const pdooh = overrides.pdooh ?? 0;
+                  const audio = overrides.audio ?? 0;
+                  return { meta, display, pdooh, audio, total: meta + display + pdooh + audio, screens, hasPdooh, isManual: true };
                 }
 
-                return { meta, display, pdooh, audio, total: meta + display + pdooh + audio, screens, hasPdooh };
+                // Smart allocation: adjust PDOOH based on screen density
+                // Fewer screens = less PDOOH budget, more goes to other channels
+                let pdoohShare = 0;
+                if (hasPdooh && formData.channel_pdooh && enabledChannelsBudget > 0) {
+                  // Base PDOOH share from campaign-level ratio
+                  const basePdoohRatio = formData.budget_pdooh / Math.max(enabledChannelsBudget, 1);
+                  // Scale factor based on screen count: 1-3 screens = 30-50%, 4-10 = 50-80%, 10+ = 80-100%
+                  let screenScaleFactor: number;
+                  if (screens <= 3) {
+                    screenScaleFactor = 0.3 + (screens / 3) * 0.2; // 0.30 - 0.50
+                  } else if (screens <= 10) {
+                    screenScaleFactor = 0.5 + ((screens - 3) / 7) * 0.3; // 0.50 - 0.80
+                  } else {
+                    screenScaleFactor = 0.8 + Math.min((screens - 10) / 20, 0.2); // 0.80 - 1.00
+                  }
+                  pdoohShare = basePdoohRatio * screenScaleFactor;
+                }
+
+                // Calculate channel amounts
+                const pdoohAmount = hasPdooh && formData.channel_pdooh ? Math.round(branchTotal * pdoohShare) : 0;
+                const remaining = branchTotal - pdoohAmount;
+
+                // Distribute remaining among other enabled channels proportionally
+                const otherChannelTotal =
+                  (formData.channel_meta ? formData.budget_meta : 0) +
+                  (formData.channel_display ? formData.budget_display : 0) +
+                  (formData.channel_audio ? formData.budget_audio : 0);
+
+                let meta = 0, display = 0, audio = 0;
+                if (otherChannelTotal > 0) {
+                  meta = formData.channel_meta ? Math.round(remaining * (formData.budget_meta / otherChannelTotal)) : 0;
+                  display = formData.channel_display ? Math.round(remaining * (formData.budget_display / otherChannelTotal)) : 0;
+                  audio = formData.channel_audio ? Math.round(remaining * (formData.budget_audio / otherChannelTotal)) : 0;
+                } else if (remaining > 0) {
+                  // Fallback: split evenly among meta and display
+                  meta = Math.round(remaining / 2);
+                  display = remaining - meta;
+                }
+
+                // If no PDOOH screens, the pdoohAmount is already 0, so remaining == branchTotal
+                // which gets fully distributed to other channels
+
+                return { meta, display, pdooh: pdoohAmount, audio, total: meta + display + pdoohAmount + audio, screens, hasPdooh, isManual: false };
+              };
+
+              // Handle manual override of a branch channel budget
+              const handleBranchChannelOverride = (branchId: string, channel: 'meta' | 'display' | 'pdooh' | 'audio', value: number) => {
+                const current = getBranchChannelBudgets(branchId);
+                setBranchChannelOverrides(prev => ({
+                  ...prev,
+                  [branchId]: {
+                    meta: prev[branchId]?.meta ?? current.meta,
+                    display: prev[branchId]?.display ?? current.display,
+                    pdooh: prev[branchId]?.pdooh ?? current.pdooh,
+                    audio: prev[branchId]?.audio ?? current.audio,
+                    [channel]: Math.max(0, value),
+                  }
+                }));
+              };
+
+              // Reset a branch back to auto-calculated budgets
+              const resetBranchOverride = (branchId: string) => {
+                setBranchChannelOverrides(prev => {
+                  const updated = { ...prev };
+                  delete updated[branchId];
+                  return updated;
+                });
               };
 
               const handleDistributeEvenly = () => {
@@ -3027,6 +3096,7 @@ const CampaignCreate = () => {
                   ])
                 );
                 setBranchBudgetAllocations(newAllocations);
+                setBranchChannelOverrides({});
               };
 
               const handlePctChange = (branchId: string, newPct: number) => {
@@ -3108,29 +3178,64 @@ const CampaignCreate = () => {
                             className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#00A5B5] mb-2"
                           />
 
-                          {/* Channel breakdown for this branch */}
-                          <div className="flex gap-2 flex-wrap">
+                          {/* Channel breakdown for this branch - editable */}
+                          <div className="flex gap-2 flex-wrap items-center">
                             {formData.channel_meta && (
                               <div className="flex items-center gap-1 text-xs">
                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#E1306C' }} />
                                 <span className="text-gray-500">Meta</span>
-                                <span className="font-medium">{cb.meta}€</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={cb.meta}
+                                  onChange={(e) => handleBranchChannelOverride(branch.id, 'meta', Number(e.target.value))}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-16 px-1 py-0.5 text-xs font-medium text-center border border-gray-200 rounded focus:border-[#E1306C] outline-none"
+                                />
+                                <span className="text-gray-400">€</span>
                               </div>
                             )}
                             {formData.channel_display && (
                               <div className="flex items-center gap-1 text-xs">
                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#00A5B5' }} />
                                 <span className="text-gray-500">Display</span>
-                                <span className="font-medium">{cb.display}€</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={cb.display}
+                                  onChange={(e) => handleBranchChannelOverride(branch.id, 'display', Number(e.target.value))}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-16 px-1 py-0.5 text-xs font-medium text-center border border-gray-200 rounded focus:border-[#00A5B5] outline-none"
+                                />
+                                <span className="text-gray-400">€</span>
                               </div>
                             )}
                             {formData.channel_pdooh && (
                               <div className="flex items-center gap-1 text-xs">
                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cb.hasPdooh ? '#1B365D' : '#d1d5db' }} />
                                 <span className={cb.hasPdooh ? 'text-gray-500' : 'text-gray-400 line-through'}>PDOOH</span>
-                                <span className={`font-medium ${cb.hasPdooh ? '' : 'text-gray-400'}`}>{cb.pdooh}€</span>
-                                {!cb.hasPdooh && (
-                                  <span className="text-amber-500 text-[10px]">(jaettu muihin)</span>
+                                {cb.hasPdooh ? (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={cb.pdooh}
+                                      onChange={(e) => handleBranchChannelOverride(branch.id, 'pdooh', Number(e.target.value))}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-16 px-1 py-0.5 text-xs font-medium text-center border border-gray-200 rounded focus:border-[#1B365D] outline-none"
+                                    />
+                                    <span className="text-gray-400">€</span>
+                                    {cb.screens <= 3 && (
+                                      <span className="text-amber-500 text-[10px]" title={`Vain ${cb.screens} näyttöä → pienempi PDOOH`}>
+                                        ({cb.screens} näyttöä)
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="font-medium text-gray-400">0€</span>
+                                    <span className="text-amber-500 text-[10px]">(ei näyttöjä)</span>
+                                  </>
                                 )}
                               </div>
                             )}
@@ -3138,11 +3243,29 @@ const CampaignCreate = () => {
                               <div className="flex items-center gap-1 text-xs">
                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#1DB954' }} />
                                 <span className="text-gray-500">Audio</span>
-                                <span className="font-medium">{cb.audio}€</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={cb.audio}
+                                  onChange={(e) => handleBranchChannelOverride(branch.id, 'audio', Number(e.target.value))}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-16 px-1 py-0.5 text-xs font-medium text-center border border-gray-200 rounded focus:border-[#1DB954] outline-none"
+                                />
+                                <span className="text-gray-400">€</span>
                               </div>
                             )}
-                            <div className="ml-auto text-xs font-semibold text-gray-700">
+                            <div className="ml-auto flex items-center gap-2 text-xs font-semibold text-gray-700">
                               Yht. {cb.total}€
+                              {cb.isManual && (
+                                <button
+                                  type="button"
+                                  onClick={() => resetBranchOverride(branch.id)}
+                                  className="text-[10px] text-[#00A5B5] hover:underline font-normal"
+                                  title="Palauta automaattinen jako"
+                                >
+                                  Nollaa
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -4571,36 +4694,41 @@ const CampaignCreate = () => {
                 <div className="p-5">
                   <div className="flex items-end justify-between mb-5">
                     <div>
-                      <p className="text-white/70 text-sm">Kokonaisbudjetti</p>
-                      <p className="text-4xl font-bold mt-1">{formData.total_budget.toLocaleString('fi-FI')}€</p>
+                      <p className="text-white/70 text-sm">{formData.is_ongoing ? 'Kuukausibudjetti' : 'Kokonaisbudjetti'}</p>
+                      <p className="text-4xl font-bold mt-1">{formData.total_budget.toLocaleString('fi-FI')}€{formData.is_ongoing ? '/kk' : ''}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-white/70 text-sm">Päiväbudjetti</p>
-                      <p className="text-xl font-bold">~{Math.round(formData.total_budget / Math.max(campaignDays, 1)).toLocaleString('fi-FI')}€</p>
+                      <p className="text-white/70 text-sm">{formData.is_ongoing ? 'Viikkobudjetti' : 'Päiväbudjetti'}</p>
+                      <p className="text-xl font-bold">
+                        ~{formData.is_ongoing
+                          ? Math.round(formData.total_budget / 4.3).toLocaleString('fi-FI')
+                          : Math.round(formData.total_budget / Math.max(campaignDays, 1)).toLocaleString('fi-FI')
+                        }€{formData.is_ongoing ? '/vko' : ''}
+                      </p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {formData.channel_meta && (
                       <div className="bg-white/10 rounded-xl p-3">
-                        <p className="text-white/60 text-xs mb-1">Meta</p>
+                        <p className="text-white/60 text-xs mb-1">Meta{formData.is_ongoing ? ' /kk' : ''}</p>
                         <p className="text-lg font-bold">{formData.budget_meta.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
                     {formData.channel_display && (
                       <div className="bg-white/10 rounded-xl p-3">
-                        <p className="text-white/60 text-xs mb-1">Display</p>
+                        <p className="text-white/60 text-xs mb-1">Display{formData.is_ongoing ? ' /kk' : ''}</p>
                         <p className="text-lg font-bold">{formData.budget_display.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
                     {formData.channel_pdooh && (
                       <div className="bg-white/10 rounded-xl p-3">
-                        <p className="text-white/60 text-xs mb-1">PDOOH</p>
+                        <p className="text-white/60 text-xs mb-1">PDOOH{formData.is_ongoing ? ' /kk' : ''}</p>
                         <p className="text-lg font-bold">{formData.budget_pdooh.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
                     {formData.channel_audio && (
                       <div className="bg-white/10 rounded-xl p-3">
-                        <p className="text-white/60 text-xs mb-1">Audio</p>
+                        <p className="text-white/60 text-xs mb-1">Audio{formData.is_ongoing ? ' /kk' : ''}</p>
                         <p className="text-lg font-bold">{formData.budget_audio.toLocaleString('fi-FI')}€</p>
                       </div>
                     )}
