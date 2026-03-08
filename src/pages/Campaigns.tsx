@@ -6,7 +6,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store';
-import { pauseCampaign, deleteCampaign, duplicateCampaign } from '../lib/campaignService';
+import { pauseCampaign, deleteCampaign, duplicateCampaign, updateCampaignStatus, resumeCampaign } from '../lib/campaignService';
 import { supabase } from '../lib/supabase';
 import { isDemoMode, DEMO_CAMPAIGNS, getDemoCreatedCampaigns, type DemoCampaign } from '../lib/demoService';
 import type { DentalCampaign, CampaignStatus, CampaignFilters, Service, Branch } from '../types';
@@ -61,11 +61,13 @@ const StatusBadge = ({ status }: { status: CampaignStatus }) => {
 interface CampaignCardProps {
   campaign: DentalCampaign;
   onPause: (id: string) => void;
+  onResume: (id: string) => void;
+  onClose: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-const CampaignCard = ({ campaign, onPause, onDuplicate, onDelete }: CampaignCardProps) => {
+const CampaignCard = ({ campaign, onPause, onResume, onClose, onDuplicate, onDelete }: CampaignCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -132,7 +134,33 @@ const CampaignCard = ({ campaign, onPause, onDuplicate, onDelete }: CampaignCard
                       Keskeytä
                     </button>
                   )}
-                  
+
+                  {campaign.status === 'paused' && (
+                    <button
+                      onClick={() => {
+                        onResume(campaign.id);
+                        setMenuOpen(false);
+                      }}
+                      className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700"
+                    >
+                      <RefreshCw size={16} className="mr-3 text-gray-400" />
+                      Jatka kampanjaa
+                    </button>
+                  )}
+
+                  {(campaign.status === 'active' || campaign.status === 'paused') && (
+                    <button
+                      onClick={() => {
+                        onClose(campaign.id);
+                        setMenuOpen(false);
+                      }}
+                      className="w-full flex items-center px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/30"
+                    >
+                      <X size={16} className="mr-3" />
+                      Sulje kampanja
+                    </button>
+                  )}
+
                   <button
                     onClick={() => {
                       onDuplicate(campaign.id);
@@ -478,6 +506,25 @@ const Campaigns = () => {
     }
   };
 
+  const handleResume = async (id: string) => {
+    const success = await resumeCampaign(id);
+    if (success) {
+      toast.success('Kampanja jatkuu');
+    } else {
+      toast.error('Jatkaminen epäonnistui');
+    }
+  };
+
+  const handleClose = async (id: string) => {
+    if (!confirm('Haluatko varmasti sulkea tämän kampanjan? Kampanjaa ei voi enää aktivoida.')) return;
+    const success = await updateCampaignStatus(id, 'completed');
+    if (success) {
+      toast.success('Kampanja suljettu');
+    } else {
+      toast.error('Sulkeminen epäonnistui');
+    }
+  };
+
   const handleDuplicate = async (id: string) => {
     // Get current user
     const { data: { session } } = await supabase.auth.getSession();
@@ -623,6 +670,8 @@ const Campaigns = () => {
                 key={campaign.id}
                 campaign={campaign}
                 onPause={handlePause}
+                onResume={handleResume}
+                onClose={handleClose}
                 onDuplicate={handleDuplicate}
                 onDelete={handleDelete}
               />

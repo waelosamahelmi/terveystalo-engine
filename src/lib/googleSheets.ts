@@ -313,17 +313,22 @@ function formatDentalCampaignRow(
   const budgetOv = options?.budgetOverride;
 
   // Calculate campaign duration in days for daily budget
+  // For ongoing campaigns, budget is monthly — use 30 days to derive daily budget
   let campaignDays = 1;
-  try {
-    const rawStart = campaign.campaign_start_date || campaign.start_date;
-    const rawEnd = campaign.campaign_end_date || campaign.end_date;
-    if (rawStart && rawEnd && rawEnd.toUpperCase() !== 'ONGOING') {
-      const s = parseISO(rawStart);
-      const e = parseISO(rawEnd);
-      const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
-      if (diff > 0) campaignDays = diff;
-    }
-  } catch { /* use default 1 */ }
+  if (campaign.is_ongoing || campaign.campaign_end_date?.toUpperCase() === 'ONGOING') {
+    campaignDays = 30; // Monthly budget → daily = budget / 30
+  } else {
+    try {
+      const rawStart = campaign.campaign_start_date || campaign.start_date;
+      const rawEnd = campaign.campaign_end_date || campaign.end_date;
+      if (rawStart && rawEnd && rawEnd.toUpperCase() !== 'ONGOING') {
+        const s = parseISO(rawStart);
+        const e = parseISO(rawEnd);
+        const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+        if (diff > 0) campaignDays = diff;
+      }
+    } catch { /* use default 1 */ }
+  }
 
   const metaBudget = budgetOv?.meta ?? campaign.budget_meta ?? 0;
   const displayBudget = budgetOv?.display ?? campaign.budget_display ?? 0;

@@ -623,16 +623,187 @@ export async function deleteMedia(filePath: string): Promise<boolean> {
 }
 
 /**
- * Generate MP4 video creative for Meta ads by compositing overlay text onto a background video.
- * Uses Canvas + MediaRecorder to produce a WebM/MP4 blob.
+ * Generate video creative for Meta ads by rendering an HTML template in a hidden iframe
+ * and capturing it frame-by-frame with MediaRecorder.
  *
- * @param backgroundVideoUrl - URL of the background video (e.g. /meta/vids/nainen.mp4)
- * @param overlayConfig - Text overlay configuration (headline, offer, CTA, address, etc.)
+ * This uses the SAME HTML templates as the creative preview, ensuring visual consistency
+ * between what the user sees in the campaign creation wizard and the final video.
+ *
+ * @param templateHtml - Fully rendered HTML string from renderTemplateHtml()
  * @param audioUrl - Optional audio track URL
  * @param size - Video dimensions { width, height } (default 1080x1920)
+ * @param durationMs - Animation duration in milliseconds (default 15000 = 15 seconds)
  * @returns Blob of the recorded video
  */
 export async function generateMetaVideoCreative(
+  templateHtml: string,
+  audioUrl?: string | null,
+  size: { width: number; height: number } = { width: 1080, height: 1920 },
+  durationMs: number = 15000
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      reject(new Error('Failed to create canvas context'));
+      return;
+    }
+
+    // Create a hidden iframe to render the HTML template
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.left = '-9999px';
+    iframe.style.top = '-9999px';
+    iframe.style.width = `${size.width}px`;
+    iframe.style.height = `${size.height}px`;
+    iframe.style.border = 'none';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+    document.body.appendChild(iframe);
+
+    // Create audio element if provided
+    let audio: HTMLAudioElement | null = null;
+    if (audioUrl) {
+      audio = document.createElement('audio');
+      audio.crossOrigin = 'anonymous';
+      audio.src = audioUrl;
+    }
+
+    // Write the template HTML into the iframe
+    iframe.srcdoc = templateHtml;
+
+    iframe.addEventListener('load', async () => {
+      try {
+        // Wait a bit for fonts and images to load in the iframe
+        await new Promise(r => setTimeout(r, 1500));
+
+        // Set up MediaRecorder with canvas stream
+        const stream = canvas.captureStream(30); // 30 FPS
+
+        // If we have audio, try to add the audio track
+        if (audio && audioUrl) {
+          try {
+            const audioCtx = new AudioContext();
+            const audioSource = audioCtx.createMediaElementSource(audio);
+            const dest = audioCtx.createMediaStreamDestination();
+            audioSource.connect(dest);
+            audioSource.connect(audioCtx.destination);
+            dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
+          } catch {
+            console.warn('Could not add audio track to video recording');
+          }
+        }
+
+        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+          ? 'video/webm;codecs=vp9'
+          : 'video/webm';
+        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+        const chunks: Blob[] = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          // Clean up the hidden iframe
+          document.body.removeChild(iframe);
+          const blob = new Blob(chunks, { type: mimeType });
+          resolve(blob);
+        };
+
+        recorder.onerror = (e) => {
+          document.body.removeChild(iframe);
+          reject(e);
+        };
+
+        // Start recording
+        recorder.start();
+        if (audio) audio.play().catch(() => {});
+
+        const startTime = performance.now();
+
+        // Draw frames by capturing the iframe content via foreignObject SVG
+        const drawFrame = async () => {
+          const elapsed = performance.now() - startTime;
+          if (elapsed >= durationMs) {
+            recorder.stop();
+            return;
+          }
+
+          try {
+            // Capture the iframe's rendered HTML as an image via foreignObject SVG
+            const iframeDoc = iframe.contentDocument;
+            if (iframeDoc && iframeDoc.body) {
+              // Serialize the current state of the iframe HTML
+              const serializer = new XMLSerializer();
+              const htmlStr = serializer.serializeToString(iframeDoc.documentElement);
+
+              // Create SVG with foreignObject wrapping the HTML
+              const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}">
+                <foreignObject width="100%" height="100%">
+                  ${htmlStr}
+                </foreignObject>
+              </svg>`;
+
+              const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+              const url = URL.createObjectURL(svgBlob);
+
+              const img = new Image();
+              img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                URL.revokeObjectURL(url);
+                requestAnimationFrame(drawFrame);
+              };
+              img.onerror = () => {
+                // Fallback: draw a solid frame if SVG rendering fails
+                ctx.fillStyle = '#0a1e5c';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                URL.revokeObjectURL(url);
+                requestAnimationFrame(drawFrame);
+              };
+              img.src = url;
+            } else {
+              requestAnimationFrame(drawFrame);
+            }
+          } catch {
+            // If iframe capture fails, draw fallback and continue
+            ctx.fillStyle = '#0a1e5c';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            requestAnimationFrame(drawFrame);
+          }
+        };
+
+        drawFrame();
+
+        // Safety timeout: stop after duration + buffer
+        setTimeout(() => {
+          if (recorder.state === 'recording') {
+            recorder.stop();
+          }
+        }, durationMs + 2000);
+
+      } catch (error) {
+        document.body.removeChild(iframe);
+        reject(error);
+      }
+    });
+
+    iframe.addEventListener('error', () => {
+      document.body.removeChild(iframe);
+      reject(new Error('Failed to load template in iframe'));
+    });
+  });
+}
+
+/**
+ * Legacy canvas-based video generation (kept as fallback).
+ * Used when HTML template is not available.
+ */
+export async function generateMetaVideoCreativeFallback(
   backgroundVideoUrl: string,
   overlayConfig: {
     headline?: string;
@@ -681,10 +852,8 @@ export async function generateMetaVideoCreative(
 
     video.addEventListener('loadeddata', async () => {
       try {
-        // Set up MediaRecorder with canvas stream
-        const stream = canvas.captureStream(30); // 30 FPS
+        const stream = canvas.captureStream(30);
 
-        // If we have audio, try to add the audio track
         if (audio && audioUrl) {
           try {
             const audioCtx = new AudioContext();
@@ -714,25 +883,18 @@ export async function generateMetaVideoCreative(
         };
 
         recorder.onerror = (e) => reject(e);
-
-        // Start recording
         recorder.start();
-
-        // Play video (and audio)
         video.play();
         if (audio) audio.play().catch(() => {});
 
-        // Draw frames
         const drawFrame = () => {
           if (video.ended || video.paused) {
             recorder.stop();
             return;
           }
 
-          // Draw background video
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-          // Draw semi-transparent overlay at bottom
           const overlayY = canvas.height * 0.55;
           const gradient = ctx.createLinearGradient(0, overlayY, 0, canvas.height);
           gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
@@ -741,18 +903,15 @@ export async function generateMetaVideoCreative(
           ctx.fillStyle = gradient;
           ctx.fillRect(0, overlayY, canvas.width, canvas.height - overlayY);
 
-          // Draw logo at top
           if (logoImg && logoImg.complete) {
             const logoH = 60;
             const logoW = (logoImg.width / logoImg.height) * logoH;
             ctx.drawImage(logoImg, (canvas.width - logoW) / 2, 40, logoW, logoH);
           }
 
-          // Draw text overlay
           const textX = canvas.width / 2;
           let textY = canvas.height * 0.65;
 
-          // Headline
           if (overlayConfig.headline) {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = 'bold 64px Inter, sans-serif';
@@ -764,7 +923,6 @@ export async function generateMetaVideoCreative(
             }
           }
 
-          // Subheadline
           if (overlayConfig.subheadline) {
             ctx.fillStyle = '#E0E0E0';
             ctx.font = '36px Inter, sans-serif';
@@ -773,42 +931,30 @@ export async function generateMetaVideoCreative(
             textY += 60;
           }
 
-          // Price bubble
           if (overlayConfig.price && overlayConfig.offerTitle) {
             const bubbleY = textY + 20;
-            // Draw price circle
             ctx.fillStyle = '#E31E24';
             ctx.beginPath();
             ctx.arc(textX, bubbleY + 50, 80, 0, Math.PI * 2);
             ctx.fill();
-
-            // Offer title
             ctx.fillStyle = '#FFFFFF';
             ctx.font = 'bold 24px Inter, sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(overlayConfig.offerTitle.replace(/[|\n]/g, ' '), textX, bubbleY + 30);
-
-            // Price
             ctx.font = 'bold 48px Inter, sans-serif';
             ctx.fillText(`${overlayConfig.price}€`, textX, bubbleY + 75);
-
             textY = bubbleY + 140;
           }
 
-          // CTA button
           if (overlayConfig.cta) {
             const ctaY = textY + 20;
             const ctaW = 300;
             const ctaH = 60;
             const ctaX = (canvas.width - ctaW) / 2;
-
-            // Button background
             ctx.fillStyle = '#00A5B5';
             ctx.beginPath();
             ctx.roundRect(ctaX, ctaY, ctaW, ctaH, 30);
             ctx.fill();
-
-            // Button text
             ctx.fillStyle = '#FFFFFF';
             ctx.font = 'bold 28px Inter, sans-serif';
             ctx.textAlign = 'center';
@@ -816,7 +962,6 @@ export async function generateMetaVideoCreative(
             textY = ctaY + ctaH + 20;
           }
 
-          // Branch address at bottom
           if (overlayConfig.branchAddress) {
             ctx.fillStyle = '#CCCCCC';
             ctx.font = '24px Inter, sans-serif';
@@ -829,7 +974,6 @@ export async function generateMetaVideoCreative(
 
         drawFrame();
 
-        // Stop recording after video ends (max 30 seconds safety)
         const maxDuration = Math.min((video.duration || 15) * 1000, 30000);
         setTimeout(() => {
           if (recorder.state === 'recording') {
@@ -850,39 +994,32 @@ export async function generateMetaVideoCreative(
 
 /**
  * Generate and upload a single Meta video creative.
- * Uploads to Supabase storage under a structured folder path and creates a creative DB record.
+ * Uses the HTML template approach (same as preview) to ensure visual consistency.
+ * Falls back to canvas overlay if template HTML is not provided.
  *
  * @param campaignId - Campaign ID
  * @param creativeName - Human-readable name for the creative record
- * @param storagePath - Supabase storage folder path (e.g. "meta-creatives/{campaignId}/{adName}")
- * @param backgroundVideoUrl - Background video URL
- * @param overlayConfig - Text overlay config
+ * @param storagePath - Supabase storage folder path
+ * @param templateHtml - Rendered HTML template string (from renderTemplateHtml)
  * @param audioUrl - Audio track URL
  * @param size - Video dimensions
+ * @param durationMs - Animation duration in milliseconds
  */
 export async function generateAndUploadMetaCreative(
   campaignId: string,
   creativeName: string,
   storagePath: string,
-  backgroundVideoUrl: string,
-  overlayConfig: {
-    headline?: string;
-    subheadline?: string;
-    offerTitle?: string;
-    price?: string;
-    cta?: string;
-    branchAddress?: string;
-    logoUrl?: string;
-  },
+  templateHtml: string,
   audioUrl?: string | null,
-  size: { width: number; height: number } = { width: 1080, height: 1920 }
+  size: { width: number; height: number } = { width: 1080, height: 1920 },
+  durationMs: number = 15000
 ): Promise<{ url: string; creativeId: string } | null> {
   try {
     const sizeStr = `${size.width}x${size.height}`;
     console.log(`Generating Meta video ${sizeStr} for "${creativeName}"...`);
 
-    // Generate the video blob at the requested size
-    const videoBlob = await generateMetaVideoCreative(backgroundVideoUrl, overlayConfig, audioUrl, size);
+    // Generate the video blob using the HTML template
+    const videoBlob = await generateMetaVideoCreative(templateHtml, audioUrl, size, durationMs);
 
     // Create a File object for upload with structured path
     const fileName = `${sizeStr}-${Date.now()}.webm`;
@@ -928,6 +1065,9 @@ export async function generateAndUploadMetaCreative(
 
 /**
  * Generate all Meta video creatives for a campaign.
+ * Uses the same HTML templates as the preview in campaign creation wizard,
+ * ensuring visual consistency between preview and final video output.
+ *
  * Creates videos for each combination of: branch × service × dimension.
  * Organized in Supabase storage as: meta-creatives/{campaignId}/{adName}/{dimension}.webm
  */
@@ -948,14 +1088,15 @@ export async function generateAllMetaCreatives(
     meta_audio_url?: string;
   },
   branches: Array<{ id: string; name: string; address: string; city: string }>,
-  services: Array<{ id: string; name: string; name_fi: string; default_price?: string; default_offer_fi?: string }>
+  services: Array<{ id: string; name: string; name_fi: string; default_price?: string; default_offer_fi?: string }>,
+  templateVariablesBuilder?: (branch: { id: string; name: string; address: string; city: string }, service: { id: string; name: string; name_fi: string; default_price?: string; default_offer_fi?: string }, size: { width: number; height: number }) => Record<string, string>
 ): Promise<{ url: string; creativeId: string; width: number; height: number }[]> {
   const results: { url: string; creativeId: string; width: number; height: number }[] = [];
 
-  const backgroundVideo = formData.meta_video_url || '/meta/vids/nainen.mp4';
   const audioTrack = formData.meta_audio_url || '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav';
   const isGeneralBrandMessage = formData.general_brand_message && formData.general_brand_message.length > 0;
   const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
   // Meta video dimensions
   const metaSizes = [
@@ -975,44 +1116,287 @@ export async function generateAllMetaCreatives(
     serviceList.push({ id: 'default', name: campaignName, name_fi: campaignName, default_price: formData.offer_text });
   }
 
+  // Fetch Meta templates from DB for each size
+  const metaTemplates = await getCreativeTemplates({ type: 'meta', active: true });
+  const templatesBySize: Record<string, CreativeTemplate> = {};
+  for (const t of metaTemplates) {
+    templatesBySize[t.size] = t;
+  }
+
   console.log(`Generating Meta creatives: ${branchList.length} branches × ${serviceList.length} services × ${metaSizes.length} sizes = ${branchList.length * serviceList.length * metaSizes.length} total`);
+  console.log(`Available Meta templates: ${Object.keys(templatesBySize).join(', ')}`);
 
   for (const branch of branchList) {
     for (const service of serviceList) {
       // Build ad name for folder structure
       const serviceName = service.name_fi || service.name;
       const branchCity = branch.city || '';
-      // Sanitize for Supabase storage: ASCII only, no spaces or special chars
       const adName = `${serviceName}${branchCity ? `-${branchCity}` : ''}`
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // Remove diacritics (ä→a, ö→o)
-        .replace(/[^a-zA-Z0-9-]/g, '_')                    // Replace non-alphanumeric with _
-        .replace(/_+/g, '_')                                // Collapse multiple underscores
-        .replace(/^_|_$/g, '');                             // Trim leading/trailing underscores
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9-]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '');
 
-      // Build overlay config for this branch+service combination
-      const overlayConfig = {
-        headline: formData.headline || 'Hymyile.\nOlet hyvissä käsissä.',
-        subheadline: formData.subheadline || 'Sujuvampaa suunterveyttä.',
-        offerTitle: isGeneralBrandMessage ? undefined : (service.default_offer_fi || serviceName),
-        price: isGeneralBrandMessage ? undefined : (service.default_price || formData.offer_text || '49'),
-        cta: formData.cta_text || 'Varaa aika',
-        branchAddress: showAddress ? `${branch.address}, ${branch.city}` : undefined,
-        logoUrl: '/refs/assets/SuunTerveystalo_logo.png',
-      };
-
-      // Storage folder: meta-creatives/{campaignId}/{adName}/
       const storagePath = `meta-creatives/${campaignId}/${adName}`;
 
       for (const size of metaSizes) {
         try {
+          const sizeStr = `${size.width}x${size.height}`;
+          const template = templatesBySize[sizeStr];
+
+          let templateHtml: string;
+
+          if (template && templateVariablesBuilder) {
+            // Use the same template variables as the preview
+            const variables = templateVariablesBuilder(branch, service, size);
+            templateHtml = renderTemplateHtml(template, variables);
+          } else if (template) {
+            // Build variables matching the preview format (must match CampaignCreate.tsx buildTemplateVariables)
+            const branchAddress = showAddress ? `${branch.address}, ${branch.city}` : '';
+            const headlineParts = (formData.headline || 'Hymyile.|Olet hyvissä käsissä.').split('|');
+
+            // For Meta templates, headline is first part, subheadline gets second part
+            const headlineValue = headlineParts[0]?.trim() || 'Hymyile.';
+            const subheadlineValue = formData.subheadline || (headlineParts.length > 1 ? headlineParts.slice(1).join(' ').trim() : 'Olet hyvissä käsissä.');
+
+            // Build subheadline/message text
+            let messageText = subheadlineValue;
+            if (!formData.subheadline) {
+              if (isGeneralBrandMessage) {
+                const cityName = branch.city || '';
+                messageText = cityName
+                  ? `Sujuvampaa suunterveyttä ${cityName}n Suun Terveystalossa.`
+                  : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+              } else {
+                const cityName = branch.city || '';
+                messageText = cityName
+                  ? `Sujuvampaa suunterveyttä ${cityName}n Suun Terveystalossa.`
+                  : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+              }
+            }
+
+            const variables: Record<string, string> = {
+              // Text content
+              title: 'Suun Terveystalo',
+              headline: headlineValue,
+              subheadline: messageText,
+              offer_title: isGeneralBrandMessage ? '' : (service.default_offer_fi || serviceName),
+              offer_subtitle: isGeneralBrandMessage ? '' : 'uusille asiakkaille',
+              price: isGeneralBrandMessage ? '' : (service.default_price || formData.offer_text || '49'),
+              currency: '€',
+              cta_text: formData.cta_text || 'Varaa aika',
+              branch_address: branchAddress,
+
+              // Scene 3 text lines
+              scene3_line1: 'Sujuvampaa',
+              scene3_line2: 'terveyttä',
+              scene3_line3: branch.city || '',
+              scene3_line4: 'Suun Terveystalossa.',
+              city_name: branch.city || '',
+
+              // Images
+              scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
+              scene2_image: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces',
+              logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
+              artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
+              image_url: `${baseUrl}/refs/assets/nainen.jpg`,
+              image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
+              image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
+
+              // Styling
+              font_url: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800;900&display=swap',
+              font_family: 'Inter',
+              bg_color: '#0a1e5c',
+              text_color: '#fff',
+              wipe_color: '#0a3d91',
+              badge_color: '#0a3d91',
+              scene3_text_dim: '#6b82b8',
+              scene3_text_bright_color: '#ffffff',
+              scene4_addr_color: 'rgba(255,255,255,0.6)',
+
+              // SVG badge path
+              badge_svg_path: 'M 145,10 C 175,8   205,15  230,35 Q 258,55  270,90 C 280,120  282,155  272,185 Q 260,220  235,248 C 210,272  175,285  140,284 C 105,283  70,270   45,245 Q 20,218   10,180 C 2,148    5,112   18,82 Q 32,48    65,28 C 90,14   118,10  145,10 Z',
+
+              // Animation timing
+              animation_duration: '15',
+              scene1_end: '44',
+              scene1_fade: '48',
+              scene1_zoom_duration: '8',
+              scene1_zoom_scale: '1.08',
+              scene2_start: '42',
+              scene2_fade: '47',
+              logo_end: '54',
+              logo_hide: '57',
+              badge_show: '27',
+              badge_pop: '30',
+              badge_pop_scale: '1.05',
+              badge_hold: '32',
+              badge_end: '55',
+              badge_hide: '57',
+              headline_show: '27',
+              headline_pop: '30',
+              headline_hold: '35',
+              headline_move: '38',
+              headline_end: '55',
+              headline_hide: '57',
+              subline_show: '36',
+              subline_pop: '40',
+              subline_end: '55',
+              subline_hide: '57',
+              cw1_show: '48',
+              cw1_pop: '50',
+              cw1_hold: '54',
+              cw1_wipe: '57',
+              cw2_show: '49',
+              cw2_pop: '51',
+              cw2_hold: '54',
+              cw2_wipe: '57',
+              cw3_show: '49',
+              cw3_pop: '51.5',
+              cw3_hold: '54',
+              cw3_wipe: '57',
+              cw4_show: '49.5',
+              cw4_pop: '52',
+              cw4_hold: '54',
+              cw4_wipe: '57',
+              cw5_show: '50',
+              cw5_pop: '52',
+              cw5_hold: '54',
+              cw5_wipe: '57',
+              cw6_show: '50',
+              cw6_pop: '52.5',
+              cw6_hold: '54',
+              cw6_wipe: '57',
+              cw7_show: '50.5',
+              cw7_pop: '53',
+              cw7_hold: '54',
+              cw7_wipe: '57',
+              cw_big_show: '55',
+              cw_big_pop: '56',
+              cw_big_hold: '59',
+              cw_big_wipe: '8',
+              scene3_start: '58',
+              scene3_show: '60',
+              scene3_end: '82',
+              scene3_hide: '85',
+              scene3_text_dim_start: '60',
+              scene3_text_bright: '67',
+              scene3_arc: '72',
+              scene3_logo_show: '61',
+              scene3_logo_pop: '64',
+              scene3_logo_end: '82',
+              scene3_logo_hide: '85',
+              scene4_start: '83',
+              scene4_show: '86',
+              scene4_logo_show: '84',
+              scene4_logo_pop: '87',
+              scene4_addr_show: '89',
+              scene4_addr_pop: '94',
+
+              // Layout sizes (1080x1080 defaults)
+              logo_bottom: '65',
+              logo_height: '52',
+              badge_top: '20',
+              badge_left: '15',
+              badge_size: '290',
+              badge_pad_bottom: '5',
+              badge_pad_right: '10',
+              badge_label_size: '26',
+              badge_label_weight: '700',
+              badge_price_size: '82',
+              badge_price_weight: '900',
+              badge_price_lineheight: '0.85',
+              badge_euro_size: '52',
+              badge_euro_weight: '700',
+              badge_euro_top: '6',
+              badge_euro_left: '2',
+              headline_top: '50',
+              headline_size: '70',
+              headline_weight: '800',
+              headline_start_y: '30',
+              headline_end_y: '90',
+              subline_top: '50',
+              subline_size: '62',
+              subline_weight: '800',
+              subline_start_y: '10',
+              subline_end_y: '10',
+              subline_lineheight: '1.15',
+              text_shadow: '2',
+
+              // Circle wipe sizes and positions
+              cw1_size: '140',
+              cw1_bottom: '-20',
+              cw1_left: '-30',
+              cw1_scale: '15',
+              cw2_size: '100',
+              cw2_bottom: '90',
+              cw2_left: '60',
+              cw2_scale: '15',
+              cw3_size: '70',
+              cw3_bottom: '50',
+              cw3_left: '150',
+              cw3_scale: '18',
+              cw4_size: '55',
+              cw4_bottom: '160',
+              cw4_left: '20',
+              cw4_scale: '22',
+              cw5_size: '90',
+              cw5_bottom: '130',
+              cw5_left: '130',
+              cw5_scale: '15',
+              cw6_size: '120',
+              cw6_bottom: '30',
+              cw6_left: '200',
+              cw6_scale: '12',
+              cw7_size: '45',
+              cw7_bottom: '190',
+              cw7_left: '100',
+              cw7_scale: '28',
+              cw_big_size: '400',
+              cw_big_bottom: '-200',
+              cw_big_left: '-200',
+              cw_big_scale: '8',
+
+              // Scene 3 styling
+              scene3_text_size: '78',
+              scene3_text_weight: '800',
+              scene3_text_lineheight: '1.15',
+              scene3_text_pad: '60',
+              scene3_text_style: 'italic',
+              scene3_arc_angle: '-18',
+              scene3_arc_scale: '0.82',
+              scene3_logo_bottom: '95',
+              scene3_logo_height: '46',
+
+              // Scene 4 styling
+              scene4_margin_top: '60',
+              scene4_logo_height: '54',
+              scene4_addr_top: '18',
+              scene4_addr_size: '40',
+              scene4_addr_weight: '300',
+              scene4_addr_spacing: '0.5',
+              scene4_addr_slide: '8',
+
+              // Other
+              offer_date: isGeneralBrandMessage ? '' : 'Varaa viimeistään 28.10.',
+              click_url: 'https://terveystalo.com/suunterveystalo',
+            };
+
+            templateHtml = renderTemplateHtml(template, variables);
+          } else {
+            // No template found — skip this size
+            console.warn(`No Meta template found for size ${sizeStr}, skipping`);
+            continue;
+          }
+
           const result = await generateAndUploadMetaCreative(
             campaignId,
             `${campaignName} - ${adName}`,
             storagePath,
-            backgroundVideo,
-            overlayConfig,
+            templateHtml,
             audioTrack,
-            size
+            size,
+            15000 // 15 second animation duration
           );
 
           if (result) {
