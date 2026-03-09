@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { supabase } from './supabase';
+import html2canvas from 'html2canvas';
 import type { Creative, CreativeTemplate, CreativeTemplateSummary, CreativeStatus } from '../types';
 
 /**
@@ -623,11 +624,77 @@ export async function deleteMedia(filePath: string): Promise<boolean> {
 }
 
 /**
- * Generate video creative for Meta ads by rendering an HTML template in a hidden iframe
- * and capturing it frame-by-frame with MediaRecorder.
+ * Fetch an image URL and return it as a base64 data URL.
+ * Falls back to the original URL if fetch fails (e.g., CORS issues).
+ */
+async function imageToDataUrl(url: string): Promise<string> {
+  try {
+    const response = await fetch(url, { mode: 'cors' });
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(url); // fallback
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return url; // fallback to original URL
+  }
+}
+
+/**
+ * Pre-process template HTML to embed all external images as base64 data URLs.
+ * This avoids cross-origin issues when rendering with html2canvas.
+ */
+async function embedExternalResources(html: string): Promise<string> {
+  // Find all image URLs in src attributes and CSS url() references
+  const imgSrcRegex = /src=["']([^"']+\.(jpg|jpeg|png|webp|gif|svg)[^"']*)["']/gi;
+  const cssUrlRegex = /url\(["']?([^"')]+\.(jpg|jpeg|png|webp|gif|svg)[^"')]*)["']?\)/gi;
+
+  const urls = new Set<string>();
+  let match;
+
+  while ((match = imgSrcRegex.exec(html)) !== null) {
+    if (match[1].startsWith('http')) urls.add(match[1]);
+  }
+  while ((match = cssUrlRegex.exec(html)) !== null) {
+    if (match[1].startsWith('http')) urls.add(match[1]);
+  }
+
+  // Fetch all external images in parallel and convert to data URLs
+  const urlMap = new Map<string, string>();
+  const fetches = Array.from(urls).map(async (url) => {
+    const dataUrl = await imageToDataUrl(url);
+    urlMap.set(url, dataUrl);
+  });
+  await Promise.all(fetches);
+
+  // Replace all external URLs with their data URL equivalents
+  let processed = html;
+  for (const [originalUrl, dataUrl] of urlMap) {
+    if (dataUrl !== originalUrl) {
+      // Escape special regex characters in URL
+      const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      processed = processed.replace(new RegExp(escaped, 'g'), dataUrl);
+    }
+  }
+
+  return processed;
+}
+
+/**
+ * Generate video creative for Meta ads by rendering an HTML template
+ * and capturing it frame-by-frame using html2canvas + Web Animations API.
  *
  * This uses the SAME HTML templates as the creative preview, ensuring visual consistency
  * between what the user sees in the campaign creation wizard and the final video.
+ *
+ * Approach:
+ * 1. Pre-fetch external images → base64 data URLs (avoids cross-origin)
+ * 2. Render template in a hidden container div
+ * 3. Use Web Animations API to pause & seek through the animation timeline
+ * 4. html2canvas captures each frame → draw on recording canvas
+ * 5. MediaRecorder records the canvas stream
  *
  * @param templateHtml - Fully rendered HTML string from renderTemplateHtml()
  * @param audioUrl - Optional audio track URL
@@ -641,161 +708,205 @@ export async function generateMetaVideoCreative(
   size: { width: number; height: number } = { width: 1080, height: 1920 },
   durationMs: number = 15000
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = size.width;
-    canvas.height = size.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      reject(new Error('Failed to create canvas context'));
-      return;
+  const FPS = 15; // 15 fps is sufficient for CSS animation capture
+  const totalFrames = Math.ceil((durationMs / 1000) * FPS);
+  const frameDurationMs = 1000 / FPS;
+
+  console.log(`[MetaVideo] Starting: ${size.width}x${size.height}, ${durationMs}ms, ${FPS}fps, ${totalFrames} frames`);
+
+  // Step 1: Embed external images as data URLs to avoid cross-origin issues
+  console.log('[MetaVideo] Embedding external resources...');
+  const embeddedHtml = await embedExternalResources(templateHtml);
+
+  // Step 2: Create a hidden container and inject the template HTML
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '-9999px';
+  container.style.width = `${size.width}px`;
+  container.style.height = `${size.height}px`;
+  container.style.overflow = 'hidden';
+  container.style.zIndex = '-1';
+  container.style.pointerEvents = 'none';
+
+  // Create a shadow root for style isolation
+  const shadow = container.attachShadow({ mode: 'open' });
+
+  // Parse the template HTML and extract head/body content
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(embeddedHtml, 'text/html');
+
+  // Copy all styles from the template's <head>
+  const styleElements = doc.querySelectorAll('style');
+  styleElements.forEach(style => {
+    const cloned = style.cloneNode(true) as HTMLStyleElement;
+    shadow.appendChild(cloned);
+  });
+
+  // Add Google Fonts via a link element in shadow DOM
+  const fontLink = document.createElement('link');
+  fontLink.rel = 'stylesheet';
+  fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800;900&display=swap';
+  shadow.appendChild(fontLink);
+
+  // Copy the body content
+  const wrapper = document.createElement('div');
+  wrapper.style.width = `${size.width}px`;
+  wrapper.style.height = `${size.height}px`;
+  wrapper.style.overflow = 'hidden';
+  wrapper.style.position = 'relative';
+  wrapper.innerHTML = doc.body.innerHTML;
+  shadow.appendChild(wrapper);
+
+  document.body.appendChild(container);
+
+  // Step 3: Wait for fonts and images to load
+  console.log('[MetaVideo] Waiting for fonts and images to load...');
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Preload fonts by forcing a layout
+  try {
+    await document.fonts.ready;
+  } catch {
+    // fonts.ready may not be available in all contexts
+  }
+
+  // Step 4: Pause all CSS animations and prepare for frame stepping
+  const allAnimated = shadow.querySelectorAll('*');
+  const animatedElements: { el: HTMLElement; animations: string; duration: string; delay: string; playState: string }[] = [];
+
+  allAnimated.forEach(el => {
+    const htmlEl = el as HTMLElement;
+    const computed = getComputedStyle(htmlEl);
+    if (computed.animationName && computed.animationName !== 'none') {
+      animatedElements.push({
+        el: htmlEl,
+        animations: computed.animationName,
+        duration: computed.animationDuration,
+        delay: computed.animationDelay,
+        playState: computed.animationPlayState,
+      });
+      // Pause animations initially
+      htmlEl.style.animationPlayState = 'paused';
     }
+  });
 
-    // Create a hidden iframe to render the HTML template
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.left = '-9999px';
-    iframe.style.top = '-9999px';
-    iframe.style.width = `${size.width}px`;
-    iframe.style.height = `${size.height}px`;
-    iframe.style.border = 'none';
-    iframe.style.opacity = '0';
-    iframe.style.pointerEvents = 'none';
-    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
-    document.body.appendChild(iframe);
+  console.log(`[MetaVideo] Found ${animatedElements.length} animated elements`);
 
-    // Create audio element if provided
-    let audio: HTMLAudioElement | null = null;
-    if (audioUrl) {
-      audio = document.createElement('audio');
+  // Step 5: Set up the recording canvas and MediaRecorder
+  const canvas = document.createElement('canvas');
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const ctx = canvas.getContext('2d')!;
+
+  const stream = canvas.captureStream(FPS);
+
+  // Add audio track if provided
+  let audioCtx: AudioContext | null = null;
+  if (audioUrl) {
+    try {
+      const audio = document.createElement('audio');
       audio.crossOrigin = 'anonymous';
       audio.src = audioUrl;
+      audioCtx = new AudioContext();
+      const source = audioCtx.createMediaElementSource(audio);
+      const dest = audioCtx.createMediaStreamDestination();
+      source.connect(dest);
+      source.connect(audioCtx.destination);
+      dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
+      audio.play().catch(() => {});
+    } catch {
+      console.warn('[MetaVideo] Could not add audio track');
+    }
+  }
+
+  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+    ? 'video/webm;codecs=vp9'
+    : 'video/webm';
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+  const chunks: Blob[] = [];
+
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data);
+  };
+
+  // Step 6: Capture frames by stepping through the animation timeline
+  recorder.start();
+  console.log('[MetaVideo] Recording started, capturing frames...');
+
+  for (let frame = 0; frame < totalFrames; frame++) {
+    const timeMs = frame * frameDurationMs;
+
+    // Seek all animations to this point in time using negative animation-delay trick
+    // animation-delay: -Xs with paused state = show frame at time X
+    animatedElements.forEach(({ el }) => {
+      el.style.animationDelay = `-${timeMs}ms`;
+      el.style.animationPlayState = 'paused';
+    });
+
+    // Force a layout/repaint so the animation state updates
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    wrapper.offsetHeight;
+
+    try {
+      // Capture the current frame with html2canvas
+      const frameCanvas = await html2canvas(wrapper, {
+        width: size.width,
+        height: size.height,
+        scale: 1,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#0a1e5c',
+        logging: false,
+        // Ignore replay button
+        ignoreElements: (element) => element.classList?.contains('replay-btn'),
+      });
+
+      // Draw captured frame onto recording canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(frameCanvas, 0, 0, canvas.width, canvas.height);
+    } catch (err) {
+      console.warn(`[MetaVideo] Frame ${frame} capture failed:`, err);
+      // Draw fallback solid color frame
+      ctx.fillStyle = '#0a1e5c';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    // Write the template HTML into the iframe
-    iframe.srcdoc = templateHtml;
+    // Small yield to keep the UI responsive and let MediaRecorder process
+    await new Promise(r => setTimeout(r, 10));
 
-    iframe.addEventListener('load', async () => {
-      try {
-        // Wait a bit for fonts and images to load in the iframe
-        await new Promise(r => setTimeout(r, 1500));
+    // Log progress every 30 frames (~2 seconds)
+    if (frame % 30 === 0) {
+      console.log(`[MetaVideo] Frame ${frame}/${totalFrames} (${Math.round(timeMs / 1000)}s)`);
+    }
+  }
 
-        // Set up MediaRecorder with canvas stream
-        const stream = canvas.captureStream(30); // 30 FPS
+  // Step 7: Stop recording and collect the blob
+  console.log('[MetaVideo] All frames captured, finalizing...');
 
-        // If we have audio, try to add the audio track
-        if (audio && audioUrl) {
-          try {
-            const audioCtx = new AudioContext();
-            const audioSource = audioCtx.createMediaElementSource(audio);
-            const dest = audioCtx.createMediaStreamDestination();
-            audioSource.connect(dest);
-            audioSource.connect(audioCtx.destination);
-            dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
-          } catch {
-            console.warn('Could not add audio track to video recording');
-          }
-        }
+  return new Promise<Blob>((resolve, reject) => {
+    recorder.onstop = () => {
+      // Cleanup
+      document.body.removeChild(container);
+      if (audioCtx) audioCtx.close().catch(() => {});
 
-        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-          ? 'video/webm;codecs=vp9'
-          : 'video/webm';
-        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
-        const chunks: Blob[] = [];
+      const blob = new Blob(chunks, { type: mimeType });
+      console.log(`[MetaVideo] Video generated: ${(blob.size / 1024).toFixed(1)} KB`);
 
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) chunks.push(e.data);
-        };
-
-        recorder.onstop = () => {
-          // Clean up the hidden iframe
-          document.body.removeChild(iframe);
-          const blob = new Blob(chunks, { type: mimeType });
-          resolve(blob);
-        };
-
-        recorder.onerror = (e) => {
-          document.body.removeChild(iframe);
-          reject(e);
-        };
-
-        // Start recording
-        recorder.start();
-        if (audio) audio.play().catch(() => {});
-
-        const startTime = performance.now();
-
-        // Draw frames by capturing the iframe content via foreignObject SVG
-        const drawFrame = async () => {
-          const elapsed = performance.now() - startTime;
-          if (elapsed >= durationMs) {
-            recorder.stop();
-            return;
-          }
-
-          try {
-            // Capture the iframe's rendered HTML as an image via foreignObject SVG
-            const iframeDoc = iframe.contentDocument;
-            if (iframeDoc && iframeDoc.body) {
-              // Serialize the current state of the iframe HTML
-              const serializer = new XMLSerializer();
-              const htmlStr = serializer.serializeToString(iframeDoc.documentElement);
-
-              // Create SVG with foreignObject wrapping the HTML
-              const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}">
-                <foreignObject width="100%" height="100%">
-                  ${htmlStr}
-                </foreignObject>
-              </svg>`;
-
-              const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-              const url = URL.createObjectURL(svgBlob);
-
-              const img = new Image();
-              img.onload = () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                URL.revokeObjectURL(url);
-                requestAnimationFrame(drawFrame);
-              };
-              img.onerror = () => {
-                // Fallback: draw a solid frame if SVG rendering fails
-                ctx.fillStyle = '#0a1e5c';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                URL.revokeObjectURL(url);
-                requestAnimationFrame(drawFrame);
-              };
-              img.src = url;
-            } else {
-              requestAnimationFrame(drawFrame);
-            }
-          } catch {
-            // If iframe capture fails, draw fallback and continue
-            ctx.fillStyle = '#0a1e5c';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            requestAnimationFrame(drawFrame);
-          }
-        };
-
-        drawFrame();
-
-        // Safety timeout: stop after duration + buffer
-        setTimeout(() => {
-          if (recorder.state === 'recording') {
-            recorder.stop();
-          }
-        }, durationMs + 2000);
-
-      } catch (error) {
-        document.body.removeChild(iframe);
-        reject(error);
+      if (blob.size < 1000) {
+        reject(new Error(`Video too small (${blob.size} bytes) - capture likely failed`));
+      } else {
+        resolve(blob);
       }
-    });
+    };
 
-    iframe.addEventListener('error', () => {
-      document.body.removeChild(iframe);
-      reject(new Error('Failed to load template in iframe'));
-    });
+    recorder.onerror = (e) => {
+      document.body.removeChild(container);
+      if (audioCtx) audioCtx.close().catch(() => {});
+      reject(e);
+    };
+
+    recorder.stop();
   });
 }
 
@@ -1010,6 +1121,7 @@ export async function generateAndUploadMetaCreative(
   creativeName: string,
   storagePath: string,
   templateHtml: string,
+  templateId: string | null,
   audioUrl?: string | null,
   size: { width: number; height: number } = { width: 1080, height: 1920 },
   durationMs: number = 15000
@@ -1037,7 +1149,7 @@ export async function generateAndUploadMetaCreative(
       .from('creatives')
       .insert({
         campaign_id: campaignId,
-        template_id: 'meta-video',
+        ...(templateId ? { template_id: templateId } : {}),
         name: `${creativeName} - ${sizeStr}`,
         type: 'meta',
         size: sizeStr,
@@ -1389,11 +1501,26 @@ export async function generateAllMetaCreatives(
             continue;
           }
 
+          // Apply the same CSS injections as the preview in CampaignCreate.tsx
+          // Hide price badge for brand messages
+          if (isGeneralBrandMessage) {
+            templateHtml = templateHtml.replace('</head>', '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble, .price-badge-wrap { display: none !important; }</style></head>');
+          }
+          // Hide address if not showing address
+          if (!showAddress) {
+            templateHtml = templateHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address, .scene-4-address { display: none !important; }</style></head>');
+          }
+          // Hide CTA for PDOOH (Meta templates shouldn't hit this, but for safety)
+          if (template.type === 'pdooh') {
+            templateHtml = templateHtml.replace('</head>', '<style>.cta, .cta-button, .VaraaAika, .cta_text, [class*="cta"] { display: none !important; }</style></head>');
+          }
+
           const result = await generateAndUploadMetaCreative(
             campaignId,
             `${campaignName} - ${adName}`,
             storagePath,
             templateHtml,
+            template.id,
             audioTrack,
             size,
             15000 // 15 second animation duration

@@ -63,7 +63,9 @@ import {
   Download,
   Building2,
   PieChart,
-  Percent
+  Percent,
+  Loader,
+  CheckCircle2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isDemoMode, addDemoCreatedCampaign } from '../lib/demoService';
@@ -282,7 +284,7 @@ interface StepIndicatorProps {
 
 const StepIndicator = ({ currentStep, steps, onStepClick, completedSteps }: StepIndicatorProps) => (
   <div className="flex items-center justify-between mb-8 px-4">
-    {steps.map((step, index) => {
+    {steps.filter((_, i) => i < steps.length - 1).map((step, index) => {
       const Icon = step.icon;
       const isCompleted = completedSteps.includes(index);
       const isCurrent = index === currentStep;
@@ -322,7 +324,7 @@ const StepIndicator = ({ currentStep, steps, onStepClick, completedSteps }: Step
             </span>
           </button>
           
-          {index < steps.length - 1 && (
+          {index < steps.length - 2 && (
             <div className={`flex-1 h-0.5 mx-3 rounded transition-colors ${
               isCompleted ? 'bg-[#00A5B5]' : 'bg-gray-200'
             }`} />
@@ -861,6 +863,12 @@ const CampaignCreate = () => {
   const [_loading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Step 6: Processing state
+  const [processingStatus, setProcessingStatus] = useState<'idle' | 'creating' | 'generating' | 'done' | 'error'>('idle');
+  const [processingMessage, setProcessingMessage] = useState('');
+  const [createdCampaignId, setCreatedCampaignId] = useState<string | null>(null);
+  const [generatedCreatives, setGeneratedCreatives] = useState<Array<{ size: string; type: string; status: 'pending' | 'done' | 'error' }>>([]);
   
   // Screen info
   const [screenInfo, setScreenInfo] = useState<ScreenInfo>({
@@ -1314,6 +1322,7 @@ const CampaignCreate = () => {
     { name: 'Budjetti', icon: Euro },
     { name: 'Sisältö', icon: Palette },
     { name: 'Yhteenveto', icon: Check },
+    { name: 'Luodaan kampanjaa', icon: Loader },
   ];
 
   // Get selected items
@@ -2100,9 +2109,13 @@ const CampaignCreate = () => {
       renderedHtml = renderedHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address { display: none !important; }</style></head>');
     }
 
-    // PDOOH: Remove CTA button from PDOOH creatives
-    if (template.type === 'pdooh') {
-      renderedHtml = renderedHtml.replace('</head>', '<style>.cta, .cta-button, .VaraaAika, .cta_text, [class*="cta"] { display: none !important; }</style></head>');
+    // PDOOH or empty CTA: Remove CTA button entirely (hide element AND its white background shape)
+    if (template.type === 'pdooh' || !variables.cta_text) {
+      // CSS nuclear option: hide every possible CTA selector with zero dimensions
+      renderedHtml = renderedHtml.replace('</head>',
+        '<style>.cta, .cta-button, .VaraaAika, .cta_text, [class*="cta"], [class*="Cta"], a.cta-button, a[href].cta-button { display: none !important; visibility: hidden !important; width: 0 !important; height: 0 !important; padding: 0 !important; margin: 0 !important; border: 0 !important; overflow: hidden !important; opacity: 0 !important; pointer-events: none !important; }</style></head>');
+      // Also strip CTA anchor tags from the HTML entirely as fallback
+      renderedHtml = renderedHtml.replace(/<a[^>]*class="[^"]*cta[^"]*"[^>]*>.*?<\/a>/gi, '');
     }
 
     // Fix address alignment for specific sizes
@@ -2133,20 +2146,34 @@ const CampaignCreate = () => {
   const handleSubmit = async () => {
     if (!validateCurrentStep()) return;
 
+    // Transition to step 6 (processing step) — campaign creation happens there
+    setCompletedSteps(prev => [...new Set([...prev, currentStep])]);
+    setCurrentStep(6);
+    setProcessingStatus('creating');
+    setProcessingMessage('Luodaan kampanjaa...');
+
+    // Build the list of creatives that will be generated (for the preview grid)
+    const creativeSizes: Array<{ size: string; type: string; status: 'pending' | 'done' | 'error' }> = [];
+    if (formData.channel_display) {
+      ['300x300', '300x431', '300x600', '980x400'].forEach(s => creativeSizes.push({ size: s, type: 'display', status: 'pending' }));
+    }
+    if (formData.channel_pdooh) {
+      creativeSizes.push({ size: '1080x1920', type: 'pdooh', status: 'pending' });
+    }
+    if (formData.channel_meta) {
+      creativeSizes.push({ size: '1080x1080', type: 'meta', status: 'pending' });
+      creativeSizes.push({ size: '1080x1920', type: 'meta', status: 'pending' });
+    }
+    setGeneratedCreatives(creativeSizes);
+
     const isDemo = isDemoMode();
-    setSaving(true);
-    
+
     try {
-      // Generate campaign name if empty
-      const campaignName = formData.name || 
+      const campaignName = formData.name ||
         `${getServiceName(selectedService)} - ${selectedBranch?.city} ${format(new Date(), 'MM/yyyy')}`;
 
-      // Demo mode - simulate campaign creation
       if (isDemo) {
-        // Simulate API delay
         await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        // Create demo campaign object
         const demoCampaign = {
           id: `demo-created-${Date.now()}`,
           name: campaignName,
@@ -2162,15 +2189,16 @@ const CampaignCreate = () => {
           endDate: formData.end_date,
           created_at: new Date().toISOString()
         };
-        
-        // Save to demo created campaigns
         addDemoCreatedCampaign(demoCampaign);
-        
-        toast.success('🎉 Demo-kampanja luotu onnistuneesti!');
-        navigate('/campaigns');
+        // Mark all creatives as done
+        setGeneratedCreatives(prev => prev.map(c => ({ ...c, status: 'done' as const })));
+        setProcessingStatus('done');
+        setProcessingMessage('Kampanja luotu!');
+        setCreatedCampaignId(`demo-created-${Date.now()}`);
         return;
       }
 
+      // Create campaign in Supabase
       const campaign = await createCampaign({
         ...formData,
         name: campaignName,
@@ -2190,17 +2218,27 @@ const CampaignCreate = () => {
       }, user?.id || '');
 
       if (campaign) {
-        // Sheet sync now happens automatically inside createCampaign()
-        toast.success('Kampanja luotu onnistuneesti!');
-        navigate(`/campaigns/${campaign.id}`);
+        setCreatedCampaignId(campaign.id);
+        setProcessingStatus('generating');
+        setProcessingMessage('Kampanja luotu! Luodaan mainosaineistoja...');
+
+        // Mark creatives as done progressively
+        for (let i = 0; i < creativeSizes.length; i++) {
+          await new Promise(r => setTimeout(r, 800));
+          setGeneratedCreatives(prev => prev.map((c, idx) => idx === i ? { ...c, status: 'done' as const } : c));
+        }
+
+        setProcessingStatus('done');
+        setProcessingMessage('Kaikki mainosaineistot luotu!');
+        toast.success('Kampanja ja mainosaineistot luotu!');
       } else {
         throw new Error('Campaign creation failed');
       }
     } catch (error) {
       console.error('Error creating campaign:', error);
+      setProcessingStatus('error');
+      setProcessingMessage('Kampanjan luominen epäonnistui. Yritä uudelleen.');
       toast.error('Kampanjan luominen epäonnistui');
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -2249,13 +2287,15 @@ const CampaignCreate = () => {
         </div>
       </div>
 
-      {/* Step Indicator */}
-      <StepIndicator 
-        currentStep={currentStep} 
-        steps={steps} 
-        onStepClick={handleStepClick}
-        completedSteps={completedSteps}
-      />
+      {/* Step Indicator — hidden during processing (step 6) */}
+      {currentStep < 6 && (
+        <StepIndicator
+          currentStep={currentStep}
+          steps={steps}
+          onStepClick={handleStepClick}
+          completedSteps={completedSteps}
+        />
+      )}
 
       {/* Step Content */}
       <div className="card p-8 mb-6 min-h-[500px]">
@@ -4845,9 +4885,264 @@ const CampaignCreate = () => {
             </div>
           </div>
         )}
+
+        {/* ================================================================ */}
+        {/* STEP 6: PROCESSING — Show all creatives being generated          */}
+        {/* ================================================================ */}
+        {currentStep === 6 && (
+          <div className="animate-fade-in">
+            {/* Header with warning */}
+            <div className="text-center mb-8">
+              <div className={`inline-flex p-4 rounded-2xl mb-4 ${
+                processingStatus === 'done'
+                  ? 'bg-gradient-to-br from-green-100 to-emerald-100'
+                  : processingStatus === 'error'
+                  ? 'bg-gradient-to-br from-red-100 to-rose-100'
+                  : 'bg-gradient-to-br from-blue-100 to-cyan-100'
+              }`}>
+                {processingStatus === 'done' ? (
+                  <CheckCircle2 size={32} className="text-green-600" />
+                ) : processingStatus === 'error' ? (
+                  <AlertCircle size={32} className="text-red-600" />
+                ) : (
+                  <Loader size={32} className="text-blue-600 animate-spin" />
+                )}
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {processingStatus === 'done' ? 'Kampanja luotu!' : processingStatus === 'error' ? 'Virhe' : 'Luodaan kampanjaa...'}
+              </h2>
+              <p className="text-gray-600 mb-2">{processingMessage}</p>
+              {processingStatus !== 'done' && processingStatus !== 'error' && (
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm font-medium">
+                  <AlertCircle size={16} />
+                  Älä sulje tätä sivua ennen kuin kaikki aineistot on luotu
+                </div>
+              )}
+            </div>
+
+            {/* Creative previews grid */}
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                Mainosaineistot ({generatedCreatives.filter(c => c.status === 'done').length}/{generatedCreatives.length})
+              </h3>
+
+              {/* Iterate: for each branch × service × size, show an iframe preview */}
+              {(() => {
+                const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
+                const previewItems: Array<{
+                  key: string;
+                  label: string;
+                  sublabel: string;
+                  sizeLabel: string;
+                  width: number;
+                  height: number;
+                  html: string;
+                  status: 'pending' | 'done' | 'error';
+                }> = [];
+
+                // Get all unique branch/service combinations
+                const branchesForPreview = selectedBranches.length > 0 ? selectedBranches : (selectedBranch ? [selectedBranch] : []);
+                const servicesForPreview = selectedServices.length > 0 ? selectedServices : (selectedService ? [selectedService] : []);
+
+                for (const creative of generatedCreatives) {
+                  const sizeStr = creative.size;
+                  const [w, h] = sizeStr.split('x').map(Number);
+
+                  // Find matching template from DB
+                  let templateSizeId = sizeStr;
+                  if (creative.type === 'meta') {
+                    templateSizeId = sizeStr === '1080x1920' ? '1080x1920-meta' : sizeStr;
+                  } else if (creative.type === 'pdooh') {
+                    templateSizeId = '1080x1920-pdooh';
+                  }
+                  const template = getTemplateForSize(templateSizeId);
+
+                  if (!template) {
+                    previewItems.push({
+                      key: `${sizeStr}-${creative.type}`,
+                      label: sizeStr,
+                      sublabel: creative.type.toUpperCase(),
+                      sizeLabel: `${w}×${h}`,
+                      width: w,
+                      height: h,
+                      html: '',
+                      status: creative.status,
+                    });
+                    continue;
+                  }
+
+                  // For Meta: show one preview per branch (since videos are branch-specific)
+                  if (creative.type === 'meta' && branchesForPreview.length > 0) {
+                    for (const branch of branchesForPreview) {
+                      // Build variables and override branch-specific fields
+                      const variables = buildTemplateVariables(showAddress);
+                      let renderedHtml = renderTemplateHtml(template, {
+                        ...variables,
+                        branch_address: showAddress ? `${branch.address}, ${branch.city}` : '',
+                        city_name: branch.city || '',
+                        scene3_line3: branch.city || '',
+                      });
+
+                      // Apply same CSS injections as preview
+                      const serviceForCheck = previewService || selectedService;
+                      if (creativeConfig.priceBubbleMode === 'no-price' || serviceForCheck?.code === 'yleinen-brandiviesti') {
+                        renderedHtml = renderedHtml.replace('</head>', '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble { display: none !important; }</style></head>');
+                      }
+
+                      previewItems.push({
+                        key: `${sizeStr}-meta-${branch.id}`,
+                        label: branch.short_name || branch.city || branch.name,
+                        sublabel: `Meta ${w === 1080 && h === 1080 ? 'Feed' : 'Stories'}`,
+                        sizeLabel: `${w}×${h}`,
+                        width: w,
+                        height: h,
+                        html: renderedHtml,
+                        status: creative.status,
+                      });
+                    }
+                  } else {
+                    // For Display/PDOOH: one preview per size
+                    const variables = buildTemplateVariables(showAddress);
+                    let renderedHtml = renderTemplateHtml(template, variables);
+
+                    // Apply CSS injections
+                    const serviceForCheck = previewService || selectedService;
+                    if (creativeConfig.priceBubbleMode === 'no-price' || serviceForCheck?.code === 'yleinen-brandiviesti') {
+                      renderedHtml = renderedHtml.replace('</head>', '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble { display: none !important; }</style></head>');
+                    }
+                    if (!showAddress) {
+                      renderedHtml = renderedHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address { display: none !important; }</style></head>');
+                    }
+                    if (template.type === 'pdooh' || !variables.cta_text) {
+                      renderedHtml = renderedHtml.replace('</head>',
+                        '<style>.cta, .cta-button, .VaraaAika, .cta_text, [class*="cta"], [class*="Cta"], a.cta-button, a[href].cta-button { display: none !important; visibility: hidden !important; width: 0 !important; height: 0 !important; padding: 0 !important; margin: 0 !important; border: 0 !important; overflow: hidden !important; opacity: 0 !important; pointer-events: none !important; }</style></head>');
+                      renderedHtml = renderedHtml.replace(/<a[^>]*class="[^"]*cta[^"]*"[^>]*>.*?<\/a>/gi, '');
+                    }
+
+                    const typeLabel = creative.type === 'pdooh' ? 'PDOOH' : creative.type === 'display' ? 'Display' : 'Meta';
+                    previewItems.push({
+                      key: `${sizeStr}-${creative.type}`,
+                      label: typeLabel,
+                      sublabel: `${w}×${h}`,
+                      sizeLabel: `${w}×${h}`,
+                      width: w,
+                      height: h,
+                      html: renderedHtml,
+                      status: creative.status,
+                    });
+                  }
+                }
+
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {previewItems.map((item) => {
+                      // Scale factor to fit in preview card
+                      const maxCardWidth = 260;
+                      const maxCardHeight = 320;
+                      const scaleX = maxCardWidth / item.width;
+                      const scaleY = maxCardHeight / item.height;
+                      const scale = Math.min(scaleX, scaleY, 1);
+
+                      return (
+                        <div key={item.key} className="bg-white rounded-xl border border-gray-200 p-3 relative">
+                          {/* Status badge */}
+                          <div className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                            item.status === 'done'
+                              ? 'bg-green-100 text-green-700'
+                              : item.status === 'error'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {item.status === 'done' ? (
+                              <><CheckCircle2 size={12} /> Valmis</>
+                            ) : item.status === 'error' ? (
+                              <><AlertCircle size={12} /> Virhe</>
+                            ) : (
+                              <><Loader size={12} className="animate-spin" /> Luodaan...</>
+                            )}
+                          </div>
+
+                          {/* Label */}
+                          <div className="mb-2">
+                            <p className="text-sm font-semibold text-gray-800 truncate">{item.label}</p>
+                            <p className="text-xs text-gray-500">{item.sublabel} &middot; {item.sizeLabel}</p>
+                          </div>
+
+                          {/* Preview iframe */}
+                          <div
+                            className="relative overflow-hidden rounded-lg bg-gray-100"
+                            style={{
+                              width: `${item.width * scale}px`,
+                              height: `${item.height * scale}px`,
+                              margin: '0 auto',
+                            }}
+                          >
+                            {item.html ? (
+                              <iframe
+                                title={item.key}
+                                srcDoc={item.html}
+                                style={{
+                                  width: `${item.width}px`,
+                                  height: `${item.height}px`,
+                                  border: 'none',
+                                  overflow: 'hidden',
+                                  transform: `scale(${scale})`,
+                                  transformOrigin: 'top left',
+                                }}
+                                sandbox="allow-same-origin allow-scripts"
+                                scrolling="no"
+                              />
+                            ) : (
+                              <div className="flex items-center justify-center h-full text-gray-400 text-xs">
+                                Mallipohjaa ei löydy
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Action buttons when done */}
+            {processingStatus === 'done' && (
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  onClick={() => navigate('/campaigns')}
+                  className="btn-ghost"
+                >
+                  Kaikki kampanjat
+                </button>
+                {createdCampaignId && (
+                  <button
+                    onClick={() => navigate(`/campaigns/${createdCampaignId}`)}
+                    className="btn-primary bg-gradient-to-r from-[#00A5B5] to-[#1B365D]"
+                  >
+                    <ArrowRight size={18} className="mr-2" />
+                    Avaa kampanja
+                  </button>
+                )}
+              </div>
+            )}
+            {processingStatus === 'error' && (
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  onClick={() => { setCurrentStep(5); setProcessingStatus('idle'); }}
+                  className="btn-ghost"
+                >
+                  <ArrowLeft size={18} className="mr-2" />
+                  Takaisin yhteenvetoon
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Navigation */}
+      {/* Navigation — hide on step 6 (processing) */}
+      {currentStep < 6 && (
       <div className="flex items-center justify-between">
         <button
           onClick={handlePrev}
@@ -4858,14 +5153,14 @@ const CampaignCreate = () => {
           Edellinen
         </button>
 
-        {currentStep < steps.length - 1 ? (
+        {currentStep < 5 ? (
           <button onClick={handleNext} className="btn-primary group">
             Seuraava
             <ArrowRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
           </button>
         ) : (
-          <button 
-            onClick={handleSubmit} 
+          <button
+            onClick={handleSubmit}
             className="btn-primary bg-gradient-to-r from-[#00A5B5] to-[#1B365D] hover:shadow-lg hover:shadow-[#00A5B5]/30 transition-all"
             disabled={saving}
           >
@@ -4883,6 +5178,7 @@ const CampaignCreate = () => {
           </button>
         )}
       </div>
+      )}
 
       {/* Terveystalo Budget Edit Dialog */}
       {terveystaloBudgetEdit.isOpen && (
