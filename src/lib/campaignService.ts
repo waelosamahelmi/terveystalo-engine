@@ -14,7 +14,7 @@ import {
 } from './googleSheets';
 
 import { getCreativeTemplates, renderTemplateHtml, fixFontUrls } from './creativeService';
-import { buildMetaTemplateVariables } from './metaTemplateVariables';
+import { buildMetaTemplateVariables, getConjugatedCity, findMatchingBundle } from './metaTemplateVariables';
 import type {
   DentalCampaign,
   CampaignFormData,
@@ -148,19 +148,30 @@ function buildTemplateVariables(formData: CampaignFormData, showAddress: boolean
   };
 }
 
+/** All creative URLs for a single ad version (branch × service) */
+export interface AdVersionUrls {
+  meta_video_url?: string;       // meta/1080x1080
+  meta_story_url?: string;       // meta/1080x1920
+  display_300x300_url?: string;
+  display_300x431_url?: string;
+  display_300x600_url?: string;
+  display_980x400_url?: string;
+  pdooh_1080x1920_url?: string;
+}
+
 /**
  * Create creative records for a campaign.
  * Renders ALL templates (meta, display, pdooh) as HTML files,
  * uploads them to Supabase Storage in a structured folder hierarchy,
  * creates creative DB records with the public URLs,
- * and returns a map of { branchId: { meta_video_url, meta_story_url } }
+ * and returns a map keyed by "branchId::serviceId" with all creative URLs
  * so the caller can set those on the campaign / sheet rows.
  */
 export async function createCampaignCreatives(
   campaignId: string,
   formData: CampaignFormData
-): Promise<Record<string, { meta_video_url?: string; meta_story_url?: string }>> {
-  const urlsByBranch: Record<string, { meta_video_url?: string; meta_story_url?: string }> = {};
+): Promise<Record<string, AdVersionUrls>> {
+  const urlsByAdVersion: Record<string, AdVersionUrls> = {};
 
   try {
     // Get all active templates
@@ -229,22 +240,18 @@ export async function createCampaignCreatives(
         height: number;
       };
       branchId: string;
+      serviceId: string;
       channelType: string;
       channelWidth: number;
       channelHeight: number;
     }> = [];
-
-    // Track brand message services to avoid creating duplicate per-branch ads
-    const createdBrandMessageServices = new Set<string>();
 
     // For each branch × service × channel/size — render + upload HTML
     for (const branchId of branchIds) {
       const branch = branchMap.get(branchId);
       if (!branch) continue;
 
-      if (!urlsByBranch[branchId]) {
-        urlsByBranch[branchId] = {};
-      }
+      // urlsByAdVersion is initialized per branch::service below
 
       for (const serviceId of serviceIds) {
         const service = serviceMap.get(serviceId);
@@ -252,7 +259,7 @@ export async function createCampaignCreatives(
 
         const serviceName = service.name_fi || service.name;
         const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
-        const branchLabel = isGeneralBrandMessage ? 'Valtakunnallinen' : (branch.city || branch.short_name || branch.name);
+        const branchLabel = branch.city || branch.short_name || branch.name;
         // Sanitize for storage path (ASCII-safe)
         const sanitize = (s: string) => s
           .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -260,14 +267,6 @@ export async function createCampaignCreatives(
           .replace(/_+/g, '_')
           .replace(/^_|_$/g, '');
         const adFolder = `${sanitize(branchLabel)} - ${sanitize(serviceName)}`;
-
-        // Valtakunnallinen (brand message) ads: create only once, not per-branch
-        if (isGeneralBrandMessage && createdBrandMessageServices.has(serviceId)) {
-          continue;
-        }
-        if (isGeneralBrandMessage) {
-          createdBrandMessageServices.add(serviceId);
-        }
 
         for (const cs of channelSizes) {
           const sizeStr = `${cs.width}x${cs.height}`;
@@ -303,6 +302,8 @@ export async function createCampaignCreatives(
                 campaign_address: formData.campaign_address,
                 background_image_url: formData.background_image_url,
                 landing_url: formData.landing_url,
+                meta_audio_url: formData.meta_audio_url,
+                meta_video_url: formData.meta_video_url,
               },
               baseUrl,
               isMetaTemplate: true,
@@ -310,30 +311,91 @@ export async function createCampaignCreatives(
             });
           } else {
             // Build per-branch/per-service variables for display/pdooh
+            // This must match the preview in CampaignCreate.tsx buildTemplateVariables
             const serviceName = service.name_fi || service.name;
             const servicePrice = (formData.service_prices?.[serviceId] || (service.default_price || '').replace(/€/g, '').trim());
-            const headlineText = formData.headline || 'Hymyile.';
-            const subheadlineText = formData.subheadline || 'Olet hyvissä käsissä.';
-            const offerTitle = isGeneralBrandMessage ? '' : (service.default_offer_fi || serviceName);
+
+            // Headline — preserve | separator for <br> conversion in renderTemplateHtml
+            const headlineText = formData.headline || 'Hymyile.|Olet hyvissä käsissä.';
+
+            // Check if template uses split structure
+            const isSplitTemplate = template.html_template.includes('{{headline_line2}}');
+            let headlineValue: string;
+            let headlineLine2Value: string | undefined;
+            if (isSplitTemplate) {
+              const parts = headlineText.split('|');
+              headlineValue = parts[0]?.trim() || headlineText;
+              headlineLine2Value = parts.length > 1 ? parts.slice(1).join(' ').trim() : '';
+            } else {
+              headlineValue = headlineText;
+              headlineLine2Value = undefined;
+            }
+
+            // Subheadline / message text — must use conjugated city like preview
+            let messageText = formData.subheadline;
+            if (!messageText) {
+              if (isGeneralBrandMessage) {
+                const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+                messageText = cityConj
+                  ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
+                  : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+              } else {
+                const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+                messageText = cityConj
+                  ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
+                  : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+              }
+            }
+
+            // Offer title — apply hyphenation for long Finnish service names
+            let offerTitle = '';
+            if (!isGeneralBrandMessage) {
+              offerTitle = service.default_offer_fi || serviceName;
+              const hyphenationMap: Record<string, string> = {
+                'Suuhygienistikäynti': 'Suuhygienisti-|käynti',
+                'Hammastarkastus': 'Hammas-|tarkastus',
+              };
+              const cleanName = offerTitle.replace(/-/g, '');
+              if (hyphenationMap[cleanName]) {
+                offerTitle = hyphenationMap[cleanName];
+              } else if (hyphenationMap[offerTitle]) {
+                offerTitle = hyphenationMap[offerTitle];
+              }
+            }
+
             const priceValue = isGeneralBrandMessage ? '' : (servicePrice || formData.offer_text || '49');
             const city = branch.city || '';
             const address = branch.address || '';
             const locationText = address ? `${address}, ${city}` : city;
 
+            // Scene 3 text lines (for PDOOH and Meta-style templates)
+            const scene3Vars: Record<string, string> = {
+              scene3_line1: 'Sujuvampaa',
+              scene3_line2: 'suun',
+              scene3_line3: 'terveyttä',
+              scene3_line4: city ? getConjugatedCity(city) : 'Oulun',
+              scene3_line5: 'Suun Terveystalossa.',
+            };
+
             vars = {
               title: 'Suun Terveystalo',
-              headline: headlineText,
-              subheadline: subheadlineText.replace(/\n/g, ' '),
-              offer_title: offerTitle.replace(/\n/g, ' '),
+              headline: headlineValue,
+              ...(headlineLine2Value !== undefined && { headline_line2: headlineLine2Value }),
+              subheadline: messageText,
+              offer_title: offerTitle,
+              offer_subtitle: isGeneralBrandMessage ? '' : (formData.offer_subtitle || 'uusille asiakkaille'),
               price: priceValue,
               currency: '€',
-              cta_text: formData.cta_text || 'Varaa aika',
+              cta_text: cs.type === 'pdooh' ? '' : (formData.cta_text || 'Varaa aika'),
               branch_address: showAddress ? locationText : '',
               city_name: city || 'Helsinki',
-              logo_url: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
-              image_url: formData.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen.jpg',
+              ...scene3Vars,
+              logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
+              artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
+              image_url: formData.background_image_url || `${baseUrl}/refs/assets/nainen.jpg`,
               click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
-              disclaimer_text: '',
+              offer_date: isGeneralBrandMessage ? '' : (formData.offer_date || 'Varaa viimeistään 28.10.'),
+              disclaimer_text: formData.disclaimer_text || '',
             };
           }
 
@@ -371,6 +433,12 @@ export async function createCampaignCreatives(
           const storagePath = `campaigns/${campaignId}/${adFolder}/${cs.folder}/${sizeStr}.html`;
           const creativeName = `${branchLabel} - ${serviceName} - ${sizeStr}`;
 
+          // Ensure ad version entry exists
+          const adVersionKey = `${branchId}::${serviceId}`;
+          if (!urlsByAdVersion[adVersionKey]) {
+            urlsByAdVersion[adVersionKey] = {};
+          }
+
           uploadItems.push({
             storagePath,
             html,
@@ -384,6 +452,7 @@ export async function createCampaignCreatives(
               height: cs.height,
             },
             branchId,
+            serviceId,
             channelType: cs.type,
             channelWidth: cs.width,
             channelHeight: cs.height,
@@ -421,15 +490,25 @@ export async function createCampaignCreatives(
             const result = results[j];
             const item = batch[j];
             if (result.success && result.publicUrl) {
-              // Track meta URLs per branch
+              // Track URLs per ad version (branch × service)
+              const avKey = `${item.branchId}::${item.serviceId}`;
+              if (!urlsByAdVersion[avKey]) urlsByAdVersion[avKey] = {};
+              const av = urlsByAdVersion[avKey];
+
               if (item.channelType === 'meta') {
-                if (item.channelWidth === 1080 && item.channelHeight === 1080 && !urlsByBranch[item.branchId].meta_video_url) {
-                  urlsByBranch[item.branchId].meta_video_url = result.publicUrl;
+                if (item.channelWidth === 1080 && item.channelHeight === 1080 && !av.meta_video_url) {
+                  av.meta_video_url = result.publicUrl;
                 }
-                if (item.channelWidth === 1080 && item.channelHeight === 1920 && !urlsByBranch[item.branchId].meta_story_url) {
-                  urlsByBranch[item.branchId].meta_story_url = result.publicUrl;
+                if (item.channelWidth === 1080 && item.channelHeight === 1920 && !av.meta_story_url) {
+                  av.meta_story_url = result.publicUrl;
                 }
+              } else if (item.channelType === 'display') {
+                const sizeKey = `display_${item.channelWidth}x${item.channelHeight}_url` as keyof AdVersionUrls;
+                if (!av[sizeKey]) (av as any)[sizeKey] = result.publicUrl;
+              } else if (item.channelType === 'pdooh') {
+                if (!av.pdooh_1080x1920_url) av.pdooh_1080x1920_url = result.publicUrl;
               }
+
               console.log(`Uploaded ${item.channelType} ${item.creative.size}: ${result.publicUrl}`);
             } else {
               console.error(`Upload failed for ${result.storagePath}:`, result.error);
@@ -440,24 +519,34 @@ export async function createCampaignCreatives(
         }
       }
     }
-    const firstUrls = Object.values(urlsByBranch)[0];
-    if (firstUrls) {
+    // Update campaign record with first available meta URLs (non-blocking — columns may not exist yet)
+    const firstAdVersion = Object.values(urlsByAdVersion)[0];
+    if (firstAdVersion) {
       const updateFields: Record<string, string> = {};
-      if (firstUrls.meta_video_url) updateFields.meta_video_url = firstUrls.meta_video_url;
-      if (firstUrls.meta_story_url) updateFields.meta_story_url = firstUrls.meta_story_url;
+      if (firstAdVersion.meta_video_url) updateFields.meta_video_url = firstAdVersion.meta_video_url;
+      if (firstAdVersion.meta_story_url) updateFields.meta_story_url = firstAdVersion.meta_story_url;
       if (Object.keys(updateFields).length > 0) {
-        await supabase.from('dental_campaigns').update(updateFields).eq('id', campaignId);
-        console.log('Set campaign meta URLs:', updateFields);
+        try {
+          const { error: updateError } = await supabase.from('dental_campaigns').update(updateFields).eq('id', campaignId);
+          if (updateError) {
+            console.warn('Could not set campaign meta URLs (columns may not exist yet):', updateError.message);
+          } else {
+            console.log('Set campaign meta URLs:', updateFields);
+          }
+        } catch {
+          console.warn('Meta URL update skipped — columns not in schema');
+        }
       }
     }
 
-    const totalCreated = Object.keys(urlsByBranch).length * channelSizes.length;
+    const totalCreated = uploadItems.length;
     console.log(`Created ${totalCreated} HTML creatives for campaign ${campaignId}`);
+    console.log('Creative URLs by ad version:', JSON.stringify(urlsByAdVersion, null, 2));
   } catch (error) {
     console.error('Error creating campaign creatives:', error);
   }
 
-  return urlsByBranch;
+  return urlsByAdVersion;
 }
 
 /**
@@ -566,10 +655,10 @@ export async function createCampaign(
     ).catch(() => {}); // Fire and forget
 
     // 1. Create creative HTML files and upload to Supabase Storage FIRST
-    //    Returns per-branch meta URLs so we can include them in the sheet
-    let creativeUrlsByBranch: Record<string, { meta_video_url?: string; meta_story_url?: string }> = {};
+    //    Returns per ad-version (branch×service) URLs so we can include them in the sheet
+    let creativeUrlsByAdVersion: Record<string, AdVersionUrls> = {};
     try {
-      creativeUrlsByBranch = await createCampaignCreatives(data.id, formData);
+      creativeUrlsByAdVersion = await createCampaignCreatives(data.id, formData);
     } catch (e) {
       console.error('Creative creation failed (non-blocking):', e);
     }
@@ -583,7 +672,7 @@ export async function createCampaign(
       excluded_branch_ids: formData.excluded_branch_ids || [],
     };
     try {
-      const sheetOk = await addDentalCampaignToSheet(sheetData, creativeUrlsByBranch);
+      const sheetOk = await addDentalCampaignToSheet(sheetData, creativeUrlsByAdVersion);
       if (!sheetOk) console.warn('Sheet sync returned false for campaign', data.id);
       else console.log('Campaign data synced to Google Sheet');
     } catch (e) {

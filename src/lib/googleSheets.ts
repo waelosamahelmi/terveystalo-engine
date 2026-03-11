@@ -1,7 +1,8 @@
 import axios from 'axios';
-import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus, Branch } from '../types';
+import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus, Branch, Service } from '../types';
 import { parseISO, format } from 'date-fns';
 import { supabase } from './supabase';
+import type { AdVersionUrls } from './campaignService';
 
 // Google Sheets API endpoint
 const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -13,9 +14,9 @@ const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
 // Sheet name for Suun Terveystalo feed
 const SHEET_NAME = 'FEED';
 
-// Extended column range (A:BN = 66 columns for all fields including meta copy, smartly address, excluded locations, meta video + story)
-const SHEET_RANGE = `${SHEET_NAME}!A:BN`;
-const COLUMN_COUNT = 66;
+// Extended column range (A:BW = 75 columns for all fields including meta status/URLs and per-size creative URLs)
+const SHEET_RANGE = `${SHEET_NAME}!A:BW`;
+const COLUMN_COUNT = 75;
 
 // ============================================================================
 // SHEET SYNC TRACKING — update sheet_row_id & sheet_last_sync in DB
@@ -294,15 +295,15 @@ function sheetSafe(val: string): string {
 }
 
 // Helper to format a dental campaign into a sheet row
-// Accepts optional overrides for multi-location rows (branch override, budget override)
+// Accepts optional overrides for multi-location rows (branch override, service override, budget override, creative URLs)
 function formatDentalCampaignRow(
   campaign: DentalCampaign,
   options?: {
     branchOverride?: { name: string; address: string; postal_code: string; city: string; region?: string; phone?: string };
+    serviceOverride?: { name: string; name_fi?: string; code: string; default_price?: string };
     budgetOverride?: { total: number; meta: number; display: number; pdooh: number; audio: number };
     excludedBranchesData?: Array<{ address: string; city: string }>;
-    metaVideoUrl?: string;
-    metaStoryUrl?: string;
+    creativeUrls?: AdVersionUrls;
   }
 ): string[] {
   const startDate = safeFormatDate(campaign.campaign_start_date || campaign.start_date);
@@ -310,7 +311,7 @@ function formatDentalCampaignRow(
     ? 'Ongoing'
     : safeFormatDate(campaign.campaign_end_date || campaign.end_date);
 
-  const svc = campaign.service;
+  const svc = options?.serviceOverride || campaign.service;
   const br = options?.branchOverride || campaign.branch;
   const budgetOv = options?.budgetOverride;
 
@@ -369,6 +370,9 @@ function formatDentalCampaignRow(
   const creativeCount = creatives.length;
   const creativeSizes = [...new Set(creatives.map(c => c.size))].join(', ');
   const creativeChannels = [...new Set(creatives.map(c => c.channel))].join(', ');
+
+  // Whether this campaign has meta channel enabled (used for setting "pending" status)
+  const hasMetaChannel = !!campaign.channel_meta;
 
   return [
     // ── Core campaign (A-G) ──
@@ -460,9 +464,38 @@ function formatDentalCampaignRow(
     dailyMeta.toFixed(2),                                         // BJ: smartly_daily_budget (always the daily meta budget)
     excludedLocations,                                            // BK: excluded_locations (semicolon-separated Smartly format)
     creativeAddr,                                                 // BL: creative_address (Streetname X, City)
-    options?.metaVideoUrl || (campaign as any).meta_video_url || '',  // BM: meta_video_url (1080x1080 feed HTML)
-    options?.metaStoryUrl || (campaign as any).meta_story_url || '', // BN: meta_story_url (1080x1920 stories/reels HTML)
+
+    // ── Meta HTML + status + URL (BM-BR) ──
+    options?.creativeUrls?.meta_video_url || (campaign as any).meta_video_url || '',  // BM: meta_video_html (1080x1080 feed HTML link)
+    options?.creativeUrls?.meta_story_url || (campaign as any).meta_story_url || '', // BN: meta_story_html (1080x1920 stories/reels HTML link)
+    hasMetaChannel ? 'pending' : '',                              // BO: meta_video_status ("pending" → server converts to mp4)
+    hasMetaChannel ? 'pending' : '',                              // BP: meta_story_status ("pending" → server converts to mp4)
+    '',                                                           // BQ: meta_video_url (filled by server after mp4 conversion)
+    '',                                                           // BR: meta_story_url (filled by server after mp4 conversion)
+
+    // ── Display creative URLs (BS-BV) ──
+    options?.creativeUrls?.display_300x300_url || '',              // BS: display_300x300_url
+    options?.creativeUrls?.display_300x431_url || '',              // BT: display_300x431_url
+    options?.creativeUrls?.display_300x600_url || '',              // BU: display_300x600_url
+    options?.creativeUrls?.display_980x400_url || '',              // BV: display_980x400_url
+
+    // ── PDOOH creative URL (BW) ──
+    options?.creativeUrls?.pdooh_1080x1920_url || '',              // BW: pdooh_1080x1920_url
   ];
+}
+
+// Helper: fetch services by IDs from Supabase
+async function fetchServicesByIds(serviceIds: string[]): Promise<Service[]> {
+  if (!serviceIds || serviceIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('services')
+    .select('*')
+    .in('id', serviceIds);
+  if (error) {
+    console.error('Failed to fetch services for sheet sync:', error);
+    return [];
+  }
+  return data || [];
 }
 
 // Helper: fetch branches by IDs from Supabase
@@ -480,10 +513,10 @@ async function fetchBranchesByIds(branchIds: string[]): Promise<Branch[]> {
 }
 
 // Function to add a dental campaign to Google Sheet
-// For multi-location campaigns: creates one row per branch with budget split evenly, same campaign ID
+// Creates one row per ad version (branch × service), with per-size creative URL columns
 export async function addDentalCampaignToSheet(
   campaign: DentalCampaign,
-  creativeUrlsByBranch?: Record<string, { meta_video_url?: string; meta_story_url?: string }>
+  creativeUrlsByAdVersion?: Record<string, AdVersionUrls>
 ): Promise<boolean> {
   try {
     const accessToken = await getAccessToken();
@@ -501,52 +534,67 @@ export async function addDentalCampaignToSheet(
       excludedBranchesData = excludedBranches.map(b => ({ address: b.address, city: b.city }));
     }
 
-    // Determine if this is a multi-location campaign
-    const branchIds = (campaign as any).branch_ids || [];
-    const isMultiLocation = branchIds.length > 1;
+    // Fetch all branches and services for this campaign
+    const branchIds: string[] = (campaign as any).branch_ids || [];
+    const serviceIds: string[] = (campaign as any).service_ids || [];
+    const allBranches = branchIds.length > 0 ? await fetchBranchesByIds(branchIds) : [];
+    const allServices = serviceIds.length > 0 ? await fetchServicesByIds(serviceIds) : [];
 
-    let rows: string[][];
+    // Fallback to single branch/service from campaign relation
+    const branchList = allBranches.length > 0 ? allBranches : (campaign.branch ? [campaign.branch] : []);
+    const serviceList = allServices.length > 0 ? allServices : (campaign.service ? [campaign.service] : []);
 
-    if (isMultiLocation) {
-      // Fetch all branches for this campaign
-      const allBranches = await fetchBranchesByIds(branchIds);
-      const locationCount = allBranches.length || 1;
+    const adVersionCount = branchList.length * serviceList.length || 1;
 
-      // Split budget evenly across locations
-      const splitBudget = {
-        total: (campaign.total_budget || 0) / locationCount,
-        meta: (campaign.budget_meta || 0) / locationCount,
-        display: (campaign.budget_display || 0) / locationCount,
-        pdooh: (campaign.budget_pdooh || 0) / locationCount,
-        audio: (campaign.budget_audio || 0) / locationCount,
-      };
+    // Split budget evenly across ad versions
+    const splitBudget = {
+      total: (campaign.total_budget || 0) / adVersionCount,
+      meta: (campaign.budget_meta || 0) / adVersionCount,
+      display: (campaign.budget_display || 0) / adVersionCount,
+      pdooh: (campaign.budget_pdooh || 0) / adVersionCount,
+      audio: (campaign.budget_audio || 0) / adVersionCount,
+    };
 
-      rows = allBranches.map(branch => {
-        const branchUrls = creativeUrlsByBranch?.[branch.id];
-        return formatDentalCampaignRow(campaign, {
-          branchOverride: {
-            name: branch.name,
-            address: branch.address,
-            postal_code: branch.postal_code,
-            city: branch.city,
-            region: branch.region,
-            phone: branch.phone,
-          },
-          budgetOverride: splitBudget,
-          excludedBranchesData,
-          metaVideoUrl: branchUrls?.meta_video_url,
-          metaStoryUrl: branchUrls?.meta_story_url,
-        });
-      });
-    } else {
-      // Single location — one row
-      const singleBranchId = branchIds[0] || campaign.branch_id;
-      const branchUrls = singleBranchId ? creativeUrlsByBranch?.[singleBranchId] : undefined;
-      rows = [formatDentalCampaignRow(campaign, {
-        excludedBranchesData,
-        metaVideoUrl: branchUrls?.meta_video_url,
-        metaStoryUrl: branchUrls?.meta_story_url,
-      })];
+    let rows: string[][] = [];
+
+    if (branchList.length > 0 && serviceList.length > 0) {
+      for (const branch of branchList) {
+        for (const service of serviceList) {
+          const adVersionKey = `${branch.id}::${service.id}`;
+          const urls = creativeUrlsByAdVersion?.[adVersionKey];
+          if (!urls) {
+            console.warn(`No creative URLs found for ad version key: ${adVersionKey}. Available keys:`, Object.keys(creativeUrlsByAdVersion || {}));
+          } else {
+            console.log(`Sheet row for ${branch.name} × ${service.name}: display URLs present:`, {
+              d300x300: !!urls.display_300x300_url,
+              d300x431: !!urls.display_300x431_url,
+              d300x600: !!urls.display_300x600_url,
+              d980x400: !!urls.display_980x400_url,
+              pdooh: !!urls.pdooh_1080x1920_url,
+            });
+          }
+
+          rows.push(formatDentalCampaignRow(campaign, {
+            branchOverride: {
+              name: branch.name,
+              address: branch.address,
+              postal_code: branch.postal_code,
+              city: branch.city,
+              region: branch.region,
+              phone: branch.phone,
+            },
+            serviceOverride: {
+              name: service.name,
+              name_fi: service.name_fi,
+              code: service.code,
+              default_price: service.default_price,
+            },
+            budgetOverride: adVersionCount > 1 ? splitBudget : undefined,
+            excludedBranchesData,
+            creativeUrls: urls,
+          }));
+        }
+      }
     }
 
     if (rows.length === 0) {

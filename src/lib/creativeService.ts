@@ -300,6 +300,33 @@ export function renderTemplateHtml(
   `;
   html = html.replace('</head>', fixCss + '</head>');
 
+  // Inject audio autoplay script for templates that contain an audioTrack element
+  if (html.includes('id="audioTrack"')) {
+    const audioAutoplayScript = `
+      <script>
+        (function() {
+          var audio = document.getElementById('audioTrack');
+          if (!audio) return;
+          audio.currentTime = 0;
+          var p = audio.play();
+          if (p !== undefined) {
+            p.catch(function() {
+              function playOnInteraction() {
+                audio.currentTime = 0;
+                audio.play();
+                document.removeEventListener('click', playOnInteraction);
+                document.removeEventListener('touchstart', playOnInteraction);
+              }
+              document.addEventListener('click', playOnInteraction);
+              document.addEventListener('touchstart', playOnInteraction);
+            });
+          }
+        })();
+      </script>
+    `;
+    html = html.replace('</body>', audioAutoplayScript + '</body>');
+  }
+
   return html;
 }
 
@@ -1319,6 +1346,10 @@ export async function generateAllMetaCreatives(
               scene3_line3: branch.city || '',
               scene3_line4: 'Suun Terveystalossa.',
               city_name: branch.city || '',
+
+              // Audio & video
+              audio_track: encodeURI(audioTrack),
+              background_video: encodeURI(formData.meta_video_url || '/meta/vids/nainen.mp4'),
 
               // Images
               scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',

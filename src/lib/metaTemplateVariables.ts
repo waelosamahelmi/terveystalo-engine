@@ -95,6 +95,8 @@ export interface MetaVariableBuildParams {
     campaign_address?: string;
     background_image_url?: string;
     landing_url?: string;
+    meta_audio_url?: string;
+    meta_video_url?: string;
   };
   baseUrl: string;
   isMetaTemplate: boolean;
@@ -106,10 +108,9 @@ export interface MetaVariableBuildParams {
  * This mirrors the logic from CampaignCreate.tsx buildTemplateVariables.
  */
 export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Record<string, string> {
-  const { branch, service, allBranches, allServices, formData, baseUrl, isMetaTemplate, isSplitTemplate } = params;
+  const { branch, service, allServices, formData, baseUrl, isMetaTemplate, isSplitTemplate } = params;
 
   const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
-  const isMultiLocation = allBranches.length > 1;
   const isMultiService = allServices.length > 1;
   const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
 
@@ -124,44 +125,23 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     serviceNameElative = serviceNameElative + 'sta';
   }
 
-  // Branch name matching for bundles
-  const branchNames = allBranches.map(b => b.short_name || b.name || b.city);
-  const matchingBundle = isMultiLocation ? findMatchingBundle(branchNames) : null;
+  // Location text for address — always use the specific branch's address
+  // (each creative file is rendered for one branch, so it must be branch-specific)
+  const city = branch.city || '';
+  const address = branch.address || '';
+  const locationText = address ? `${address}, ${city}` : city;
 
-  // Location text for address
-  const uniqueCities = [...new Set(allBranches.map(b => b.city))].sort();
-  let locationText = '';
-  if (matchingBundle) {
-    locationText = matchingBundle.bundleAddress;
-  } else if (isMultiLocation) {
-    locationText = uniqueCities.join(' \u2022 ');
-  } else {
-    const city = branch.city || '';
-    const address = branch.address || '';
-    locationText = address ? `${address}, ${city}` : city;
-  }
-
-  // Subheadline / message
+  // Subheadline / message — always branch-specific
   let messageText = formData.subheadline || '';
   if (!messageText) {
-    if (matchingBundle) {
-      messageText = matchingBundle.bundleCopy;
-    } else if (isGeneralBrandMessage) {
-      if (isMultiLocation) {
-        messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
-      } else {
-        const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-        messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
-      }
+    if (isGeneralBrandMessage) {
+      const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+      messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
     } else if (isMultiService) {
       messageText = `Sujuvampaa suunterveyttä ${serviceNameElative} erikoisosaamisesta vaativiin hoitoihin`;
     } else {
-      if (isMultiLocation) {
-        messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
-      } else {
-        const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-        messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
-      }
+      const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+      messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
     }
   }
 
@@ -219,21 +199,25 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     cta_text: formData.cta_text || 'Varaa aika',
     branch_address: finalAddress,
 
-    // Scene 3 text lines
+    // Scene 3 text lines — always use the specific branch city
     ...(isMetaTemplate ? {
       scene3_line1: 'Sujuvampaa',
       scene3_line2: 'terveyttä',
-      scene3_line3: isMultiLocation ? '' : (branch.city || ''),
+      scene3_line3: branch.city || '',
       scene3_line4: 'Suun Terveystalossa.',
     } : {
       scene3_line1: 'Sujuvampaa',
       scene3_line2: 'suun',
       scene3_line3: 'terveyttä',
       scene3_line4: branch.city ? getConjugatedCity(branch.city) : 'Oulun',
-      scene3_line5: isMultiLocation ? 'Suun Terveystaloissa.' : 'Suun Terveystalossa.',
+      scene3_line5: 'Suun Terveystalossa.',
     }),
 
     city_name: branch.city || 'Oulu',
+
+    // Audio & video
+    audio_track: encodeURI(formData.meta_audio_url || '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav'),
+    background_video: encodeURI(formData.meta_video_url || '/meta/vids/nainen.mp4'),
 
     // Images
     scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',

@@ -301,6 +301,11 @@ export interface CampaignFormData {
   // Excluded branches
   excluded_branch_ids?: string[];
 
+  // Display/PDOOH creative config
+  offer_subtitle?: string;
+  offer_date?: string;
+  disclaimer_text?: string;
+
   // Meta creative config (video/audio selections from UI)
   meta_video_url?: string;       // Selected background video URL
   meta_video_file?: File | null; // Uploaded custom video file

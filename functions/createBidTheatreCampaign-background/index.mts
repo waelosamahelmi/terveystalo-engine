@@ -1,1280 +1,592 @@
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { parseISO, format, addMonths } from 'date-fns';
-import fetch from 'node-fetch';
-import { v2 as cloudinary } from 'cloudinary';
 
-// Get Supabase credentials from environment variables
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
 function getEnvVar(names: string[]): string {
   for (const name of names) {
-    if (process.env[name]) {
-      return process.env[name] || '';
-    }
+    if (process.env[name]) return process.env[name] || '';
   }
   return '';
 }
 
-// Initialize Supabase client
-const SUPABASE_URL = getEnvVar([
-  'SUPABASE_URL',
-  'VITE_SUPABASE_URL',
-  'REACT_APP_SUPABASE_URL',
-  'NETLIFY_SUPABASE_URL'
-]);
+const SUPABASE_URL = getEnvVar(['SUPABASE_URL', 'VITE_SUPABASE_URL']);
+const SUPABASE_SERVICE_ROLE_KEY = getEnvVar(['SUPABASE_SERVICE_ROLE_KEY', 'VITE_SUPABASE_SERVICE_ROLE_KEY']);
 
-const SUPABASE_SERVICE_ROLE_KEY = getEnvVar([
-  'SUPABASE_SERVICE_ROLE_KEY',
-  'VITE_SUPABASE_SERVICE_ROLE_KEY',
-  'REACT_APP_SUPABASE_SERVICE_ROLE_KEY',
-  'NETLIFY_SUPABASE_SERVICE_ROLE_KEY'
-]);
-
-console.log(`Initializing Supabase with URL: ${SUPABASE_URL}`);
-console.log(`Service role key available: ${SUPABASE_SERVICE_ROLE_KEY ? 'Yes (starts with: ' + SUPABASE_SERVICE_ROLE_KEY.slice(0, 5) + '...)' : 'No'}`);
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('Missing required environment variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// Constants
 const BT_API_URL = 'https://asx-api.bidtheatre.com/v2.0/api';
-const CREATOPY_API_URL = 'https://api.creatopy.com/v1';
-const CREATOPY_CLIENT_ID = '5b324250-8429-443b-bc11-dff33c472c89';
-const CREATOPY_CLIENT_SECRET = 'eb427fff-2ad7-40fe-b2fd-5c919bc27f4e';
 
-// Backup Content URLs for each ad size - Suun Terveystalo branded
-const backupContentURLs = {
-  '1080x1920': 'https://norr3.fi/ST-backup-1080x1920.jpg',
-  '980x400': 'https://norr3.fi/ST-backup-980x400.jpg',
-  '620x891': 'https://norr3.fi/ST-backup-620x891.jpg',
-  '300x600': 'https://norr3.fi/ST-backup-300x600.jpg',
-  '300x431': 'https://norr3.fi/ST-backup-300x431.jpg',
-  '300x300': 'https://norr3.fi/ST-backup-300x300.jpg',
-};
-
-// Axios instances
 const bidTheatreApi = axios.create({
   baseURL: BT_API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
   timeout: 60000,
-  withCredentials: true,
 });
 
-const creatopyApi = axios.create({
-  baseURL: CREATOPY_API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-  timeout: 10000,
-});
+// ============================================================================
+// BidTheatre dimension IDs for HTML ad sizes
+// ============================================================================
 
-// Fetch BidTheatre credentials from Supabase
+const AD_DIMENSIONS: Record<string, { width: number; height: number; dimension: number }> = {
+  '300x300': { width: 300, height: 300, dimension: 10 },
+  '300x431': { width: 300, height: 431, dimension: 1888 },
+  '300x600': { width: 300, height: 600, dimension: 11 },
+  '620x891': { width: 620, height: 891, dimension: 1888 },
+  '980x400': { width: 980, height: 400, dimension: 15 },
+  '1080x1920': { width: 1080, height: 1920, dimension: 385 },
+};
+
+// Ad group definitions per channel
+const DISPLAY_AD_GROUPS = [
+  { name: 'Mobile sizes', sizes: ['300x600', '300x431'] },
+  { name: 'Small desktop', sizes: ['300x600', '300x300'] },
+  { name: 'Large desktop sizes', sizes: ['620x891', '980x400'] },
+];
+
+const PDOOH_AD_GROUPS = [
+  { name: 'Default campaign', sizes: ['1080x1920'] },
+];
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+interface ChannelDef {
+  channel: 'DISPLAY' | 'PDOOH';
+}
+
 async function getBidTheatreCredentials() {
   const { data, error } = await supabase
     .from('bidtheatre_credentials')
-    .select('network_id, username, password')
+    .select('network_id, username, password, advertiser_id')
     .order('updated_at', { ascending: false })
     .limit(1)
     .single();
 
-  console.log('Fetched BidTheatre credentials:', { network_id: data?.network_id });
-
-  if (error || !data) {
-    throw new Error('Failed to fetch BidTheatre credentials');
-  }
-
-  return {
-    network_id: data.network_id,
-    username: data.username,
-    password: data.password,
-  };
-}
-
-// Fetch advertiser_id from the user
-async function getAdvertiserIdFromUser(userId) {
-  try {
-    if (!userId) {
-      console.log('No user ID provided, using default advertiser_id');
-      return 22717;
-    }
-
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('advertiser_id')
-      .eq('id', userId)
-      .limit(1);
-
-    if (userError) {
-      console.error('Error fetching user data:', userError.message);
-      return 22717;
-    }
-
-    if (!userData || userData.length === 0) {
-      console.log('No user data found for user_id:', userId);
-      return 22717;
-    }
-
-    if (userData.length > 1) {
-      console.warn('Multiple users found for user_id:', userId, 'Using the first one');
-    }
-
-    const user = userData[0];
-    if (!user.advertiser_id) {
-      console.log('User has no advertiser_id, using default value');
-      return 22717;
-    }
-
-    console.log(`Fetched advertiser_id ${user.advertiser_id} for user ${userId}`);
-    return user.advertiser_id;
-  } catch (error) {
-    console.error('Error fetching advertiser_id from user:', error);
-    return 22717;
-  }
-}
-
-// Authenticate with BidTheatre
-async function getBidTheatreToken() {
-  const credentials = await getBidTheatreCredentials();
-  try {
-    console.log(`Attempting to authenticate with BidTheatre using network ID: ${credentials.network_id}`);
-    const response = await bidTheatreApi.post('/auth', {
-      username: credentials.username,
-      password: credentials.password,
-    });
-
-    if (!response.data || !response.data.auth || !response.data.auth.token) {
-      console.error('Invalid BidTheatre authentication response:', response.data);
-      throw new Error('Invalid BidTheatre authentication response structure');
-    }
-
-    const token = response.data.auth.token;
-    console.log(`Successfully authenticated with BidTheatre, token received (starts with: ${token.substring(0, 10)}...)`);
-    return token;
-  } catch (error) {
-    console.error('Error authenticating with BidTheatre:', error.response?.data || error.message);
-    if (error.response?.status === 403) {
-      console.error('Authentication failed with 403 Forbidden - check credentials.');
-    }
-    throw new Error(`BidTheatre authentication failed: ${error.response?.data?.message || error.message}`);
-  }
-}
-
-// Authenticate with Creatopy
-async function getCreatopyToken() {
-  try {
-    const response = await creatopyApi.post('/auth/token', {
-      clientId: CREATOPY_CLIENT_ID,
-      clientSecret: CREATOPY_CLIENT_SECRET,
-    });
-    const token = response.data?.token;
-    if (!token) {
-      return null;
-    }
-    return token;
-  } catch (error) {
-    console.error('Error authenticating with Creatopy:', error);
-    return null;
-  }
-}
-
-// Fetch bid strategy templates
-async function getBidStrategyTemplates(channel) {
-  const { data, error } = await supabase
-    .from('bidtheatre_bid_strategies')
-    .select('*')
-    .eq('channel', channel);
-
-  console.log(`Fetched bid strategy templates for channel ${channel}: ${data?.length || 0} templates`);
-
-  if (error) {
-    throw new Error(`Failed to fetch bid strategy templates for ${channel}`);
-  }
-
+  if (error || !data) throw new Error('Failed to fetch BidTheatre credentials');
   return data;
 }
 
-// Format date for BidTheatre (YYYY-MM-DD)
-function formatDateForBidTheatre(dateStr) {
-  if (!dateStr) {
-    throw new Error('Date string is undefined or null');
-  }
+async function getBidTheatreToken() {
+  const credentials = await getBidTheatreCredentials();
+  const response = await bidTheatreApi.post('/auth', {
+    username: credentials.username,
+    password: credentials.password,
+  });
 
-  try {
-    const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
-    if (isoDatePattern.test(dateStr)) {
-      console.log(`Formatting ISO date: ${dateStr}`);
-      const parsedDate = parseISO(dateStr);
-      if (isNaN(parsedDate.getTime())) {
-        throw new Error(`Invalid ISO date: ${dateStr}`);
-      }
-      console.log(`Parsed ISO date: ${dateStr} -> ${parsedDate}`);
-      return format(parsedDate, 'yyyy-MM-dd');
-    }
-
-    const datePattern = /^\d{2}\/\d{2}\/\d{4}$/;
-    if (datePattern.test(dateStr)) {
-      console.log(`Formatting dd/MM/yyyy date: ${dateStr}`);
-      const [day, month, year] = dateStr.split('/');
-      if (!day || !month || !year) {
-        throw new Error(`Failed to parse date: ${dateStr}. Expected format: dd/MM/yyyy`);
-      }
-      return `${year}-${month}-${day}`;
-    }
-
-    throw new Error(`Invalid date format: ${dateStr}. Expected formats: YYYY-MM-DD or dd/MM/yyyy`);
-  } catch (error) {
-    throw new Error(`Date parsing error: ${error.message}`);
-  }
+  const token = response.data?.auth?.token;
+  if (!token) throw new Error('Invalid BidTheatre authentication response');
+  console.log('BidTheatre authenticated successfully');
+  return token;
 }
 
-// Convert meters to kilometers
-function convertMetersToKm(meters) {
-  const km = meters / 1000;
-  const result = Math.ceil(km);
-  console.log(`Converted ${meters} meters to ${result} kilometers`);
-  return result;
-}
-
-// Fetch apartment keys
-async function fetchApartmentKeys(campaignId) {
-  try {
-    const { data, error } = await supabase
-      .from('campaign_apartments')
-      .select('apartment_key')
-      .eq('campaign_id', campaignId);
-
-    console.log(`Fetched apartment keys for campaign ${campaignId}: ${data?.length || 0} keys`);
-
-    if (error) {
-      throw error;
-    }
-
-    const apartmentKeys = data.map(row => row.apartment_key.toString());
-    console.log(`Extracted apartment keys: ${JSON.stringify(apartmentKeys)}`);
-    return apartmentKeys;
-  } catch (error) {
-    console.error(`Error fetching apartment keys for campaign ${campaignId}:`, error);
-    return [];
-  }
-}
-
-// Fetch apartment details
-async function fetchApartmentDetails(apartmentKeys) {
-  if (!apartmentKeys || apartmentKeys.length === 0) {
-    console.log('No apartment keys provided to fetchApartmentDetails');
-    return [];
-  }
-
-  try {
-    console.log(`Fetching details for ${apartmentKeys.length} apartments with keys:`, apartmentKeys);
-
-    // First attempt: Bulk query
-    const { data, error } = await supabase
-      .from('apartments')
-      .select('*')
-      .in('key', apartmentKeys);
-
-    if (error) {
-      console.error('Error fetching apartment details (bulk query):', error.message);
-      throw error;
-    }
-
-    console.log(`Fetched ${data?.length || 0} apartments out of ${apartmentKeys.length} requested`);
-
-    let fetchedApartments = data || [];
-
-    // If not all apartments were found, try individual queries
-    if (fetchedApartments.length < apartmentKeys.length) {
-      console.log('Not all apartments were found, trying individual queries');
-
-      const foundKeys = fetchedApartments.map(apt => String(apt.key));
-      const missingKeys = apartmentKeys.filter(key => !foundKeys.includes(String(key)));
-
-      console.log(`Missing ${missingKeys.length} apartment keys:`, missingKeys);
-
-      for (const key of missingKeys) {
-        console.log(`Trying individual query for apartment key: ${key}`);
-        const { data: singleData, error: singleError } = await supabase
-          .from('apartments')
-          .select('*')
-          .eq('key', key);
-
-        if (singleError) {
-          console.warn(`Could not fetch apartment with key ${key}:`, singleError.message);
-          continue;
-        }
-
-        if (singleData && singleData.length === 0) {
-          console.warn(`No apartment found with key ${key}`);
-          continue;
-        }
-
-        if (singleData && singleData.length > 1) {
-          console.warn(`Multiple apartments found with key ${key}, using the first one`);
-          fetchedApartments.push(singleData[0]);
-        } else if (singleData && singleData.length === 1) {
-          console.log(`Found apartment with key ${key} on individual query`);
-          fetchedApartments.push(singleData[0]);
-        }
-      }
-    }
-
-    console.log('Fetched apartment data:', JSON.stringify(fetchedApartments, null, 2));
-
-    return fetchedApartments;
-  } catch (error) {
-    console.error('Exception in fetchApartmentDetails:', error);
-    return [];
-  }
-}
-
-// Poll Creatopy export
-async function pollCreatopyExport(exportId, creatopyToken, maxAttempts = 15, initialDelayMs = 1500) {
-  let delayMs = initialDelayMs;
-
-  console.log(`Starting to poll Creatopy export for ID ${exportId}, max attempts: ${maxAttempts}`);
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const exportFetchResponse = await creatopyApi.get(`/export/${exportId}`, {
-      headers: { Authorization: `Bearer ${creatopyToken}` },
-    });
-
-    console.log(`Fetched Creatopy export response for ID ${exportId}, attempt ${attempt}: ${JSON.stringify(exportFetchResponse.data)}`);
-
-    const exportData = exportFetchResponse.data.response;
-
-    if (!exportData || !exportData.creatives || exportData.creatives.length === 0) {
-      throw new Error(`Invalid Creatopy export response for ID ${exportId}: ${JSON.stringify(exportFetchResponse.data)}`);
-    }
-
-    const status = exportData.status;
-    const videoUrl = exportData.creatives[0].url;
-
-    if (status === 'complete' && videoUrl) {
-      console.log(`Creatopy export completed for ID ${exportId}, video URL: ${videoUrl}`);
-      return videoUrl;
-    }
-
-    if (status === 'failed' || exportData.errorLog) {
-      throw new Error(`Creatopy export failed for ID ${exportId}: ${exportData.errorLog || 'Unknown error'}`);
-    }
-
-    console.log(`Creatopy export status for ID ${exportId}: ${status}, waiting ${delayMs}ms before next attempt`);
-
-    await new Promise(resolve => setTimeout(resolve, delayMs));
-
-    delayMs = Math.min(delayMs * 1.5, 5000);
-  }
-
-  throw new Error(`Creatopy export did not complete after ${maxAttempts} attempts for export ID ${exportId}`);
-}
-
-// Retry API calls with exponential backoff
-const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
-  let lastError;
-
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+  let lastError: Error | undefined;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    } catch (error) {
+    } catch (error: any) {
       lastError = error;
-      if (axios.isAxiosError(error) && error.response?.status === 429) {
-        const delay = baseDelay * Math.pow(2, attempt - 1);
-        await new Promise(resolve => setTimeout(resolve, delay));
+      if (axios.isAxiosError(error) && error.response?.status === 429 && attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, attempt - 1)));
       } else {
         throw error;
       }
     }
   }
-
   throw lastError;
-};
+}
+
+function formatDateForBT(dateStr: string): string {
+  if (!dateStr) throw new Error('Date string is undefined');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+    const [day, month, year] = dateStr.split('/');
+    return `${year}-${month}-${day}`;
+  }
+  const parsed = parseISO(dateStr);
+  if (!isNaN(parsed.getTime())) return format(parsed, 'yyyy-MM-dd');
+  throw new Error(`Invalid date format: ${dateStr}`);
+}
+
+function metersToKm(meters: number): number {
+  return Math.max(1, Math.ceil(meters / 1000));
+}
+
+async function getBidStrategyTemplates(channel: string) {
+  const { data, error } = await supabase
+    .from('bidtheatre_bid_strategies')
+    .select('*')
+    .eq('channel', channel);
+
+  if (error) throw new Error(`Failed to fetch bid strategy templates for ${channel}`);
+  return data || [];
+}
+
+// ============================================================================
+// FETCH CREATIVES FROM SUPABASE
+// ============================================================================
 
 /**
- * Uploads a video to Cloudinary and sends the URL to BidTheatre
- * @param {string} videoUrl - The URL of the video to upload
- * @param {number} linearId - The BidTheatre linear ID
- * @param {string} btToken - The BidTheatre auth token
- * @param {string} networkId - The BidTheatre network ID
- * @param {number} campaignId - The campaign ID for folder structure
- * @param {string} aptKey - The apartment key for video naming
- * @returns {Promise<{success: boolean, output?: string, error?: string}>}
+ * Fetches ready creatives for a campaign + channel, optionally filtered by branch.
+ * Creatives are named: "BranchLabel - ServiceName - WxH"
  */
-async function downloadAndUploadVideo(videoUrl, linearId, btToken, networkId, campaignId, aptKey) {
-  const maxRetries = 3;
-  let lastError;
+async function fetchCreativesForBranch(
+  campaignId: string,
+  channel: 'display' | 'pdooh',
+  branchLabel: string
+) {
+  const { data, error } = await supabase
+    .from('creatives')
+    .select('*')
+    .eq('campaign_id', campaignId)
+    .eq('type', channel)
+    .eq('status', 'ready');
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      cloudinary.config({
-        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-        api_key: process.env.CLOUDINARY_API_KEY,
-        api_secret: process.env.CLOUDINARY_API_SECRET,
-      });
-
-      console.log(`Uploading video (attempt ${attempt}) to Cloudinary from ${videoUrl} for campaign ${campaignId}, apartment ${aptKey}`);
-      const uploadResult = await cloudinary.uploader.upload(videoUrl, {
-        resource_type: 'video',
-        public_id: aptKey,
-        folder: `bidtheatre-videos/${campaignId}`,
-        overwrite: true,
-      });
-      console.log(`Video uploaded to Cloudinary, public URL: ${uploadResult.secure_url}`);
-
-      const payload = {
-        url: uploadResult.secure_url,
-        delivery: 'progressive',
-        bitRate: 5901,
-        mimeType: 'video/mp4',
-        duration: '00:00:10',
-        dimension: 216,
-        scalable: false,
-        maintainRatio: false,
-      };
-
-      console.log(`Sending video URL to BidTheatre for linear ID ${linearId}`);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const uploadResponse = await fetch(
-        `https://asx-api.bidtheatre.com/v2.0/api/${networkId}/video-linear/${linearId}/media`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${btToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        }
-      );
-      clearTimeout(timeoutId);
-
-      const responseData = await uploadResponse.json();
-      if (!uploadResponse.ok) {
-        throw new Error(`Request failed with status ${uploadResponse.status}: ${JSON.stringify(responseData)}`);
-      }
-
-      console.log('BidTheatre upload response:', JSON.stringify(responseData, null, 2));
-      return { success: true, output: JSON.stringify(responseData) };
-    } catch (error) {
-      lastError = error;
-      console.error(`Attempt ${attempt} failed for apartment ${aptKey}:`, error.message);
-      if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
-      }
-    }
+  if (error) {
+    console.error(`Failed to fetch creatives: ${error.message}`);
+    return [];
   }
 
-  console.error(`All retries failed for apartment ${aptKey}:`, lastError.message);
-  return {
-    success: false,
-    error: lastError.message,
-    stderr: lastError.message,
-  };
+  if (!data || data.length === 0) return [];
+
+  // Filter creatives belonging to this branch by name pattern
+  const branchLower = branchLabel.toLowerCase();
+  const branchCreatives = data.filter(c => {
+    const name = (c.name || '').toLowerCase();
+    return name.includes(branchLower);
+  });
+
+  // If no branch-specific creatives found, return all (fallback for nationwide)
+  return branchCreatives.length > 0 ? branchCreatives : data;
 }
 
-async function uploadAndCreateVideoAd(
-  BT_NETWORK_ID: string,
+/**
+ * Fetches the HTML content from a public Supabase storage URL.
+ */
+async function fetchCreativeHtml(publicUrl: string): Promise<string | null> {
+  try {
+    const response = await axios.get(publicUrl, { timeout: 15000, responseType: 'text' });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Failed to fetch creative HTML from ${publicUrl}:`, error.message);
+    return null;
+  }
+}
+
+// ============================================================================
+// CREATE BT CAMPAIGN FOR A SINGLE BRANCH + CHANNEL
+// ============================================================================
+
+async function createBtCampaignForBranch(
+  campaign: any,
+  branch: any,
+  channelDef: ChannelDef,
   btToken: string,
-  videoLinearId: number,
-  videoUrl: string,
-  campaignId: number,
-  campaignAddress: string,
-  backupUrl: string,
-  aptKey: string // Add aptKey parameter
-): Promise<number> {
-  try {
-    // Create the video ad
-    console.log(`Creating video ad for campaign ${campaignId}, apartment ${aptKey} at: ${new Date().toISOString()}`);
-    const { data: adResp } = await bidTheatreApi.post(
-      `/${BT_NETWORK_ID}/ad`,
-      {
-        campaign: campaignId,
-        name: `${aptKey} - ${campaignAddress}`, // Use aptKey instead of videoLinearId
-        adType: 'Video ad',
-        adStatus: 'Active',
-        isSecure: true,
-        dimension: 385,
-        backupContentURL: backupUrl
-      },
-      { headers: { Authorization: `Bearer ${btToken}` } }
-    );
-    console.log('✔️ Video ad created:', adResp);
+  networkId: string,
+  advertiserId: number
+) {
+  const channelType = channelDef.channel;
+  const adGroups = channelType === 'DISPLAY' ? DISPLAY_AD_GROUPS : PDOOH_AD_GROUPS;
+  const branchName = branch.short_name || branch.name || 'Branch';
+  const branchCity = branch.city || campaign.campaign_city || '';
 
-    // Attach the creative
-    console.log(`Attaching video creative to ad ${adResp.ad.id} at: ${new Date().toISOString()}`);
-    await bidTheatreApi.post(
-      `/${BT_NETWORK_ID}/ad/${adResp.ad.id}/video-creative`,
-      { sequence: 1, videoCreative: videoLinearId },
-      { headers: { Authorization: `Bearer ${btToken}` } }
-    );
-    console.log('✔️ Video creative attached to ad:', adResp.ad.id);
+  console.log(`Creating BT campaign: ${branchName} / ${channelType}`);
 
-    return adResp.ad.id;
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error(`Error in uploadAndCreateVideoAd for video linear ID ${videoLinearId}:`, error.response?.data?.message || error.message);
-      console.error('Full error details:', error.response?.data);
-      throw new Error(`Failed in uploadAndCreateVideoAd: ${error.response?.data?.message || error.message}`);
-    }
-    console.error(`Unexpected error in uploadAndCreateVideoAd for video linear ID ${videoLinearId}:`, error);
-    throw error;
+  // 1. Create BT campaign
+  const campaignPayload = {
+    name: `ST / ${channelType} / ${branchName} / ${campaign.id.substring(0, 8)}`,
+    advertiser: advertiserId,
+    campaignKPI: 3,
+    targetURL: campaign.landing_url || 'https://terveystalo.com/suunterveystalo',
+    defaultGeoTarget: null,
+    expectedTotalImps: channelType === 'DISPLAY' ? 8422 : 12500,
+    deliveryPriority: 'even',
+    defaultFilterTarget: channelType === 'DISPLAY' ? 22418 : 32491,
+    defaultOptimizationStrategy: channelType === 'DISPLAY' ? 538 : 519,
+    allowWideTargeting: false,
+    renderOBA: false,
+    takeScreenshots: false,
+  };
+
+  const campaignResp = await retryWithBackoff(() =>
+    bidTheatreApi.post(`/${networkId}/campaign`, campaignPayload, {
+      headers: { Authorization: `Bearer ${btToken}` },
+    })
+  );
+  const btCampaignId = campaignResp.data.campaign.id;
+  console.log(`Created BT campaign ${btCampaignId} for ${branchName} / ${channelType}`);
+
+  // 2. Set category (3 = Health & Beauty)
+  await retryWithBackoff(() =>
+    bidTheatreApi.post(`/${networkId}/campaign/${btCampaignId}/category`, { category: 3 }, {
+      headers: { Authorization: `Bearer ${btToken}` },
+    })
+  );
+
+  // 3. Calculate budget per branch (split total channel budget equally across branches)
+  const totalChannelBudget = channelType === 'DISPLAY'
+    ? (campaign.budget_display || 0)
+    : (campaign.budget_pdooh || 0);
+  const branchIds: string[] = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  const budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
+
+  if (budgetPerBranch <= 0) {
+    throw new Error(`Invalid budget for ${channelType}: ${budgetPerBranch} (total: ${totalChannelBudget}, branches: ${branchIds.length})`);
   }
-}
 
+  // 4. Set cycle (budget + dates)
+  const startDate = formatDateForBT(campaign.campaign_start_date || campaign.start_date);
+  const isOngoing = !campaign.campaign_end_date
+    || campaign.campaign_end_date === 'ONGOING'
+    || campaign.is_ongoing;
 
-// Create a campaign in BidTheatre
-const createBidTheatreCampaign = async (campaign) => {
-  try {
-    // Fetch tokens at the beginning to ensure they're fresh
-    console.log(`Starting BidTheatre campaign creation for ${campaign.id} at: ${new Date().toISOString()}`);
-    let btToken = await getBidTheatreToken();
-    if (!btToken) {
-      return { success: false, error: 'Failed to authenticate with BidTheatre' };
-    }
-    console.log(`Successfully retrieved BidTheatre token at: ${new Date().toISOString()}`);
+  let endDate: string;
+  if (isOngoing) {
+    endDate = format(addMonths(parseISO(startDate), 1), 'yyyy-MM-dd');
+  } else {
+    endDate = formatDateForBT(campaign.campaign_end_date || campaign.end_date);
+  }
 
-    let creatopyToken = await getCreatopyToken();
-    if (!creatopyToken) {
-      return { success: false, error: 'Failed to authenticate with Creatopy' };
-    }
-    console.log(`Successfully retrieved Creatopy token at: ${new Date().toISOString()}`);
+  const cycleResp = await retryWithBackoff(() =>
+    bidTheatreApi.post(`/${networkId}/campaign/${btCampaignId}/cycle`, {
+      startDate,
+      endDate,
+      deliveryUnit: 'Budget',
+      amount: budgetPerBranch,
+      showDiffInvoicePopup: false,
+    }, {
+      headers: { Authorization: `Bearer ${btToken}` },
+    })
+  );
+  const cycleId = cycleResp.data?.cycle?.id;
 
-    const credentials = await getBidTheatreCredentials();
-    console.log(`Fetched BidTheatre credentials for network ${credentials.network_id}`);
+  // 5. Create ad groups
+  const adGroupIds: Record<string, number> = {};
+  const adIds: Record<string, number[]> = {};
 
-    const BT_NETWORK_ID = credentials.network_id;
+  for (const group of adGroups) {
+    const agResp = await retryWithBackoff(() =>
+      bidTheatreApi.post(`/${networkId}/adgroup`, {
+        name: group.name,
+        campaign: btCampaignId,
+        autoAddAds: false,
+      }, {
+        headers: { Authorization: `Bearer ${btToken}` },
+      })
+    );
+    adGroupIds[group.name] = agResp.data.adgroup.id;
+    adIds[group.name] = [];
+    console.log(`Created ad group "${group.name}" (ID: ${adGroupIds[group.name]})`);
+  }
 
-    const advertiserId = await getAdvertiserIdFromUser(campaign.user_id);
-    console.log(`Using advertiser_id: ${advertiserId} for campaign ${campaign.id}`);
-    const advertiserIdInt = parseInt(advertiserId.toString(), 10);
-    console.log(`Using advertiser_id: ${advertiserIdInt} for campaign ${campaign.id}`);
+  // 6. Fetch creatives for this branch + channel from Supabase
+  const creatives = await fetchCreativesForBranch(
+    campaign.id,
+    channelType.toLowerCase() as 'display' | 'pdooh',
+    branchName
+  );
+  console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
-    const channels: Channel[] = [];
-    if (campaign.channel_display) channels.push({ channel: 'DISPLAY', btCampaignId: '' });
-    if (campaign.channel_pdooh) channels.push({ channel: 'PDOOH', btCampaignId: '' });
+  // 7. Create HTML ads from creatives
+  for (const group of adGroups) {
+    for (const size of group.sizes) {
+      const config = AD_DIMENSIONS[size];
+      if (!config) continue;
 
-    console.log(`Determined channels for campaign ${campaign.id}: ${channels.map(c => c.channel).join(', ')}`);
+      // Find matching creatives by size
+      const sizeCreatives = creatives.filter(c =>
+        c.size === size || (c.width === config.width && c.height === config.height)
+      );
 
-    if (channels.length === 0) {
-      return { success: true, error: 'No BidTheatre channels selected' };
-    }
+      for (const creative of sizeCreatives) {
+        // Get HTML content: stored in DB field or fetch from storage URL
+        let html = creative.rendered_html || creative.html_content;
 
-    const apartmentKeys: string[] = campaign.apartment_keys || campaign.apartmentKeys || [];
-    console.log(`Using apartment keys for campaign ${campaign.id}: ${JSON.stringify(apartmentKeys)}`);
-
-    const apartments = await fetchApartmentDetails(apartmentKeys);
-    console.log(`Fetched apartment details for campaign ${campaign.id}: ${apartments.length} apartments`);
-
-    const campaignIds = {};
-    let overallSuccess = true;
-    let overallError = '';
-
-    for (const channel of channels) {
-      console.log(`Starting campaign creation for channel ${channel.channel}, campaign ${campaign.id} at: ${new Date().toISOString()}`);
-
-      let btCampaignId;
-      let adGroupIds = {};
-      let adIds = {};
-      let videoLinearIds = {};
-      let isOngoing = false;
-      let geoTargetId;
-      let geoTargetCoordinatesId;
-
-      try {
-        const campaignPayload = {
-          name: `ST / ${channel.channel} / ${campaign.id}`,
-          advertiser: advertiserIdInt,
-          campaignManager: credentials.username,
-          campaignKPI: 3,
-          defaultLineItem: 295489,
-          targetURL: 'https://terveystalo.com/suunterveystalo',
-          defaultGeoTarget: null,
-          expectedTotalImps: channel.channel === 'DISPLAY' ? 8422 : 12500,
-          deliveryPriority: 'even',
-          defaultFilterTarget: channel.channel === 'DISPLAY' ? 22418 : 32491,
-          defaultOptimizationStrategy: channel.channel === 'DISPLAY' ? 538 : 519,
-          allowWideTargeting: false,
-          renderOBA: false,
-          takeScreenshots: false,
-        };
-
-        const campaignResponse = await retryWithBackoff(() =>
-          bidTheatreApi.post(`/${BT_NETWORK_ID}/campaign`, campaignPayload, {
-            headers: { Authorization: `Bearer ${btToken}` },
-          })
-        );
-        btCampaignId = campaignResponse.data.campaign.id;
-        campaignIds[channel.channel] = btCampaignId;
-
-        console.log(`Created campaign for channel ${channel.channel}, campaign ${campaign.id}, BidTheatre ID: ${btCampaignId} at: ${new Date().toISOString()}`);
-
-        await retryWithBackoff(() =>
-          bidTheatreApi.post(`/${BT_NETWORK_ID}/campaign/${btCampaignId}/category`, { category: 3 }, {
-            headers: { Authorization: `Bearer ${btToken}` },
-          })
-        );
-        console.log(`Set category for campaign ${btCampaignId}, channel ${channel.channel} at: ${new Date().toISOString()}`);
-
-        const budget = channel.channel === 'DISPLAY' ? campaign.budget_display : campaign.budget_pdooh;
-        if (budget == null || budget <= 0) {
-          throw new Error(`Invalid budget for ${channel.channel}: ${budget}. Budget must be a positive number.`);
+        if (!html && (creative.image_url || creative.preview_url)) {
+          html = await fetchCreativeHtml(creative.image_url || creative.preview_url);
         }
-        console.log(`Validated budget for channel ${channel.channel}: ${budget} at: ${new Date().toISOString()}`);
 
-        isOngoing = !campaign.campaign_end_date || campaign.campaign_end_date.toUpperCase() === 'ONGOING';
-        let endDate: string;
-        if (isOngoing) {
-          const startDate = parseISO(formatDateForBidTheatre(campaign.campaign_start_date));
-          const initialEndDate = addMonths(startDate, 1);
-          endDate = format(initialEndDate, 'yyyy-MM-dd');
-        } else {
-          endDate = formatDateForBidTheatre(campaign.campaign_end_date);
+        if (!html) {
+          console.warn(`No HTML content for creative ${creative.id} (${creative.name}), skipping`);
+          continue;
         }
-        console.log(`Determined end date for campaign ${campaign.id}, channel ${channel.channel}: ${endDate} at: ${new Date().toISOString()}`);
-
-        const cyclePayload = {
-          startDate: formatDateForBidTheatre(campaign.campaign_start_date),
-          endDate: endDate,
-          deliveryUnit: 'Budget',
-          amount: budget,
-          showDiffInvoicePopup: false,
-        };
 
         try {
-          await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${BT_NETWORK_ID}/campaign/${btCampaignId}/cycle`, cyclePayload, {
+          const adResp = await retryWithBackoff(() =>
+            bidTheatreApi.post(`/${networkId}/ad`, {
+              campaign: btCampaignId,
+              name: creative.name || `${branchName} - ${size}`,
+              adType: 'HTML banner',
+              adStatus: 'Active',
+              html,
+              dimension: config.dimension,
+              isExpandable: false,
+              isInSync: true,
+              isSecure: true,
+            }, {
               headers: { Authorization: `Bearer ${btToken}` },
             })
           );
-          console.log(`Set cycle for campaign ${btCampaignId}, channel ${channel.channel} at: ${new Date().toISOString()}`);
-        } catch (cycleError) {
-          throw new Error(`Failed to set cycle for ${channel.channel}: ${cycleError.message}`);
+          const adId = adResp.data.ad.id;
+          adIds[group.name].push(adId);
+          console.log(`Created ad ${adId} for ${size} (${creative.name})`);
+        } catch (adError: any) {
+          console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
         }
-
-        const adGroups = channel.channel === 'DISPLAY' ? [
-          { name: 'Mobile sizes', sizes: ['300x600', '300x431'], autoAddAds: false },
-          { name: 'Small desktop', sizes: ['300x600', '300x300'], autoAddAds: false },
-          { name: 'Large desktop sizes', sizes: ['620x891', '980x400'], autoAddAds: false },
-        ] : [{ name: 'Default campaign', sizes: ['1080x1920'], autoAddAds: false }];
-
-        for (const adGroup of adGroups) {
-          const adGroupPayload = {
-            name: adGroup.name,
-            campaign: btCampaignId,
-            autoAddAds: adGroup.autoAddAds,
-          };
-          const adGroupResponse = await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${BT_NETWORK_ID}/adgroup`, adGroupPayload, {
-              headers: { Authorization: `Bearer ${btToken}` },
-            })
-          );
-          adGroupIds[adGroup.name] = adGroupResponse.data.adgroup.id;
-          console.log(`Created ad group ${adGroup.name} for campaign ${btCampaignId}, channel ${channel.channel}, ad group ID: ${adGroupIds[adGroup.name]} at: ${new Date().toISOString()}`);
-        }
-
-        for (const adGroup of adGroups) {
-          adIds[adGroup.name] = [];
-        }
-        console.log(`Initialized ad IDs for ad groups: ${JSON.stringify(Object.keys(adIds))} at: ${new Date().toISOString()}`);
-
-        if (channel.channel === 'PDOOH' && (!apartmentKeys || apartmentKeys.length === 0)) {
-          throw new Error('PDOOH requires at least one apartment key');
-        }
-
-        if (channel.channel === 'DISPLAY') {
-          const adConfigs: Record<string, { width: number; height: number; dimension: number }> = {
-            '300x300': { width: 300, height: 300, dimension: 10 },
-            '300x431': { width: 300, height: 431, dimension: 1888 },
-            '300x600': { width: 300, height: 600, dimension: 11 },
-            '620x891': { width: 620, height: 891, dimension: 1888 },
-            '980x400': { width: 980, height: 400, dimension: 15 },
-          };
-
-          if (!apartmentKeys || apartmentKeys.length === 0) {
-            overallError += `No ads created for ${channel.channel} due to missing apartment keys\n`;
-            console.log(`No ads created for channel ${channel.channel} due to missing apartment keys at: ${new Date().toISOString()}`);
-          } else {
-            // Fetch creative templates from Supabase
-            const { data: templates, error: templatesError } = await supabase
-              .from('creative_templates')
-              .select('*')
-              .in('size', Object.keys(adConfigs))
-              .eq('active', true);
-
-            if (templatesError || !templates || templates.length === 0) {
-              overallError += `Failed to fetch creative templates from Supabase: ${templatesError?.message || 'No templates found'}\n`;
-              console.log(`Failed to fetch creative templates from Supabase at: ${new Date().toISOString()}`);
-            } else {
-              console.log(`Fetched ${templates.length} creative templates from Supabase at: ${new Date().toISOString()}`);
-
-              for (const aptKey of apartmentKeys) {
-                const apartment = apartments.find(apt => apt.key === aptKey);
-                if (!apartment) {
-                  overallError += `Apartment ${aptKey} not found for ${channel.channel}\n`;
-                  console.log(`Apartment ${aptKey} not found for channel ${channel.channel} at: ${new Date().toISOString()}`);
-                  continue;
-                }
-                for (const adGroup of adGroups) {
-                  for (const size of adGroup.sizes) {
-                    const config = adConfigs[size];
-                    const template = templates.find(t => t.size === size);
-
-                    if (!template) {
-                      overallError += `Template not found for size ${size}\n`;
-                      console.log(`Template not found for size ${size} at: ${new Date().toISOString()}`);
-                      continue;
-                    }
-
-                    // Build template variables
-                    // Note: Some fields like offer_title, offer_date, price are not stored in dental_campaigns table
-                    // They are used during template preview but need to be extracted from offer_text or use defaults
-                    const variables: Record<string, string> = {
-                      headline: (campaign.headline || 'Hymyile.<br>Olet hyvissä käsissä.').replace(/\n/g, '<br>'),
-                      subheadline: (campaign.subheadline || 'Sujuvampaa suunterveyttä.').replace(/\n/g, '<br>'),
-                      offer_title: 'Hammas-<br>tarkastus', // Default value
-                      price: campaign.offer_text || '49', // Extract price from offer_text
-                      offer_date: 'Varaa viimeistään<br>28.10.', // Default value
-                      cta_text: campaign.cta_text || 'Varaa aika',
-                      branch_address: campaign.creative_type === 'local' ? (apartment.address || campaign.campaign_address || '') : '',
-                      image_url: campaign.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen.jpg',
-                      artwork_url: 'https://suunterveystalo.netlify.app/refs/assets/terveystalo-artwork.png',
-                      logo_url: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
-                      click_url: campaign.landing_url || 'https://terveystalo.com/suunterveystalo?utm_source=programmatic&utm_medium=display&utm_campaign=marketing-engine&utm_content=' + campaign.id,
-                      disclaimer_text: '', // Default empty for Display ads
-                    };
-
-                    // Generate HTML by replacing variables in template
-                    let html = template.html_template || '';
-
-                    // Merge with default values from template
-                    const mergedVars: Record<string, string> = { ...template.default_values, ...variables };
-
-                    // Replace all placeholders
-                    Object.entries(mergedVars).forEach(([key, value]) => {
-                      const regex = new RegExp(`{{${key}}}`, 'g');
-                      html = html.replace(regex, String(value));
-                    });
-
-                    // Replace clickTag placeholder with proper format
-                    html = html.replace(/{{clickTag}}/g, '{clickurl}' + (campaign.landing_url || 'https://terveystalo.com/suunterveystalo'));
-
-                    const adPayload = {
-                      campaign: btCampaignId,
-                      name: `${aptKey} - ${size}`,
-                      adType: 'HTML banner',
-                      adStatus: 'Active',
-                      html: html,
-                      dimension: config.dimension,
-                      isExpandable: false,
-                      isInSync: true,
-                      isSecure: true,
-                      backupContentURL: backupContentURLs[size],
-                    };
-                    try {
-                      const response = await retryWithBackoff(() =>
-                        bidTheatreApi.post(`/${BT_NETWORK_ID}/ad`, adPayload, {
-                          headers: { Authorization: `Bearer ${btToken}` },
-                        })
-                      );
-                      const adId = parseInt(response.data.ad.id);
-                      adIds[adGroup.name].push(adId);
-                      console.log(`Created ad for channel ${channel.channel}, apartment ${aptKey}, size ${size}, ad ID: ${adId} at: ${new Date().toISOString()}`);
-                    } catch (adError: any) {
-                      overallError += `Ad creation failed for ${channel.channel} - ${aptKey} - ${size}: ${adError.message}\n`;
-                      console.log(`Ad creation failed for ${channel.channel} - ${aptKey} - ${size}: ${adError.message} at: ${new Date().toISOString()}`);
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          for (const adGroup of adGroups) {
-            const adGroupId = adGroupIds[adGroup.name];
-            const adIdsToAssign = adIds[adGroup.name];
-            if (adIdsToAssign.length > 0) {
-              const assignPayload = { ad: adIdsToAssign };
-              try {
-                await retryWithBackoff(() =>
-                  bidTheatreApi.post(`/${BT_NETWORK_ID}/adgroup/${adGroupId}/ad`, assignPayload, {
-                    headers: { Authorization: `Bearer ${btToken}` },
-                  })
-                );
-                console.log(`Assigned ads to ad group ${adGroup.name} for channel ${channel.channel}: ${adIdsToAssign.length} ads at: ${new Date().toISOString()}`);
-              } catch (assignError) {
-                overallError += `Ad assignment failed for ${channel.channel} - ${adGroup.name}: ${assignError.message}\n`;
-                console.log(`Ad assignment failed for ${channel.channel} - ${adGroup.name}: ${assignError.message} at: ${new Date().toISOString()}`);
-              }
-            }
-          }
-        } else if (channel.channel === 'PDOOH') {
-          const adConfigs = {
-            '1080x1920': { hash: 'x8x7e3x', width: 1080, height: 1920 },
-          };
-
-          if (!apartmentKeys || apartmentKeys.length === 0) {
-            overallError += `No ads created for ${channel.channel} due to missing apartment keys\n`;
-            console.log(`No ads created for channel ${channel.channel} due to missing apartment keys at: ${new Date().toISOString()}`);
-            throw new Error(`No apartment keys found for campaign ${campaign.id}, aborting PDOOH campaign creation`);
-          } else {
-            console.log(`Starting PDOOH ad creation for ${apartmentKeys.length} apartments at: ${new Date().toISOString()}`);
-
-            let videoUploadSuccessful = false;
-
-            for (const aptKey of apartmentKeys) {
-              console.log(`Processing PDOOH apartment ${aptKey} at: ${new Date().toISOString()}`);
-              const apartment = apartments.find(apt => apt.key === aptKey);
-              if (!apartment) {
-                overallError += `Apartment ${aptKey} not found for ${channel.channel}\n`;
-                console.log(`Apartment ${aptKey} not found for channel ${channel.channel} at: ${new Date().toISOString()}`);
-                continue;
-              }
-              console.log(`Found apartment ${aptKey} for channel ${channel.channel} at: ${new Date().toISOString()}`);
-
-              try {
-                const config = adConfigs['1080x1920'];
-                const elementsChanges = [
-                  {
-                    elementName: 'images.link',
-                    changes: [{ attribute: 'SOURCE', value: apartment.images && apartment.images[0]?.url }],
-                  },
-                  {
-                    elementName: 'apartment details',
-                    changes: [{ attribute: 'LABEL', value: `${apartment.address}/ ${apartment.totalarea} m² / ${apartment.roomtypes}` }],
-                  },
-                  {
-                    elementName: 'sales_price',
-                    changes: [
-                      { attribute: 'LABEL', value: `Myyntihinta ${apartment.salesprice || apartment.salesprice_unencumbered}€` },
-                    ],
-                  },
-                  {
-                    elementName: 'sales_price_unencumbered',
-                    changes: [
-                      { attribute: 'LABEL', value: `${apartment.salesprice_unencumbered || apartment.salesprice} €` },
-                    ],
-                  },
-                  {
-                    elementName: 'agent agency',
-                    changes: [
-                      { attribute: 'LABEL', value: `${apartment.agent?.agency}` },
-                    ],
-                  },
-                  {
-                    elementName: 'agent_picture_url',
-                    changes: [{ attribute: 'SOURCE', value: apartment.agent?.pictureUrl }],
-                  },
-                  {
-                    elementName: 'agent',
-                    changes: [{ attribute: 'LABEL', value: `${apartment.agent?.name}` }],
-                  },  
-                ];
-
-                const exportPayload = {
-                  templateHash: config.hash,
-                  type: 'mp4',
-                  elementsChanges,
-                };
-                console.log(`Calling Creatopy export for apartment ${aptKey} at: ${new Date().toISOString()}`);
-                const exportResponse = await creatopyApi.post('/export-with-changes', exportPayload, {
-                  headers: { Authorization: `Bearer ${creatopyToken}` },
-                });
-                console.log(`Created Creatopy export for apartment ${aptKey}, channel ${channel.channel}, response: ${JSON.stringify(exportResponse.data)} at: ${new Date().toISOString()}`);
-
-                const exportId = exportResponse.data.response?.export?.id;
-                if (!exportId) {
-                  throw new Error('Creatopy export ID is undefined in response');
-                }
-
-                console.log(`Polling Creatopy export for ID ${exportId} at: ${new Date().toISOString()}`);
-                const videoUrl = await pollCreatopyExport(exportId, creatopyToken);
-                console.log(`Polled Creatopy export for apartment ${aptKey}, channel ${channel.channel}, video URL: ${videoUrl} at: ${new Date().toISOString()}`);
-
-                const videoLinearPayload = {
-                  campaign: parseInt(btCampaignId),
-                  name: `${aptKey} - ${campaign.campaign_address || 'Unknown'}`,
-                  advertiser: advertiserIdInt,
-                };
-                console.log(`Creating video linear for apartment ${aptKey} with payload: ${JSON.stringify(videoLinearPayload)} at: ${new Date().toISOString()}`);
-                let videoLinearResponse;
-                try {
-                  videoLinearResponse = await retryWithBackoff(() =>
-                    bidTheatreApi.post(`/${BT_NETWORK_ID}/video-linear`, videoLinearPayload, {
-                      headers: { Authorization: `Bearer ${btToken}` },
-                    })
-                  );
-                } catch (videoLinearError) {
-                  console.error(`Failed to create video linear for apartment ${aptKey}: ${videoLinearError.response?.data?.message || videoLinearError.message}`);
-                  console.error(`Error details:`, videoLinearError.response?.data);
-                  throw new Error(`Failed to create video linear: ${videoLinearError.response?.data?.message || videoLinearError.message}`);
-                }
-                const videoLinearId = videoLinearResponse.data?.videoLinear?.id;
-                if (!videoLinearId) {
-                  throw new Error('Video linear ID is undefined in response');
-                }
-                videoLinearIds[aptKey] = videoLinearId;
-                console.log(`Created video linear for apartment ${aptKey}, channel ${channel.channel}, video linear ID: ${videoLinearId} at: ${new Date().toISOString()}`);
-
-                console.log(`Uploading video for apartment ${aptKey} at: ${new Date().toISOString()}`);
-
-                try {
-                  const uploadResult = await downloadAndUploadVideo(videoUrl, videoLinearId, btToken, BT_NETWORK_ID, campaign.id, aptKey);
-                  if (!uploadResult.success) {
-                    throw new Error(`Video upload failed for apartment ${aptKey}: ${uploadResult.error}`);
-                  }
-                  console.log(`Video upload successful for apartment ${aptKey}, output: ${uploadResult.output}`);
-                  videoUploadSuccessful = true;
-                } catch (videoUploadError) {
-                  console.error(`Failed to process video for apartment ${aptKey}:`, videoUploadError.message);
-                  overallError += `Video upload failed for apartment ${aptKey}: ${videoUploadError.message}\n`;
-                  continue; // Skip to next apartment
-                }
-
-                const newAdId = await uploadAndCreateVideoAd(
-                  BT_NETWORK_ID,
-                  btToken,
-                  videoLinearId,
-                  videoUrl,
-                  parseInt(btCampaignId as string, 10),
-                  campaign.campaign_address || 'Unknown',
-                  backupContentURLs['1080x1920'],
-                  aptKey // Pass aptKey here
-                );
-
-                adIds['Default campaign'].push(newAdId);
-                videoUploadSuccessful = true;
-              } catch (error) {
-                overallError += `Failed to create PDOOH ad for apartment ${aptKey}: ${error.message}\n`;
-                console.log(`Failed to create PDOOH ad for apartment ${aptKey}: ${error.message} at: ${new Date().toISOString()}`);
-                continue;
-              }
-            }
-
-            if (!videoUploadSuccessful) {
-              throw new Error(`No video uploads were successful for campaign ${campaign.id}, aborting PDOOH campaign creation`);
-            }
-          }
-        }
-
-        for (const adGroup of adGroups) {
-          const adGroupId = adGroupIds[adGroup.name];
-          const adIdsToAssign = adIds[adGroup.name];
-          if (adIdsToAssign.length > 0) {
-            const assignPayload = { ad: adIdsToAssign };
-            try {
-              await retryWithBackoff(() =>
-                bidTheatreApi.post(`/${BT_NETWORK_ID}/adgroup/${adGroupId}/ad`, assignPayload, {
-                  headers: { Authorization: `Bearer ${btToken}` },
-                })
-              );
-              console.log(`Assigned ads to ad group ${adGroup.name} for channel ${channel.channel}: ${adIdsToAssign.length} ads at: ${new Date().toISOString()}`);
-            } catch (assignError) {
-              overallError += `Ad assignment failed for ${channel.channel} - ${adGroup.name}: ${assignError.message}\n`;
-              console.log(`Ad assignment failed for ${channel.channel} - ${adGroup.name}: ${assignError.message} at: ${new Date().toISOString()}`);
-            }
-          }
-        }
-
-        const geoTargetPayload = { name: `${campaign.campaign_address}, ${campaign.campaign_city}` };
-        const geoTargetResponse = await retryWithBackoff(() =>
-          bidTheatreApi.post(`/${BT_NETWORK_ID}/geo-target`, geoTargetPayload, {
-            headers: { Authorization: `Bearer ${btToken}` },
-          })
-        );
-        geoTargetId = geoTargetResponse.data.geoTarget.id;
-        console.log(`Created geo-target for campaign ${btCampaignId}, channel ${channel.channel}, geo-target ID: ${geoTargetId} at: ${new Date().toISOString()}`);
-
-        const coordinatesResponse = await retryWithBackoff(() =>
-          bidTheatreApi.post(`/${BT_NETWORK_ID}/geo-target/${geoTargetId}/geo-target-coordinate`, {
-            latitude: campaign.campaign_coordinates?.lat || 0,
-            longitude: campaign.campaign_coordinates?.lng || 0,
-            radius: convertMetersToKm(campaign.campaign_radius || 1500),
-          }, {
-            headers: { Authorization: `Bearer ${btToken}` },
-          })
-        );
-        geoTargetCoordinatesId = coordinatesResponse.data.geoTargetCoordinate.id;
-        console.log(`Created geo-target coordinates for geo-target ${geoTargetId}, channel ${channel.channel}, coordinates ID: ${geoTargetCoordinatesId} at: ${new Date().toISOString()}`);
-
-        const bidStrategyTemplates = await getBidStrategyTemplates(channel.channel);
-        console.log(`Fetched bid strategy templates for channel ${channel.channel}: ${bidStrategyTemplates.length} templates at: ${new Date().toISOString()}`);
-        if (bidStrategyTemplates.length === 0) {
-          bidStrategyTemplates.push({
-            id: 0,
-            channel: channel.channel,
-            rtb_sitelist: 157553,
-            adgroup_name: channel.channel === 'DISPLAY' ? 'Large desktop sizes' : undefined,
-            max_cpm: 5.0,
-            name: `${channel.channel} Bid Strategy`,
-            paused: false,
-            filterTarget: null,
-          });
-          console.log(`Added default bid strategy template for channel ${channel.channel} at: ${new Date().toISOString()}`);
-        }
-
-        for (const template of bidStrategyTemplates) {
-          const adGroupId = channel.channel === 'DISPLAY' ? adGroupIds[template.adgroup_name] : adGroupIds['Default campaign'];
-          const strategyPayload = {
-            rtbSitelist: template.rtb_sitelist,
-            adgroup: parseInt(adGroupId),
-            maxCPM: template.max_cpm,
-            geoTarget: parseInt(geoTargetId),
-            name: template.name,
-            paused: template.paused,
-            filterTarget: template.filterTarget || null,
-          };
-          try {
-            await retryWithBackoff(() =>
-              bidTheatreApi.post(`/${BT_NETWORK_ID}/campaign-target/${btCampaignId}/bid-strategy`, strategyPayload, {
-                headers: { Authorization: `Bearer ${btToken}` },
-              })
-            );
-            console.log(`Created bid strategy ${template.name} for campaign ${btCampaignId}, channel ${channel.channel} at: ${new Date().toISOString()}`);
-          } catch (strategyError) {
-            overallError += `Bid strategy failed for ${channel.channel} - ${template.name}: ${strategyError.message}\n`;
-            console.log(`Bid strategy failed for ${channel.channel} - ${template.name}: ${strategyError.message} at: ${new Date().toISOString()}`);
-          }
-        }
-
-        const { error } = await supabase
-        .from('bidtheatre_campaigns')
-        .insert({
-          campaign_id: campaign.id,
-          bt_campaign_id: btCampaignId,
-          channel: channel.channel,
-          geo_target_id: geoTargetId,
-          geo_target_coordinates_id: geoTargetCoordinatesId,
-          latitude: campaign.campaign_coordinates?.lat || null,
-          longitude: campaign.campaign_coordinates?.lng || null,
-          radius: campaign.campaign_radius,
-          ad_group_ids: adGroupIds, // No JSON.stringify
-          ad_ids: adIds,           // No JSON.stringify
-          video_linear_ids: channel.channel === 'PDOOH' ? videoLinearIds : null, // No JSON.stringify
-          is_ongoing: isOngoing,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-
-      if (error) {
-        overallSuccess = false;
-        overallError += `Failed to save BidTheatre metadata for ${channel.channel}: ${error.message}\n`;
-        console.log(`Failed to save BidTheatre metadata for ${channel.channel}: ${error.message} at: ${new Date().toISOString()}`);
-      } else {
-        console.log(`Successfully saved BidTheatre metadata for campaign ${campaign.id}, channel ${channel.channel}: ad_group_ids=${JSON.stringify(adGroupIds)}, ad_ids=${JSON.stringify(adIds)}, video_linear_ids=${JSON.stringify(videoLinearIds)} at: ${new Date().toISOString()}`);
-      }
-          } catch (error) {
-        overallSuccess = false;
-        overallError += `Error in ${channel.channel}: ${error.message}\n`;
-        console.log(`Error in ${channel.channel}: ${error.message} at: ${new Date().toISOString()}`);
       }
     }
-
-    // Update the campaigns table with both bt_campaign_id_display and bt_campaign_id_pdooh
-const updatePayload: Record<string, string> = {};
-if (campaignIds['DISPLAY']) {
-  updatePayload['bt_campaign_id_display'] = campaignIds['DISPLAY'];
-}
-if (campaignIds['PDOOH']) {
-  updatePayload['bt_campaign_id_pdooh'] = campaignIds['PDOOH'];
-}
-
-if (Object.keys(updatePayload).length > 0) {
-  const { error: updateError } = await supabase
-    .from('dental_campaigns')
-    .update(updatePayload)
-    .eq('id', campaign.id);
-
-  if (updateError) {
-    overallError += `Failed to update campaign ${campaign.id} with BidTheatre IDs: ${updateError.message}\n`;
-    console.log(`Failed to update campaign ${campaign.id} with BidTheatre IDs: ${updateError.message} at: ${new Date().toISOString()}`);
-  } else {
-    console.log(`Successfully updated campaign ${campaign.id} in Supabase with BidTheatre IDs: bt_campaign_id_display=${updatePayload['bt_campaign_id_display'] || 'N/A'}, bt_campaign_id_pdooh=${updatePayload['bt_campaign_id_pdooh'] || 'N/A'} at: ${new Date().toISOString()}`);
-  }
-}
-
-    return {
-      success: overallSuccess,
-      btCampaignId: channels.length === 1 ? campaignIds[channels[0].channel] : undefined,
-      campaignIds: channels.length > 1 ? campaignIds : undefined,
-      error: overallError || undefined,
-    };
-  } catch (error) {
-    console.error('Error in createBidTheatreCampaign:', error);
-    return { success: false, error: error.message };
-  }
-};
-
-
-// Pause a campaign in BidTheatre
-const pauseBidTheatreCampaign = async (campaign) => {
-  let btToken = await getBidTheatreToken();
-  if (!btToken) {
-    return { success: false, error: 'Failed to authenticate with BidTheatre' };
   }
 
-  const credentials = await getBidTheatreCredentials();
-  console.log(`Fetched BidTheatre credentials for network ${credentials.network_id}`);
-
-  const BT_NETWORK_ID = credentials.network_id;
-
-  const channels: Channel[] = [];
-  if (campaign.bt_campaign_id_display) channels.push({ channel: 'DISPLAY', btCampaignId: campaign.bt_campaign_id_display });
-  if (campaign.bt_campaign_id_pdooh) channels.push({ channel: 'PDOOH', btCampaignId: campaign.bt_campaign_id_pdooh });
-
-  console.log(`Determined channels for pausing campaign ${campaign.id}: ${channels.map(c => c.channel).join(', ')}`);
-
-  if (channels.length === 0) {
-    return { success: true, error: 'No BidTheatre channels selected for pausing' };
+  // 8. Assign ads to their ad groups
+  for (const group of adGroups) {
+    const groupAdIds = adIds[group.name];
+    if (groupAdIds.length > 0) {
+      try {
+        await retryWithBackoff(() =>
+          bidTheatreApi.post(`/${networkId}/adgroup/${adGroupIds[group.name]}/ad`, { ad: groupAdIds }, {
+            headers: { Authorization: `Bearer ${btToken}` },
+          })
+        );
+        console.log(`Assigned ${groupAdIds.length} ads to "${group.name}"`);
+      } catch (err: any) {
+        console.error(`Ad assignment failed for "${group.name}": ${err.message}`);
+      }
+    }
   }
 
-  let overallSuccess = true;
-  let overallError = '';
+  // 9. Set geo-targeting using branch coordinates
+  const lat = branch.coordinates?.lat || branch.latitude || campaign.campaign_coordinates?.lat || 0;
+  const lng = branch.coordinates?.lng || branch.longitude || campaign.campaign_coordinates?.lng || 0;
+  const radius = campaign.campaign_radius || 1500;
 
-  for (const { channel, btCampaignId } of channels) {
+  let geoTargetId: number | undefined;
+  let geoTargetCoordinatesId: number | undefined;
+
+  if (lat && lng) {
+    const geoResp = await retryWithBackoff(() =>
+      bidTheatreApi.post(`/${networkId}/geo-target`, {
+        name: `${branch.address || branchName}, ${branchCity}`,
+      }, {
+        headers: { Authorization: `Bearer ${btToken}` },
+      })
+    );
+    geoTargetId = geoResp.data.geoTarget.id;
+
+    const coordResp = await retryWithBackoff(() =>
+      bidTheatreApi.post(`/${networkId}/geo-target/${geoTargetId}/geo-target-coordinate`, {
+        latitude: lat,
+        longitude: lng,
+        radius: metersToKm(radius),
+      }, {
+        headers: { Authorization: `Bearer ${btToken}` },
+      })
+    );
+    geoTargetCoordinatesId = coordResp.data.geoTargetCoordinate.id;
+    console.log(`Created geo-target ${geoTargetId} at ${lat},${lng} r=${metersToKm(radius)}km`);
+  }
+
+  // 10. Create bid strategies from templates
+  const bidStrategyTemplates = await getBidStrategyTemplates(channelType);
+  const bidStrategyIds: number[] = [];
+
+  for (const template of bidStrategyTemplates) {
+    const adGroupId = channelType === 'DISPLAY'
+      ? adGroupIds[template.adgroup_name || 'Large desktop sizes']
+      : adGroupIds['Default campaign'];
+
+    if (!adGroupId) {
+      console.warn(`No ad group found for strategy "${template.name}", skipping`);
+      continue;
+    }
+
     try {
-      console.log(`Pausing campaign ${btCampaignId} for channel ${channel} at: ${new Date().toISOString()}`);
-      await retryWithBackoff(() =>
-        bidTheatreApi.post(`/${BT_NETWORK_ID}/campaign/${btCampaignId}/pause`, {}, {
+      const stratResp = await retryWithBackoff(() =>
+        bidTheatreApi.post(`/${networkId}/campaign-target/${btCampaignId}/bid-strategy`, {
+          rtbSitelist: template.rtb_sitelist,
+          adgroup: adGroupId,
+          maxCPM: template.max_cpm,
+          geoTarget: geoTargetId || null,
+          name: template.name,
+          paused: template.paused,
+          filterTarget: template.filterTarget || null,
+        }, {
           headers: { Authorization: `Bearer ${btToken}` },
         })
       );
-      console.log(`Paused campaign ${btCampaignId} for channel ${channel} at: ${new Date().toISOString()}`);
-    } catch (error) {
-      overallSuccess = false;
-      overallError += `Error pausing campaign ${btCampaignId} for ${channel}: ${error.message}\n`;
-      console.log(`Error pausing campaign ${btCampaignId} for ${channel}: ${error.message} at: ${new Date().toISOString()}`);
+      bidStrategyIds.push(stratResp.data?.bidStrategy?.id || 0);
+      console.log(`Created bid strategy "${template.name}"`);
+    } catch (err: any) {
+      console.error(`Bid strategy "${template.name}" failed: ${err.message}`);
     }
   }
 
-  return {
-    success: overallSuccess,
-    error: overallError || undefined,
-  };
-};
+  // 11. Save to bidtheatre_campaigns table
+  const { error: insertError } = await supabase
+    .from('bidtheatre_campaigns')
+    .insert({
+      campaign_id: campaign.id,
+      branch_id: branch.id,
+      channel: channelType,
+      bt_campaign_id: btCampaignId,
+      bt_advertiser_id: advertiserId,
+      geo_target_id: geoTargetId || null,
+      geo_target_coordinates_id: geoTargetCoordinatesId || null,
+      latitude: lat || null,
+      longitude: lng || null,
+      radius,
+      ad_group_ids: adGroupIds,
+      ad_ids: adIds,
+      bid_strategy_ids: bidStrategyIds,
+      cycle_id: cycleId || null,
+      budget: budgetPerBranch,
+      is_ongoing: isOngoing,
+      status: 'active',
+    });
 
-// Mark a BidTheatre campaign as checked
-async function markCampaignAsChecked(networkId: string, campaignId: string | number, token: string): Promise<boolean> {
-  try {
-    console.log(`Marking campaign ${campaignId} as checked at: ${new Date().toISOString()}`);
-    const response = await bidTheatreApi.put(`/${networkId}/campaign/${campaignId}/check/1`, 
-      {
-        checkDone: true,
-        checkType: "Skipped"
-      },
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
-    
-    console.log(`Campaign ${campaignId} marked as checked, response: ${JSON.stringify(response.data)}`);
-    return true;
-  } catch (error) {
-    console.error(`Error marking campaign ${campaignId} as checked:`, error.response?.data || error.message);
-    return false;
+  if (insertError) {
+    console.error(`Failed to save BT metadata: ${insertError.message}`);
   }
+
+  return { btCampaignId, branchId: branch.id, channel: channelType, adGroupIds, adIds, geoTargetId };
 }
 
-// Netlify Background Function handler
-export async function handler(event) {
-  console.log(`Background function started at ${new Date().toISOString()}`);
+// ============================================================================
+// MAIN ORCHESTRATOR
+// ============================================================================
 
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ error: 'Method Not Allowed' }),
-    };
+async function createBidTheatreCampaign(campaign: any) {
+  console.log(`Starting BidTheatre campaign creation for ${campaign.id}`);
+
+  const btToken = await getBidTheatreToken();
+  const credentials = await getBidTheatreCredentials();
+  const networkId = credentials.network_id;
+  const advertiserId = credentials.advertiser_id || 22717;
+
+  // Determine active channels
+  const channels: ChannelDef[] = [];
+  if (campaign.channel_display) channels.push({ channel: 'DISPLAY' });
+  if (campaign.channel_pdooh) channels.push({ channel: 'PDOOH' });
+
+  if (channels.length === 0) {
+    return { success: true, message: 'No BidTheatre channels selected' };
   }
 
-  let campaign;
-  let apartmentKeys: string[] = [];
-
-  // 1) Parse JSON
-  try {
-    campaign = JSON.parse(event.body || '{}');
-    console.log('Parsed campaign:', JSON.stringify(campaign, null, 2));
-  } catch (err) {
-    console.error('Invalid JSON', err);
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: 'Invalid JSON payload', details: err.message }),
-    };
+  // Fetch branches for this campaign
+  const branchIds: string[] = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  if (branchIds.length === 0) {
+    return { success: false, error: 'No branches specified for campaign' };
   }
 
-  // 2) Determine op type
-  const isPause = Boolean(campaign.pause || campaign.is_pause);
-  const isUpdate = Boolean(campaign.is_update || campaign.bt_campaign_id_display || campaign.bt_campaign_id_pdooh);
+  const { data: branches, error: branchError } = await supabase
+    .from('branches')
+    .select('*')
+    .in('id', branchIds);
 
-  if (!campaign.id) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: 'Missing campaign.id' }),
-    };
+  if (branchError || !branches || branches.length === 0) {
+    return { success: false, error: `Failed to fetch branches: ${branchError?.message || 'No branches found'}` };
   }
 
-  // 3) Keys from payload override
-  if (Array.isArray(campaign.apartment_keys)) {
-    apartmentKeys = campaign.apartment_keys;
-  }
+  console.log(`Processing ${branches.length} branches × ${channels.length} channels`);
 
-  // 4) Otherwise fetch from DB
-  if (!isPause && apartmentKeys.length === 0) {
-    apartmentKeys = await fetchApartmentKeys(campaign.id);
-  }
+  const results: any[] = [];
+  const btCampaignIds: Record<string, number[]> = { DISPLAY: [], PDOOH: [] };
+  let overallSuccess = true;
+  let overallErrors = '';
 
-  // 5) Process the campaign immediately
-  try {
-    console.log(`Processing campaign ${campaign.id} at ${new Date().toISOString()}`);
-    const runner = isPause ? pauseBidTheatreCampaign : createBidTheatreCampaign;
-    const result = await runner({ ...campaign, apartmentKeys, isUpdate, isPause });
-    console.log(`Campaign ${campaign.id} processed, result: ${JSON.stringify(result)}`);
-
-    // Mark campaigns as checked
-    if (result.success && !isPause) {
+  // Create one BT campaign per branch × channel
+  for (const branch of branches) {
+    for (const channelDef of channels) {
       try {
-        const credentials = await getBidTheatreCredentials();
-        const BT_NETWORK_ID = credentials.network_id;
-        const btToken = await getBidTheatreToken();
-
-        if (result.campaignIds) {
-          // Mark all campaign IDs as checked
-          for (const [channel, campaignId] of Object.entries(result.campaignIds)) {
-            await markCampaignAsChecked(BT_NETWORK_ID, campaignId, btToken);
-            console.log(`Marked ${channel} campaign ${campaignId} as checked at: ${new Date().toISOString()}`);
-          }
-        } else if (result.btCampaignId) {
-          // Mark single campaign ID as checked
-          await markCampaignAsChecked(BT_NETWORK_ID, result.btCampaignId, btToken);
-          console.log(`Marked campaign ${result.btCampaignId} as checked at: ${new Date().toISOString()}`);
-        }
-      } catch (checkError) {
-        console.error(`Error marking campaign(s) as checked: ${checkError.message}`);
-        // Continue with response, don't fail the function just because check marking failed
+        const result = await createBtCampaignForBranch(
+          campaign, branch, channelDef, btToken, networkId, advertiserId
+        );
+        results.push(result);
+        btCampaignIds[channelDef.channel].push(result.btCampaignId);
+        console.log(`✓ ${branch.name} / ${channelDef.channel} → BT #${result.btCampaignId}`);
+      } catch (err: any) {
+        overallSuccess = false;
+        overallErrors += `${branch.name} / ${channelDef.channel}: ${err.message}\n`;
+        console.error(`✗ ${branch.name} / ${channelDef.channel}: ${err.message}`);
       }
     }
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        success: result.success,
-        campaignId: campaign.id,
-        operationType: isPause ? 'pause' : isUpdate ? 'update' : 'create',
-        result,
-      }),
-    };
-  } catch (err) {
-    console.error(`Campaign ${campaign.id} processing failed:`, err.message);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Processing failed', details: err.message }),
-    };
   }
-};
 
-// Interface for Channel
-interface Channel {
-  channel: 'DISPLAY' | 'PDOOH';
-  btCampaignId: string | number;
+  // Update dental_campaigns with sync status and first BT IDs (backward compat)
+  const updatePayload: Record<string, any> = {
+    bt_sync_status: overallSuccess ? 'synced' : 'failed',
+    bt_last_sync: new Date().toISOString(),
+  };
+  if (btCampaignIds.DISPLAY.length > 0) {
+    updatePayload.bt_campaign_id_display = btCampaignIds.DISPLAY[0];
+  }
+  if (btCampaignIds.PDOOH.length > 0) {
+    updatePayload.bt_campaign_id_pdooh = btCampaignIds.PDOOH[0];
+  }
+  if (overallErrors) {
+    updatePayload.bt_sync_error = overallErrors.substring(0, 500);
+  }
+
+  await supabase.from('dental_campaigns').update(updatePayload).eq('id', campaign.id);
+
+  if (overallSuccess) {
+    await supabase.from('dental_campaigns').update({ status: 'active' }).eq('id', campaign.id);
+  }
+
+  return { success: overallSuccess, results, btCampaignIds, error: overallErrors || undefined };
+}
+
+// ============================================================================
+// NETLIFY HANDLER
+// ============================================================================
+
+export async function handler(event: any) {
+  console.log(`createBidTheatreCampaign-background started at ${new Date().toISOString()}`);
+
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+  }
+
+  let campaign: any;
+  try {
+    campaign = JSON.parse(event.body || '{}');
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON payload' }) };
+  }
+
+  if (!campaign.id) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Missing campaign.id' }) };
+  }
+
+  try {
+    const result = await createBidTheatreCampaign(campaign);
+    console.log(`Campaign ${campaign.id} processed:`, JSON.stringify(result));
+
+    await supabase.from('activity_logs').insert({
+      action: 'bidtheatre_campaign_created',
+      entity_type: 'campaign',
+      entity_id: campaign.id,
+      details: `Created ${result.results?.length || 0} BT campaigns (success: ${result.success})`,
+      user_id: campaign.created_by || 'system',
+    });
+
+    return { statusCode: result.success ? 200 : 500, body: JSON.stringify(result) };
+  } catch (error: any) {
+    console.error('Fatal error in createBidTheatreCampaign:', error);
+
+    await supabase.from('dental_campaigns').update({
+      bt_sync_status: 'failed',
+      bt_sync_error: error.message,
+      status: 'draft',
+    }).eq('id', campaign.id);
+
+    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+  }
 }

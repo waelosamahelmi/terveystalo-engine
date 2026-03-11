@@ -3,7 +3,7 @@
 // Complete redesign with dynamic budget allocation and map integration
 // ============================================================================
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createCampaign } from '../lib/campaignService';
 import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService';
@@ -1323,9 +1323,9 @@ const CampaignCreate = () => {
   ];
 
   // Get selected items
-  const selectedServices = services.filter(s => formData.service_ids.includes(s.id));
+  const selectedServices = useMemo(() => services.filter(s => formData.service_ids.includes(s.id)), [services, formData.service_ids]);
   const selectedService = selectedServices[0] || services.find(s => s.id === formData.service_id);
-  const selectedBranches = branches.filter(b => formData.branch_ids.includes(b.id));
+  const selectedBranches = useMemo(() => branches.filter(b => formData.branch_ids.includes(b.id)), [branches, formData.branch_ids]);
   const selectedBranch = selectedBranches[0] || branches.find(b => b.id === formData.branch_id);
 
   // Preview service - allows switching between services when multiple are selected
@@ -1897,6 +1897,10 @@ const CampaignCreate = () => {
 
       city_name: activeBranch?.city || 'Oulu',
 
+      // Audio & video
+      audio_track: encodeURI(creativeConfig.selectedAudio || '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav'),
+      background_video: encodeURI(creativeConfig.selectedVideo || '/meta/vids/nainen.mp4'),
+
       // Images (for Meta templates - two scene images)
       scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
       scene2_image: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces',
@@ -2155,7 +2159,8 @@ const CampaignCreate = () => {
           overflow: 'hidden',
           borderRadius: '4px',
         }}
-        sandbox="allow-same-origin allow-scripts"
+        sandbox="allow-same-origin allow-scripts allow-autoplay"
+        allow="autoplay"
         scrolling="no"
       />
     );
@@ -2209,6 +2214,9 @@ const CampaignCreate = () => {
         meta_primary_text: creativeConfig.metaPrimaryText || undefined,
         meta_headline: creativeConfig.metaHeadline || undefined,
         meta_description: creativeConfig.metaDescription || undefined,
+        offer_subtitle: creativeConfig.offerSubtitle || undefined,
+        offer_date: creativeConfig.offerDate || undefined,
+        disclaimer_text: creativeConfig.disclaimerText || undefined,
         meta_video_url: creativeConfig.selectedVideo || undefined,
         meta_video_file: creativeConfig.videoFile || undefined,
         meta_audio_url: creativeConfig.selectedAudio || undefined,
