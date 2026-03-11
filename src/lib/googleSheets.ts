@@ -489,7 +489,7 @@ function formatDentalCampaignRow(
       ? `Sujuvampaa suunterveyttä ${getConjugatedCity(br.city)} Suun Terveystalossa.`
       : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.',
     svc?.default_offer_fi || svc?.name_fi || svc?.name || '', // BZ: offer_headline (Tarjouksen otsikko)
-    (campaign as any).offer_date || (campaign as any).offer_subtitle || '', // CA: offer_subtitle (Voimassaoloaika)
+    ((campaign as any).offer_date || (campaign as any).offer_subtitle || '').replace(/<br\s*\/?>/gi, ' ').replace(/\|/g, ' '), // CA: offer_subtitle (Voimassaoloaika)
   ];
 }
 
