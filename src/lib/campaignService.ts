@@ -253,15 +253,16 @@ export async function createCampaignCreatives(
         const service = serviceMap.get(serviceId);
         if (!service) continue;
 
-        // Build ad folder name: ServiceName-City (sanitized)
         const serviceName = service.name_fi || service.name;
-        const adName = `${serviceName}${branch.city ? `-${branch.city}` : ''}`
+        const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
+        const branchLabel = isGeneralBrandMessage ? 'Valtakunnallinen' : (branch.city || branch.short_name || branch.name);
+        // Sanitize for storage path (ASCII-safe)
+        const sanitize = (s: string) => s
           .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
           .replace(/[^a-zA-Z0-9-]/g, '_')
           .replace(/_+/g, '_')
           .replace(/^_|_$/g, '');
-
-        const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
+        const adFolder = `${sanitize(branchLabel)} - ${sanitize(serviceName)}`;
 
         // Valtakunnallinen (brand message) ads: create only once, not per-branch
         if (isGeneralBrandMessage && createdBrandMessageServices.has(serviceId)) {
@@ -345,8 +346,8 @@ export async function createCampaignCreatives(
           }
 
           // Collect upload item for batch upload via Netlify function
-          const storagePath = `campaigns/${campaignId}/${adName}/${cs.folder}/${sizeStr}.html`;
-          const creativeName = `${formData.name || 'Campaign'} - ${serviceName} - ${branch.city || branch.name} - ${cs.type} - ${sizeStr}`;
+          const storagePath = `campaigns/${campaignId}/${adFolder}/${cs.folder}/${sizeStr}.html`;
+          const creativeName = `${branchLabel} - ${serviceName} - ${sizeStr}`;
 
           uploadItems.push({
             storagePath,
