@@ -3,6 +3,7 @@ import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus,
 import { parseISO, format } from 'date-fns';
 import { supabase } from './supabase';
 import type { AdVersionUrls } from './campaignService';
+import { getConjugatedCity } from './metaTemplateVariables';
 
 // Google Sheets API endpoint
 const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -14,9 +15,9 @@ const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
 // Sheet name for Suun Terveystalo feed
 const SHEET_NAME = 'FEED';
 
-// Extended column range (A:BW = 75 columns for all fields including meta status/URLs and per-size creative URLs)
-const SHEET_RANGE = `${SHEET_NAME}!A:BW`;
-const COLUMN_COUNT = 75;
+// Extended column range (A:CA = 79 columns for all fields including meta status/URLs, per-size creative URLs, and offer columns)
+const SHEET_RANGE = `${SHEET_NAME}!A:CA`;
+const COLUMN_COUNT = 79;
 
 // ============================================================================
 // SHEET SYNC TRACKING — update sheet_row_id & sheet_last_sync in DB
@@ -300,7 +301,7 @@ function formatDentalCampaignRow(
   campaign: DentalCampaign,
   options?: {
     branchOverride?: { name: string; address: string; postal_code: string; city: string; region?: string; phone?: string };
-    serviceOverride?: { name: string; name_fi?: string; code: string; default_price?: string };
+    serviceOverride?: { name: string; name_fi?: string; code: string; default_price?: string; default_offer_fi?: string };
     budgetOverride?: { total: number; meta: number; display: number; pdooh: number; audio: number };
     excludedBranchesData?: Array<{ address: string; city: string }>;
     creativeUrls?: AdVersionUrls;
@@ -429,13 +430,13 @@ function formatDentalCampaignRow(
     (campaign.spent_budget || 0).toString(),                      // AM: spent_budget
 
     // ── Creative content (AN-AT) ──
-    campaign.headline || '',                                      // AN: headline
+    (campaign.headline || '').replace(/\|/g, ' '),                // AN: headline (pipe replaced with space)
     campaign.subheadline || '',                                   // AO: subheadline
     campaign.offer_text || '',                                    // AP: offer_text
     campaign.cta_text || '',                                      // AQ: cta_text
     campaign.landing_url || '',                                   // AR: landing_url
     campaign.background_image_url || '',                          // AS: background_image_url
-    campaign.general_brand_message || '',                         // AT: general_brand_message
+    (campaign.general_brand_message || '').replace(/<br\s*\/?>/gi, ' '), // AT: general_brand_message (<br> replaced with space)
     (campaign.target_screens_count || 0).toString(),              // AU: target_screens_count
 
     // ── Audience (AV-AX) ──
@@ -481,6 +482,14 @@ function formatDentalCampaignRow(
 
     // ── PDOOH creative URL (BW) ──
     options?.creativeUrls?.pdooh_1080x1920_url || '',              // BW: pdooh_1080x1920_url
+
+    // ── Offer / Brand columns (BX-CA) ──
+    'Sujuvampaa suunterveyttä hammastarkastuksista erikoisosaamista vaativiin hoitoihin.', // BX: brand_message
+    br?.city                                                      // BY: offer_message
+      ? `Sujuvampaa suunterveyttä ${getConjugatedCity(br.city)} Suun Terveystalossa.`
+      : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.',
+    svc?.default_offer_fi || svc?.name_fi || svc?.name || '', // BZ: offer_headline (Tarjouksen otsikko)
+    (campaign as any).offer_date || (campaign as any).offer_subtitle || '', // CA: offer_subtitle (Voimassaoloaika)
   ];
 }
 
@@ -588,6 +597,7 @@ export async function addDentalCampaignToSheet(
               name_fi: service.name_fi,
               code: service.code,
               default_price: service.default_price,
+              default_offer_fi: service.default_offer_fi,
             },
             budgetOverride: adVersionCount > 1 ? splitBudget : undefined,
             excludedBranchesData,
@@ -763,7 +773,7 @@ export async function deleteCampaignFromSheet(campaignId: string) {
       // First, clear the row to ensure no leftover data (use A:AX since we know the sheet structure)
       try {
         await axios.put(
-          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:BM${rowIndex}?valueInputOption=RAW`,
+          `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!A${rowIndex}:CA${rowIndex}?valueInputOption=RAW`,
           {
             values: [Array(COLUMN_COUNT).fill('')], // Clear all columns (A:BL)
           },
