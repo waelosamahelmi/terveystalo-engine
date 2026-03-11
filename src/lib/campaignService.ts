@@ -670,6 +670,8 @@ export async function createCampaign(
       meta_headline: formData.meta_headline || '',
       meta_description: formData.meta_description || '',
       excluded_branch_ids: formData.excluded_branch_ids || [],
+      offer_date: formData.offer_date || '',
+      offer_subtitle: formData.offer_subtitle || '',
     };
     try {
       const sheetOk = await addDentalCampaignToSheet(sheetData, creativeUrlsByAdVersion);
