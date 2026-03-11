@@ -287,6 +287,7 @@ export interface CampaignFormData {
   headline?: string;
   subheadline?: string;
   offer_text?: string;
+  service_prices?: Record<string, string>;
   cta_text?: string;
   background_image_url?: string;
   landing_url?: string;

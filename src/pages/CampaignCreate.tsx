@@ -213,6 +213,7 @@ interface CreativeConfig {
   headline: string;
   subheadline: string;
   offer: string;
+  servicePrices: Record<string, string>;
   offerTitle: string;
   offerSubtitle: string;
   offerDate: string;
@@ -1181,6 +1182,7 @@ const CampaignCreate = () => {
     headline: '',
     subheadline: '',
     offer: '49',
+    servicePrices: {},
     offerTitle: '', // Empty so service name is used by default
     offerSubtitle: 'uusille asiakkaille',
     offerDate: 'Varaa viimeistään<br/>28.10.',
@@ -1338,6 +1340,27 @@ const CampaignCreate = () => {
       setPreviewServiceId(selectedServices[0].id);
     }
   }, [selectedServices, previewServiceId]);
+
+  // Auto-populate per-service prices when services change
+  useEffect(() => {
+    if (selectedServices.length > 0) {
+      setCreativeConfig(prev => {
+        const newPrices = { ...prev.servicePrices };
+        for (const svc of selectedServices) {
+          if (!newPrices[svc.id]) {
+            newPrices[svc.id] = (svc.default_price || '').replace(/€/g, '').trim() || '49';
+          }
+        }
+        // Remove prices for deselected services
+        for (const id of Object.keys(newPrices)) {
+          if (!selectedServices.find(s => s.id === id)) {
+            delete newPrices[id];
+          }
+        }
+        return { ...prev, servicePrices: newPrices };
+      });
+    }
+  }, [selectedServices]);
 
   // Helper to get service name (handles name_fi vs name)
   const getServiceName = (service: Service | undefined) => 
@@ -1830,8 +1853,8 @@ const CampaignCreate = () => {
       }
     }
 
-    // Price
-    const priceValue = creativeConfig.offer || '49';
+    // Price — use per-service price for the current preview service
+    const priceValue = (serviceForPreview && creativeConfig.servicePrices[serviceForPreview.id]) || creativeConfig.offer || '49';
 
     // For brand message, don't show offer
     const finalOfferTitle = isGeneralBrandMessage ? '' : offerTitle;
@@ -2178,6 +2201,7 @@ const CampaignCreate = () => {
         headline: creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.',
         subheadline: creativeConfig.subheadline || '',
         offer_text: creativeConfig.offer,
+        service_prices: creativeConfig.servicePrices,
         cta_text: creativeConfig.cta,
         background_image_url: creativeConfig.backgroundImage || undefined,
         landing_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
@@ -3576,15 +3600,36 @@ const CampaignCreate = () => {
                                 </div>
                                 <div>
                                   <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                                    Hinta (€)
+                                    Hinta per palvelu (€)
                                   </label>
-                                  <input
-                                    type="number"
-                                    value={creativeConfig.offer}
-                                    onChange={(e) => setCreativeConfig({ ...creativeConfig, offer: e.target.value })}
-                                    placeholder="49"
-                                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
-                                  />
+                                  {selectedServices.filter(s => s.code !== 'yleinen-brandiviesti').length > 0 ? (
+                                    <div className="space-y-2">
+                                      {selectedServices.filter(s => s.code !== 'yleinen-brandiviesti').map(svc => (
+                                        <div key={svc.id} className="flex items-center gap-2">
+                                          <span className="text-xs text-gray-500 min-w-[100px] truncate" title={svc.name_fi || svc.name}>{svc.name_fi || svc.name}</span>
+                                          <input
+                                            type="number"
+                                            value={creativeConfig.servicePrices[svc.id] || ''}
+                                            onChange={(e) => setCreativeConfig({
+                                              ...creativeConfig,
+                                              servicePrices: { ...creativeConfig.servicePrices, [svc.id]: e.target.value },
+                                            })}
+                                            placeholder={(svc.default_price || '').replace(/€/g, '').trim() || '49'}
+                                            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                                          />
+                                          <span className="text-sm text-gray-400">€</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="number"
+                                      value={creativeConfig.offer}
+                                      onChange={(e) => setCreativeConfig({ ...creativeConfig, offer: e.target.value })}
+                                      placeholder="49"
+                                      className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all"
+                                    />
+                                  )}
                                 </div>
                               </div>
                               <div>

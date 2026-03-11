@@ -215,9 +215,6 @@ export async function createCampaignCreatives(
       return urlsByBranch;
     }
 
-    // Simple variables for display/pdooh (non-meta) templates
-    const simpleVars = buildTemplateVariables(formData, showAddress);
-
     // Collect all items to upload via Netlify function
     const uploadItems: Array<{
       storagePath: string;
@@ -299,7 +296,7 @@ export async function createCampaignCreatives(
               formData: {
                 headline: formData.headline,
                 subheadline: formData.subheadline,
-                offer_text: formData.offer_text,
+                offer_text: formData.service_prices?.[serviceId] || formData.offer_text,
                 cta_text: formData.cta_text,
                 general_brand_message: formData.general_brand_message,
                 creative_type: formData.creative_type,
@@ -312,7 +309,32 @@ export async function createCampaignCreatives(
               isSplitTemplate,
             });
           } else {
-            vars = { ...simpleVars };
+            // Build per-branch/per-service variables for display/pdooh
+            const serviceName = service.name_fi || service.name;
+            const servicePrice = (formData.service_prices?.[serviceId] || (service.default_price || '').replace(/€/g, '').trim());
+            const headlineText = formData.headline || 'Hymyile.';
+            const subheadlineText = formData.subheadline || 'Olet hyvissä käsissä.';
+            const offerTitle = isGeneralBrandMessage ? '' : (service.default_offer_fi || serviceName);
+            const priceValue = isGeneralBrandMessage ? '' : (servicePrice || formData.offer_text || '49');
+            const city = branch.city || '';
+            const address = branch.address || '';
+            const locationText = address ? `${address}, ${city}` : city;
+
+            vars = {
+              title: 'Suun Terveystalo',
+              headline: headlineText,
+              subheadline: subheadlineText.replace(/\n/g, ' '),
+              offer_title: offerTitle.replace(/\n/g, ' '),
+              price: priceValue,
+              currency: '€',
+              cta_text: formData.cta_text || 'Varaa aika',
+              branch_address: showAddress ? locationText : '',
+              city_name: city || 'Helsinki',
+              logo_url: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
+              image_url: formData.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen.jpg',
+              click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
+              disclaimer_text: '',
+            };
           }
 
           // Render template HTML
