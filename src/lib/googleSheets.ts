@@ -301,6 +301,8 @@ function formatDentalCampaignRow(
     branchOverride?: { name: string; address: string; postal_code: string; city: string; region?: string; phone?: string };
     budgetOverride?: { total: number; meta: number; display: number; pdooh: number; audio: number };
     excludedBranchesData?: Array<{ address: string; city: string }>;
+    metaVideoUrl?: string;
+    metaStoryUrl?: string;
   }
 ): string[] {
   const startDate = safeFormatDate(campaign.campaign_start_date || campaign.start_date);
@@ -458,8 +460,8 @@ function formatDentalCampaignRow(
     dailyMeta.toFixed(2),                                         // BJ: smartly_daily_budget (always the daily meta budget)
     excludedLocations,                                            // BK: excluded_locations (semicolon-separated Smartly format)
     creativeAddr,                                                 // BL: creative_address (Streetname X, City)
-    (campaign as any).meta_video_url || '',                        // BM: meta_video_url (1080x1080 feed)
-    (campaign as any).meta_story_url || '',                       // BN: meta_story_url (1080x1920 stories/reels)
+    options?.metaVideoUrl || (campaign as any).meta_video_url || '',  // BM: meta_video_url (1080x1080 feed HTML)
+    options?.metaStoryUrl || (campaign as any).meta_story_url || '', // BN: meta_story_url (1080x1920 stories/reels HTML)
   ];
 }
 
@@ -479,7 +481,10 @@ async function fetchBranchesByIds(branchIds: string[]): Promise<Branch[]> {
 
 // Function to add a dental campaign to Google Sheet
 // For multi-location campaigns: creates one row per branch with budget split evenly, same campaign ID
-export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promise<boolean> {
+export async function addDentalCampaignToSheet(
+  campaign: DentalCampaign,
+  creativeUrlsByBranch?: Record<string, { meta_video_url?: string; meta_story_url?: string }>
+): Promise<boolean> {
   try {
     const accessToken = await getAccessToken();
 
@@ -516,25 +521,38 @@ export async function addDentalCampaignToSheet(campaign: DentalCampaign): Promis
         audio: (campaign.budget_audio || 0) / locationCount,
       };
 
-      rows = allBranches.map(branch => formatDentalCampaignRow(campaign, {
-        branchOverride: {
-          name: branch.name,
-          address: branch.address,
-          postal_code: branch.postal_code,
-          city: branch.city,
-          region: branch.region,
-          phone: branch.phone,
-        },
-        budgetOverride: splitBudget,
-        excludedBranchesData,
-      }));
+      rows = allBranches.map(branch => {
+        const branchUrls = creativeUrlsByBranch?.[branch.id];
+        return formatDentalCampaignRow(campaign, {
+          branchOverride: {
+            name: branch.name,
+            address: branch.address,
+            postal_code: branch.postal_code,
+            city: branch.city,
+            region: branch.region,
+            phone: branch.phone,
+          },
+          budgetOverride: splitBudget,
+          excludedBranchesData,
+          metaVideoUrl: branchUrls?.meta_video_url,
+          metaStoryUrl: branchUrls?.meta_story_url,
+        });
+      });
     } else {
       // Single location — one row
-      rows = [formatDentalCampaignRow(campaign, { excludedBranchesData })];
+      const singleBranchId = branchIds[0] || campaign.branch_id;
+      const branchUrls = singleBranchId ? creativeUrlsByBranch?.[singleBranchId] : undefined;
+      rows = [formatDentalCampaignRow(campaign, {
+        excludedBranchesData,
+        metaVideoUrl: branchUrls?.meta_video_url,
+        metaStoryUrl: branchUrls?.meta_story_url,
+      })];
     }
 
     if (rows.length === 0) {
-      rows = [formatDentalCampaignRow(campaign, { excludedBranchesData })];
+      rows = [formatDentalCampaignRow(campaign, {
+        excludedBranchesData,
+      })];
     }
 
     const response = await axios.post(

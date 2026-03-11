@@ -6,20 +6,15 @@
 import { supabase } from './supabase';
 import { sendSlackNotification } from './slackService';
 import { updateBranchUsedBudget } from './branchService';
-import axios from 'axios';
 import {
   addDentalCampaignToSheet,
   updateDentalCampaignInSheet,
   updateDentalCampaignStatusInSheet,
   deleteCampaignFromSheet,
-  findCampaignRows,
-  getAccessToken as getSheetAccessToken,
 } from './googleSheets';
 
-const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
-const SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID || '1c2nbTb3nwwoO3bzQWcxI32F7WiFQ4PgPk16aUF8-Fdk';
-const SHEET_NAME = 'FEED';
-import { getCreativeTemplates, renderTemplateHtml, generateAllMetaCreatives } from './creativeService';
+import { getCreativeTemplates, renderTemplateHtml, fixFontUrls } from './creativeService';
+import { buildMetaTemplateVariables } from './metaTemplateVariables';
 import type {
   DentalCampaign,
   CampaignFormData,
@@ -154,143 +149,291 @@ function buildTemplateVariables(formData: CampaignFormData, showAddress: boolean
 }
 
 /**
- * Create creative records for a campaign
+ * Create creative records for a campaign.
+ * Renders ALL templates (meta, display, pdooh) as HTML files,
+ * uploads them to Supabase Storage in a structured folder hierarchy,
+ * creates creative DB records with the public URLs,
+ * and returns a map of { branchId: { meta_video_url, meta_story_url } }
+ * so the caller can set those on the campaign / sheet rows.
  */
-async function createCampaignCreatives(
+export async function createCampaignCreatives(
   campaignId: string,
   formData: CampaignFormData
-): Promise<void> {
+): Promise<Record<string, { meta_video_url?: string; meta_story_url?: string }>> {
+  const urlsByBranch: Record<string, { meta_video_url?: string; meta_story_url?: string }> = {};
+
   try {
     // Get all active templates
     const templates = await getCreativeTemplates({ active: true });
     if (!templates || templates.length === 0) {
       console.log('No active templates found, skipping creative creation');
-      return;
+      return urlsByBranch;
     }
 
-    // Build variables based on creative type
+    const branchIds = formData.branch_ids?.length ? formData.branch_ids : [formData.branch_id];
+    const serviceIds = formData.service_ids?.length ? formData.service_ids : [formData.service_id];
+
+    // Fetch full branch and service data
+    const [branchRes, serviceRes] = await Promise.all([
+      supabase.from('branches').select('id, name, short_name, address, city').in('id', branchIds),
+      supabase.from('services').select('id, name, name_fi, code, default_price, default_offer_fi').in('id', serviceIds),
+    ]);
+    const branches = branchRes.data || [];
+    const services = serviceRes.data || [];
+    const branchMap = new Map(branches.map(b => [b.id, b]));
+    const serviceMap = new Map(services.map(s => [s.id, s]));
+
+    const baseUrl = window.location.origin;
     const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
-    const variables = buildTemplateVariables(formData, showAddress);
 
-    // Determine which sizes to create based on enabled channels
-    const sizesToCreate: string[] = [];
+    // Determine which channel types and sizes to create
+    type ChannelSize = { type: 'meta' | 'display' | 'pdooh'; width: number; height: number; folder: string };
+    const channelSizes: ChannelSize[] = [];
 
+    if (formData.channel_meta) {
+      channelSizes.push(
+        { type: 'meta', width: 1080, height: 1080, folder: 'meta' },
+        { type: 'meta', width: 1080, height: 1920, folder: 'meta' },
+      );
+    }
     if (formData.channel_display) {
-      // Display sizes
-      sizesToCreate.push('300x300', '300x431', '300x600', '980x400');
+      channelSizes.push(
+        { type: 'display', width: 300, height: 300, folder: 'display' },
+        { type: 'display', width: 300, height: 431, folder: 'display' },
+        { type: 'display', width: 300, height: 600, folder: 'display' },
+        { type: 'display', width: 980, height: 400, folder: 'display' },
+      );
     }
-
     if (formData.channel_pdooh) {
-      // PDOOH sizes
-      sizesToCreate.push('1080x1920');
+      channelSizes.push(
+        { type: 'pdooh', width: 1080, height: 1920, folder: 'pdooh' },
+      );
     }
 
-    if (formData.channel_meta) {
-      // Meta sizes
-      sizesToCreate.push('1080x1080', '1080x1920-meta');
+    if (channelSizes.length === 0) {
+      console.log('No channels enabled, skipping creative creation');
+      return urlsByBranch;
     }
 
-    // Create creative records for matching templates
-    const creativesToInsert = templates
-      .filter(t => sizesToCreate.includes(t.size) || sizesToCreate.includes(`${t.size}-${t.type}`))
-      .map(template => {
-        const renderedHtml = renderTemplateHtml(template, variables);
-        return {
-          campaign_id: campaignId,
-          template_id: template.id,
-          name: `${formData.name || 'Campaign'} - ${template.name}`,
-          type: template.type,
-          size: `${template.width}x${template.height}`,
-          width: template.width,
-          height: template.height,
-          status: 'draft' as const,
-        };
-      });
+    // Simple variables for display/pdooh (non-meta) templates
+    const simpleVars = buildTemplateVariables(formData, showAddress);
 
-    if (creativesToInsert.length > 0) {
-      const { error: creativeError } = await supabase
-        .from('creatives')
-        .insert(creativesToInsert);
+    // Collect all items to upload via Netlify function
+    const uploadItems: Array<{
+      storagePath: string;
+      html: string;
+      creative: {
+        campaign_id: string;
+        template_id: string;
+        name: string;
+        type: string;
+        size: string;
+        width: number;
+        height: number;
+      };
+      branchId: string;
+      channelType: string;
+      channelWidth: number;
+      channelHeight: number;
+    }> = [];
 
-      if (creativeError) {
-        console.error('Failed to create campaign creatives:', creativeError);
-      } else {
-        console.log(`Created ${creativesToInsert.length} creative records for campaign ${campaignId}`);
+    // Track which general brand message services have already been created (no per-branch duplication)
+    const createdBrandMessageServices = new Set<string>();
+
+    // For each branch × service × channel/size — render + upload HTML
+    for (const branchId of branchIds) {
+      const branch = branchMap.get(branchId);
+      if (!branch) continue;
+
+      if (!urlsByBranch[branchId]) {
+        urlsByBranch[branchId] = {};
       }
-    }
 
-    // Generate Meta video creatives if Meta channel is enabled
-    // Creates videos for each branch × service × dimension (1080x1080, 1080x1920)
-    if (formData.channel_meta) {
-      try {
-        // Fetch branches and services for the campaign
-        const { data: branchData } = await supabase
-          .from('branches')
-          .select('id, name, address, city')
-          .in('id', formData.branch_ids || [formData.branch_id]);
+      for (const serviceId of serviceIds) {
+        const service = serviceMap.get(serviceId);
+        if (!service) continue;
 
-        const { data: serviceData } = await supabase
-          .from('services')
-          .select('id, name, name_fi, default_price, default_offer_fi')
-          .in('id', formData.service_ids || [formData.service_id]);
+        const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti' ||
+          !!(formData.general_brand_message && formData.general_brand_message.length > 0);
 
-        const results = await generateAllMetaCreatives(
-          campaignId,
-          formData.name || 'Campaign',
-          {
-            service_ids: formData.service_ids || [formData.service_id],
-            branch_ids: formData.branch_ids || [formData.branch_id],
-            headline: formData.headline,
-            subheadline: formData.subheadline,
-            offer_text: formData.offer_text,
-            cta_text: formData.cta_text,
-            general_brand_message: formData.general_brand_message,
-            creative_type: formData.creative_type,
-            campaign_address: formData.campaign_address,
-            meta_video_url: formData.meta_video_url,
-            meta_audio_url: formData.meta_audio_url,
-          },
-          branchData || [],
-          serviceData || []
-        );
-
-        if (results.length > 0) {
-          console.log(`Generated ${results.length} Meta video creatives`);
-
-          // Update Google Sheet rows with video URLs
-          // BM = meta_video_url (1080x1080 feed), BN = meta_story_url (1080x1920 stories/reels)
-          const feedUrls = results.filter(r => r.width === 1080 && r.height === 1080).map(r => r.url).join(', ');
-          const storyUrls = results.filter(r => r.width === 1080 && r.height === 1920).map(r => r.url).join(', ');
-          try {
-            const rows = await findCampaignRows(campaignId);
-            if (rows.length > 0) {
-              const accessToken = await getSheetAccessToken();
-              if (accessToken) {
-                for (const row of rows) {
-                  // Update BM (feed) and BN (story) in one call
-                  await axios.put(
-                    `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_NAME}!BM${row.rowIndex}:BN${row.rowIndex}`,
-                    { values: [[feedUrls, storyUrls]] },
-                    {
-                      params: { valueInputOption: 'RAW' },
-                      headers: { Authorization: `Bearer ${accessToken}` },
-                    }
-                  );
-                }
-                console.log(`Updated ${rows.length} sheet rows with video URLs (feed: ${feedUrls ? 'yes' : 'none'}, story: ${storyUrls ? 'yes' : 'none'})`);
-              }
-            }
-          } catch (sheetErr) {
-            console.error('Failed to update sheet with video URLs (non-blocking):', sheetErr);
-          }
+        // Valtakunnallinen (general brand message) ads are nationwide — only create once, not per-branch
+        if (isGeneralBrandMessage && createdBrandMessageServices.has(serviceId)) {
+          continue;
         }
-      } catch (metaError) {
-        console.error('Meta video creative generation failed (non-blocking):', metaError);
+        if (isGeneralBrandMessage) {
+          createdBrandMessageServices.add(serviceId);
+        }
+
+        // Build ad folder name: ServiceName-City (sanitized)
+        const serviceName = service.name_fi || service.name;
+        const adName = `${serviceName}${isGeneralBrandMessage ? '-Valtakunnallinen' : (branch.city ? `-${branch.city}` : '')}`
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9-]/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_|_$/g, '');
+
+        for (const cs of channelSizes) {
+          const sizeStr = `${cs.width}x${cs.height}`;
+
+          // Find matching template
+          const template = templates.find(t =>
+            t.type === cs.type &&
+            t.width === cs.width &&
+            t.height === cs.height &&
+            t.active
+          );
+          if (!template) {
+            console.warn(`No active ${cs.type} template for ${sizeStr}`);
+            continue;
+          }
+
+          // Build variables — use rich meta variables for meta, simple for others
+          let vars: Record<string, string>;
+          if (cs.type === 'meta') {
+            const isSplitTemplate = template.html_template.includes('{{headline_line2}}');
+            vars = buildMetaTemplateVariables({
+              branch,
+              service,
+              allBranches: branches,
+              allServices: services,
+              formData: {
+                headline: formData.headline,
+                subheadline: formData.subheadline,
+                offer_text: formData.offer_text,
+                cta_text: formData.cta_text,
+                general_brand_message: formData.general_brand_message,
+                creative_type: formData.creative_type,
+                campaign_address: formData.campaign_address,
+                background_image_url: formData.background_image_url,
+                landing_url: formData.landing_url,
+              },
+              baseUrl,
+              isMetaTemplate: true,
+              isSplitTemplate,
+            });
+          } else {
+            vars = { ...simpleVars };
+            // Override price per-service for non-meta templates
+            if (!isGeneralBrandMessage && service.default_price) {
+              vars.price = formData.offer_text || service.default_price || '49';
+            }
+          }
+
+          // Render template HTML
+          let html = renderTemplateHtml(template, vars);
+          html = fixFontUrls(html);
+
+          // Make all root-relative paths absolute so HTML works from Supabase Storage
+          const ASSET_BASE = 'https://suunterveystalo.netlify.app';
+          html = html.replace(/src="\/([^"]*?)"/g, `src="${ASSET_BASE}/$1"`);
+          html = html.replace(/url\((['"]?)\/([^)]*?)\1\)/g, `url($1${ASSET_BASE}/$2$1)`);
+
+          // Apply CSS injections
+          if (isGeneralBrandMessage) {
+            html = html.replace('</head>',
+              '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble, .price-badge-wrap { display: none !important; }</style></head>');
+          }
+          if (!showAddress) {
+            html = html.replace('</head>',
+              '<style>.address, .Torikatu1Laht, .branch_address, .scene-4-address { display: none !important; }</style></head>');
+          }
+          // PDOOH: hide CTA
+          if (cs.type === 'pdooh') {
+            html = html.replace('</head>',
+              '<style>.cta, .cta-button, .cta-wrap, .scene-4-cta { display: none !important; }</style></head>');
+          }
+
+          // Collect upload item for batch upload via Netlify function
+          const storagePath = `campaigns/${campaignId}/${adName}/${cs.folder}/${sizeStr}.html`;
+          const creativeName = `${formData.name || 'Campaign'} - ${serviceName} - ${isGeneralBrandMessage ? 'Valtakunnallinen' : (branch.city || branch.name)} - ${cs.type} - ${sizeStr}`;
+
+          uploadItems.push({
+            storagePath,
+            html,
+            creative: {
+              campaign_id: campaignId,
+              template_id: template.id,
+              name: creativeName,
+              type: cs.type,
+              size: sizeStr,
+              width: cs.width,
+              height: cs.height,
+            },
+            branchId,
+            channelType: cs.type,
+            channelWidth: cs.width,
+            channelHeight: cs.height,
+          });
+        }
       }
     }
+
+    // Batch upload all HTML files via Netlify function (uses service role key, bypasses RLS)
+    if (uploadItems.length > 0) {
+      // Split into batches of 20 to avoid payload size limits
+      const BATCH_SIZE = 20;
+      for (let i = 0; i < uploadItems.length; i += BATCH_SIZE) {
+        const batch = uploadItems.slice(i, i + BATCH_SIZE);
+        try {
+          const response = await fetch('/.netlify/functions/upload-creatives', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              items: batch.map(item => ({
+                storagePath: item.storagePath,
+                html: item.html,
+                creative: item.creative,
+              })),
+            }),
+          });
+
+          if (!response.ok) {
+            console.error(`Batch upload failed (${i}-${i + batch.length}):`, await response.text());
+            continue;
+          }
+
+          const { results } = await response.json();
+          for (let j = 0; j < results.length; j++) {
+            const result = results[j];
+            const item = batch[j];
+            if (result.success && result.publicUrl) {
+              // Track meta URLs per branch
+              if (item.channelType === 'meta') {
+                if (item.channelWidth === 1080 && item.channelHeight === 1080 && !urlsByBranch[item.branchId].meta_video_url) {
+                  urlsByBranch[item.branchId].meta_video_url = result.publicUrl;
+                }
+                if (item.channelWidth === 1080 && item.channelHeight === 1920 && !urlsByBranch[item.branchId].meta_story_url) {
+                  urlsByBranch[item.branchId].meta_story_url = result.publicUrl;
+                }
+              }
+              console.log(`Uploaded ${item.channelType} ${item.creative.size}: ${result.publicUrl}`);
+            } else {
+              console.error(`Upload failed for ${result.storagePath}:`, result.error);
+            }
+          }
+        } catch (err) {
+          console.error(`Batch upload error (${i}-${i + batch.length}):`, err);
+        }
+      }
+    }
+    const firstUrls = Object.values(urlsByBranch)[0];
+    if (firstUrls) {
+      const updateFields: Record<string, string> = {};
+      if (firstUrls.meta_video_url) updateFields.meta_video_url = firstUrls.meta_video_url;
+      if (firstUrls.meta_story_url) updateFields.meta_story_url = firstUrls.meta_story_url;
+      if (Object.keys(updateFields).length > 0) {
+        await supabase.from('dental_campaigns').update(updateFields).eq('id', campaignId);
+        console.log('Set campaign meta URLs:', updateFields);
+      }
+    }
+
+    const totalCreated = Object.keys(urlsByBranch).length * channelSizes.length;
+    console.log(`Created ${totalCreated} HTML creatives for campaign ${campaignId}`);
   } catch (error) {
     console.error('Error creating campaign creatives:', error);
   }
+
+  return urlsByBranch;
 }
 
 /**
@@ -398,7 +541,16 @@ export async function createCampaign(
       }
     ).catch(() => {}); // Fire and forget
 
-    // 1. Sync campaign data to Google Sheets FIRST (await it)
+    // 1. Create creative HTML files and upload to Supabase Storage FIRST
+    //    Returns per-branch meta URLs so we can include them in the sheet
+    let creativeUrlsByBranch: Record<string, { meta_video_url?: string; meta_story_url?: string }> = {};
+    try {
+      creativeUrlsByBranch = await createCampaignCreatives(data.id, formData);
+    } catch (e) {
+      console.error('Creative creation failed (non-blocking):', e);
+    }
+
+    // 2. Sync campaign data to Google Sheets (with creative URLs)
     const sheetData = {
       ...data,
       meta_primary_text: formData.meta_primary_text || '',
@@ -407,16 +559,12 @@ export async function createCampaign(
       excluded_branch_ids: formData.excluded_branch_ids || [],
     };
     try {
-      const sheetOk = await addDentalCampaignToSheet(sheetData);
+      const sheetOk = await addDentalCampaignToSheet(sheetData, creativeUrlsByBranch);
       if (!sheetOk) console.warn('Sheet sync returned false for campaign', data.id);
       else console.log('Campaign data synced to Google Sheet');
     } catch (e) {
       console.error('Google Sheets sync failed (non-blocking):', e);
     }
-
-    // 2. Create creative records (fire and forget — will update sheet with video URLs when done)
-    createCampaignCreatives(data.id, formData)
-      .catch(e => console.error('Creative creation failed (non-blocking):', e));
   }
 
   return data;

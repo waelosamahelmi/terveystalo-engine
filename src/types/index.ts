@@ -197,8 +197,9 @@ export interface DentalCampaign {
   // Excluded branches (toimipisteet)
   excluded_branch_ids?: string[];
 
-  // Meta video creative
-  meta_video_url?: string;
+  // Meta video creatives (generated server-side, stored as Supabase Storage URLs)
+  meta_video_url?: string;    // 1080x1080 feed video URL
+  meta_story_url?: string;    // 1080x1920 stories/reels video URL
 
   // Audience targeting (age and gender)
   target_age_min?: number;
@@ -313,7 +314,7 @@ export interface CampaignFormData {
 // CREATIVE TYPES
 // ============================================================================
 
-export type CreativeStatus = 'pending' | 'generating' | 'ready' | 'failed';
+export type CreativeStatus = 'draft' | 'generating' | 'ready' | 'pending_approval' | 'approved' | 'rejected' | 'archived';
 export type CreativeChannel = 'display' | 'pdooh' | 'meta' | 'audio';
 
 export interface Creative {
