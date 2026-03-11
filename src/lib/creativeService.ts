@@ -180,20 +180,34 @@ export function renderTemplateHtml(
     // If headline_line2 is not provided or is empty, keep the full headline with | intact
     // The | will be converted to <br/> in the placeholder replacement step
   } else if (hasHeadlinePlaceholder) {
-    // For combined structure, ensure the full headline with | is used
-    // If only split parts were provided, recombine them
-    const headlineValue = String(mergedVars.headline || '');
-    const headlineLine2Value = mergedVars.headline_line2;
+    // For combined structure (non-split templates like meta ads),
+    // do NOT recombine headline + headline_line2 — meta templates use
+    // separate text-hymyile and text-subline elements.
+    if (template.type === 'meta') {
+      // Meta templates: headline goes into text-hymyile ONLY (no concatenation)
+      // Strip any pipe or previously-concatenated content
+      const h = String(mergedVars.headline || '');
+      if (h.includes('|')) {
+        mergedVars.headline = h.split('|')[0].trim();
+      } else if (h.includes('<br>')) {
+        mergedVars.headline = h.split('<br>')[0].trim();
+      }
+      // Ensure headline_line2 doesn't exist for meta templates
+      delete mergedVars.headline_line2;
+    } else {
+      // Only recombine for display templates that genuinely need it.
+      const headlineValue = String(mergedVars.headline || '');
+      const headlineLine2Value = mergedVars.headline_line2;
 
-    console.log('[renderTemplateHtml] COMBINED template - headlineValue:', headlineValue, 'headlineLine2:', headlineLine2Value);
+      console.log('[renderTemplateHtml] COMBINED template - headlineValue:', headlineValue, 'headlineLine2:', headlineLine2Value);
 
-    // Check if we need to recombine
-    const needsRecombine = !headlineValue.includes('|') && !headlineValue.includes('<br>') && headlineLine2Value;
-    console.log('[renderTemplateHtml] Needs recombine:', needsRecombine);
+      const needsRecombine = !headlineValue.includes('|') && !headlineValue.includes('<br>') && headlineLine2Value;
+      console.log('[renderTemplateHtml] Needs recombine:', needsRecombine);
 
-    if (needsRecombine) {
-      mergedVars.headline = `${headlineValue}|${headlineLine2Value}`;
-      console.log('[renderTemplateHtml] Recombined to:', mergedVars.headline);
+      if (needsRecombine) {
+        mergedVars.headline = `${headlineValue}|${headlineLine2Value}`;
+        console.log('[renderTemplateHtml] Recombined to:', mergedVars.headline);
+      }
     }
   }
 

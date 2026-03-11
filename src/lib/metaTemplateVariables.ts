@@ -108,8 +108,7 @@ export interface MetaVariableBuildParams {
 export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Record<string, string> {
   const { branch, service, allBranches, allServices, formData, baseUrl, isMetaTemplate, isSplitTemplate } = params;
 
-  const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti' ||
-    !!(formData.general_brand_message && formData.general_brand_message.length > 0);
+  const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
   const isMultiLocation = allBranches.length > 1;
   const isMultiService = allServices.length > 1;
   const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
@@ -173,10 +172,12 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
 
   if (isMetaTemplate) {
     // Meta templates: headline is scene 2 animation, subheadline becomes second line
-    const parts = headlineText.split('|');
-    headlineValue = parts[0]?.trim() || 'Hymyile.';
+    // Split on both | and <br> to handle all headline formats
+    const parts = headlineText.split(/\||<br\s*\/?>/).map(p => p.trim()).filter(Boolean);
+    headlineValue = parts[0] || 'Hymyile.';
     headlineLine2Value = undefined;
-    messageText = parts.length > 1 ? parts.slice(1).join(' ').trim() : messageText;
+    // For meta scene 2: never use "Sujuvampaa" fallback — that belongs in scene 3 only
+    messageText = parts.length > 1 ? parts.slice(1).join(' ').trim() : 'Olet hyvissä käsissä.';
   } else if (isSplitTemplate) {
     const parts = headlineText.split('|');
     headlineValue = parts[0]?.trim() || headlineText;
@@ -202,7 +203,8 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     }
   }
 
-  const finalPrice = isGeneralBrandMessage ? '' : (formData.offer_text || service.default_price || '49');
+  const servicePrice = (service.default_price || '').replace(/€/g, '').trim();
+  const finalPrice = isGeneralBrandMessage ? '' : (servicePrice || formData.offer_text || '49');
   const finalAddress = showAddress ? locationText : '';
 
   const vars: Record<string, string> = {
@@ -219,10 +221,10 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
 
     // Scene 3 text lines
     ...(isMetaTemplate ? {
-      scene3_line1: isMultiLocation ? '' : getConjugatedCity(branch.city || 'Oulu'),
-      scene3_line2: isMultiLocation ? 'Terveystaloissa.' : 'Terveystalossa.',
-      scene3_line3: '',
-      scene3_line4: '',
+      scene3_line1: 'Sujuvampaa',
+      scene3_line2: 'terveyttä',
+      scene3_line3: isMultiLocation ? '' : (branch.city || ''),
+      scene3_line4: 'Suun Terveystalossa.',
     } : {
       scene3_line1: 'Sujuvampaa',
       scene3_line2: 'suun',
@@ -398,10 +400,8 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     disclaimer_text: '',
   };
 
-  // Add headline_line2 only for split templates
-  if (headlineLine2Value !== undefined) {
-    vars.headline_line2 = headlineLine2Value;
-  }
+  // Always include headline_line2 to override DB defaults (prevents recombination in renderTemplateHtml)
+  vars.headline_line2 = headlineLine2Value || '';
 
   return vars;
 }

@@ -237,7 +237,7 @@ export async function createCampaignCreatives(
       channelHeight: number;
     }> = [];
 
-    // Track which general brand message services have already been created (no per-branch duplication)
+    // Track brand message services to avoid creating duplicate per-branch ads
     const createdBrandMessageServices = new Set<string>();
 
     // For each branch × service × channel/size — render + upload HTML
@@ -253,24 +253,23 @@ export async function createCampaignCreatives(
         const service = serviceMap.get(serviceId);
         if (!service) continue;
 
-        const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti' ||
-          !!(formData.general_brand_message && formData.general_brand_message.length > 0);
+        // Build ad folder name: ServiceName-City (sanitized)
+        const serviceName = service.name_fi || service.name;
+        const adName = `${serviceName}${branch.city ? `-${branch.city}` : ''}`
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9-]/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_|_$/g, '');
 
-        // Valtakunnallinen (general brand message) ads are nationwide — only create once, not per-branch
+        const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
+
+        // Valtakunnallinen (brand message) ads: create only once, not per-branch
         if (isGeneralBrandMessage && createdBrandMessageServices.has(serviceId)) {
           continue;
         }
         if (isGeneralBrandMessage) {
           createdBrandMessageServices.add(serviceId);
         }
-
-        // Build ad folder name: ServiceName-City (sanitized)
-        const serviceName = service.name_fi || service.name;
-        const adName = `${serviceName}${isGeneralBrandMessage ? '-Valtakunnallinen' : (branch.city ? `-${branch.city}` : '')}`
-          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-zA-Z0-9-]/g, '_')
-          .replace(/_+/g, '_')
-          .replace(/^_|_$/g, '');
 
         for (const cs of channelSizes) {
           const sizeStr = `${cs.width}x${cs.height}`;
@@ -313,20 +312,22 @@ export async function createCampaignCreatives(
             });
           } else {
             vars = { ...simpleVars };
-            // Override price per-service for non-meta templates
-            if (!isGeneralBrandMessage && service.default_price) {
-              vars.price = formData.offer_text || service.default_price || '49';
-            }
           }
 
           // Render template HTML
           let html = renderTemplateHtml(template, vars);
           html = fixFontUrls(html);
 
-          // Make all root-relative paths absolute so HTML works from Supabase Storage
+          // Make all root-relative asset paths absolute for exported HTML
           const ASSET_BASE = 'https://suunterveystalo.netlify.app';
-          html = html.replace(/src="\/([^"]*?)"/g, `src="${ASSET_BASE}/$1"`);
-          html = html.replace(/url\((['"]?)\/([^)]*?)\1\)/g, `url($1${ASSET_BASE}/$2$1)`);
+          html = html
+            .replace(/src="\/meta\//g, `src="${ASSET_BASE}/meta/`)
+            .replace(/src="\/refs\//g, `src="${ASSET_BASE}/refs/`)
+            .replace(/src="\/font\//g, `src="${ASSET_BASE}/font/`)
+            .replace(/url\((['"]?)\/meta\//g, `url($1${ASSET_BASE}/meta/`)
+            .replace(/url\((['"]?)\/refs\//g, `url($1${ASSET_BASE}/refs/`)
+            .replace(/url\((['"]?)\/font\//g, `url($1${ASSET_BASE}/font/`)
+            .replace(/http:\/\/localhost:\d+\//g, `${ASSET_BASE}/`);
 
           // Apply CSS injections
           if (isGeneralBrandMessage) {
@@ -345,7 +346,7 @@ export async function createCampaignCreatives(
 
           // Collect upload item for batch upload via Netlify function
           const storagePath = `campaigns/${campaignId}/${adName}/${cs.folder}/${sizeStr}.html`;
-          const creativeName = `${formData.name || 'Campaign'} - ${serviceName} - ${isGeneralBrandMessage ? 'Valtakunnallinen' : (branch.city || branch.name)} - ${cs.type} - ${sizeStr}`;
+          const creativeName = `${formData.name || 'Campaign'} - ${serviceName} - ${branch.city || branch.name} - ${cs.type} - ${sizeStr}`;
 
           uploadItems.push({
             storagePath,
