@@ -324,6 +324,10 @@ function injectClickTag(html: string, landingUrl: string): string {
  */
 function buildIframeWrapper(creativeUrl: string, width: number, height: number, landingUrl: string): string {
   const clickTagValue = `{clickurl}${encodeURIComponent(landingUrl)}`;
+  // Route through serve-creative proxy so HTML is served with correct Content-Type
+  // (Supabase Storage serves .html files as plain text/download for XSS protection)
+  const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
+  const proxyUrl = `${siteUrl}/.netlify/functions/serve-creative?url=${encodeURIComponent(creativeUrl)}`;
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <script>var clickTag="${clickTagValue}";</script>
@@ -331,7 +335,7 @@ function buildIframeWrapper(creativeUrl: string, width: number, height: number, 
 </head><body>
 <script>
 var f=document.createElement('iframe');
-f.src='${creativeUrl}';
+f.src='${proxyUrl}';
 f.style.cssText='border:0;width:${width}px;height:${height}px;display:block';
 f.setAttribute('scrolling','no');
 f.setAttribute('frameborder','0');
