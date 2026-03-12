@@ -1,11 +1,90 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import type { IncomingMessage, ServerResponse } from 'http';
+import { resolve, join } from 'path';
+import { existsSync, readFileSync } from 'fs';
+
+// Load .env into process.env for Netlify function dev execution
+try {
+  const envContent = readFileSync(resolve(__dirname, '.env'), 'utf-8');
+  envContent.split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex === -1) return;
+    const key = trimmed.slice(0, eqIndex).trim();
+    const value = trimmed.slice(eqIndex + 1).trim();
+    if (!process.env[key]) process.env[key] = value;
+  });
+} catch {}
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
+    // Dev middleware to run Netlify functions locally
+    {
+      name: 'netlify-functions-dev',
+      configureServer(server) {
+        server.middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+          const prefix = '/.netlify/functions/';
+          if (!req.url?.startsWith(prefix)) return next();
+
+          const fnName = req.url.slice(prefix.length).split('?')[0].split('/')[0];
+          if (fnName === 'proxy-json') return next(); // handled by dedicated plugin below
+
+          // Resolve function path (directory-based or single-file)
+          const functionsDir = resolve(__dirname, 'netlify/functions');
+          let fnPath = '';
+          const dirIndex = join(functionsDir, fnName, 'index.ts');
+          const singleFile = join(functionsDir, `${fnName}.ts`);
+          const singleCjs = join(functionsDir, `${fnName}.cjs`);
+          if (existsSync(dirIndex)) fnPath = dirIndex;
+          else if (existsSync(singleFile)) fnPath = singleFile;
+          else if (existsSync(singleCjs)) fnPath = singleCjs;
+          else return next();
+
+          // Read request body
+          let body = '';
+          await new Promise<void>((resolve) => {
+            req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+            req.on('end', resolve);
+          });
+
+          console.log(`[netlify-fn-dev] ${req.method} ${fnName} — loading ${fnPath}`);
+
+          try {
+            // Use tsx to import the function module
+            const mod = await (server as any).ssrLoadModule(fnPath);
+            const handler = mod.handler || mod.default;
+            if (typeof handler !== 'function') {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `No handler exported from ${fnName}` }));
+              return;
+            }
+
+            // Build a Netlify-like event object
+            const event = {
+              httpMethod: req.method || 'GET',
+              headers: req.headers,
+              body,
+              isBase64Encoded: false,
+              queryStringParameters: Object.fromEntries(new URL(req.url!, `http://${req.headers.host}`).searchParams),
+            };
+
+            const result = await handler(event, {});
+            const statusCode = result?.statusCode || 200;
+            const headers = { 'Content-Type': 'application/json', ...(result?.headers || {}) };
+            res.writeHead(statusCode, headers);
+            res.end(typeof result?.body === 'string' ? result.body : JSON.stringify(result?.body || ''));
+          } catch (err: any) {
+            console.error(`[netlify-fn-dev] ${fnName} error:`, err);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        });
+      }
+    },
     // Custom plugin to handle proxy-json requests in development
     {
       name: 'proxy-json-handler',

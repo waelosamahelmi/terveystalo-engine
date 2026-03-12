@@ -2173,8 +2173,11 @@ const CampaignCreate = () => {
     const isDemo = isDemoMode();
 
     try {
+      const branchLabel = selectedBranches.length > 1
+        ? `${selectedBranches.length} toimipistettä`
+        : selectedBranch?.city || '';
       const campaignName = formData.name ||
-        `${getServiceName(selectedService)} - ${selectedBranch?.city} ${format(new Date(), 'MM/yyyy')}`;
+        `${getServiceName(selectedService)} - ${branchLabel} ${format(new Date(), 'MM/yyyy')}`;
 
       if (isDemo) {
         await new Promise(resolve => setTimeout(resolve, 1500));
