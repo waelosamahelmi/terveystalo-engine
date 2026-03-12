@@ -690,6 +690,22 @@ export async function createCampaign(
     } catch (e) {
       console.error('Google Sheets sync failed (non-blocking):', e);
     }
+
+    // 3. Trigger BidTheatre campaign creation for DISPLAY / PDOOH channels
+    if (data.channel_display || data.channel_pdooh) {
+      try {
+        console.log('Triggering BidTheatre campaign creation for', data.id);
+        const btResp = await fetch('/.netlify/functions/createBidTheatreCampaign-background', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        const btText = await btResp.text();
+        console.log('BT create response:', btResp.status, btText.substring(0, 300));
+      } catch (e) {
+        console.error('BidTheatre campaign creation failed (non-blocking):', e);
+      }
+    }
   }
 
   return data;
