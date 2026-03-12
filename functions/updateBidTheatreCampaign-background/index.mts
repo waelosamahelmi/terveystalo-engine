@@ -3,6 +3,7 @@ import axios from 'axios';
 import { parseISO, format, addMonths } from 'date-fns';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
+import FormData from 'form-data';
 
 // ============================================================================
 // CONFIGURATION
@@ -403,33 +404,50 @@ async function updateBtCampaign(
             console.error(`HTML ad creation failed for ${size}: ${adErr.message}`);
           }
 
-          // --- Standard banner (image) ad ---
+          // --- Image banner ad ---
           try {
             const imageBuffer = await renderHtmlToImage(html, config.width, config.height);
-            const imageUrl = await uploadImageToStorage(imageBuffer, campaign.id, creative.id, size);
-            console.log(`Uploading image ad for ${size}: ${imageUrl}`);
+            console.log(`Rendered ${size} image (${imageBuffer.length} bytes)`);
 
-            const imageAdPayload = {
-              campaign: btCampaignId,
-              name: `${creative.name || `${branchLabel} - ${size}`} [IMG]`,
-              adType: 'Standard banner',
-              adStatus: 'Active',
-              imageUrl,
-              landingPageUrl: landingUrl,
-              dimension: config.dimension,
-              isExpandable: false,
-              isSecure: true,
-            };
-
+            // Step 1: Create the image ad shell
             const imageAdResp = await retryWithBackoff(() =>
-              bidTheatreApi.post(`/${networkId}/ad`, imageAdPayload, {
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: `${creative.name || `${branchLabel} - ${size}`} [IMG]`,
+                adType: 'Image banner',
+                adStatus: 'Active',
+                dimension: config.dimension,
+                isExpandable: false,
+                isSecure: true,
+              }, {
                 headers: { Authorization: `Bearer ${btToken}` },
               })
             );
             const imageAdId = imageAdResp.data.ad.id;
+            console.log(`Created image ad shell ${imageAdId} for ${size}`);
+
+            // Step 2: Upload the image file to the ad
+            const form = new FormData();
+            form.append('file', imageBuffer, {
+              filename: `${creative.id}_${size}.png`,
+              contentType: 'image/png',
+            });
+            form.append('landingPageUrl', landingUrl);
+
+            await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad/${imageAdId}/image`, form, {
+                headers: {
+                  Authorization: `Bearer ${btToken}`,
+                  ...form.getHeaders(),
+                },
+                maxContentLength: 50 * 1024 * 1024,
+                maxBodyLength: 50 * 1024 * 1024,
+              })
+            );
+
             if (!newAdIds[groupName]) newAdIds[groupName] = [];
             newAdIds[groupName].push(imageAdId);
-            console.log(`Created updated image ad ${imageAdId} for ${size}`);
+            console.log(`Uploaded image to ad ${imageAdId} for ${size}`);
             await sleep(300);
           } catch (imgErr: any) {
             const errBody = imgErr.response?.data ? JSON.stringify(imgErr.response.data) : 'no response body';
