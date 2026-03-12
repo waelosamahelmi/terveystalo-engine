@@ -490,6 +490,9 @@ function formatDentalCampaignRow(
       : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.',
     svc?.default_offer_fi || svc?.name_fi || svc?.name || '', // BZ: offer_headline (Tarjouksen otsikko)
     ((campaign as any).offer_date || (campaign as any).offer_subtitle || '').replace(/<br\s*\/?>/gi, ' ').replace(/\|/g, ' '), // CA: offer_subtitle (Voimassaoloaika)
+
+    // ── Smartly creative ID (CB) ──
+    `${campaign.id}-${svc?.code || 'unknown'}`,                   // CB: creative_id (campaign_id + service_code, unique per ad version)
   ];
 }
 
