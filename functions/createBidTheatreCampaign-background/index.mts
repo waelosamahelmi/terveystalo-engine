@@ -446,8 +446,9 @@ async function createBtCampaignForBranch(
   );
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
-  // 7. Create HTML ads from creatives
+  // 7. Create HTML ads from creatives (deduplicate across ad groups sharing sizes)
   const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+  const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → adId
 
   for (const group of adGroups) {
     for (const size of group.sizes) {
@@ -460,6 +461,14 @@ async function createBtCampaignForBranch(
       );
 
       for (const creative of sizeCreatives) {
+        // Check if this creative+size was already uploaded (e.g. 300x600 in both Desktop and Mobile)
+        const dedupKey = `${creative.id}::${size}`;
+        if (createdAdsByCreativeSize[dedupKey]) {
+          adIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
+          console.log(`Reused ad ${createdAdsByCreativeSize[dedupKey]} for ${size} (${creative.name}) in "${group.name}"`);
+          continue;
+        }
+
         // Get HTML content: stored in DB field or fetch from storage URL
         let html = creative.rendered_html || creative.html_content;
 
@@ -494,6 +503,7 @@ async function createBtCampaignForBranch(
           );
           const adId = adResp.data.ad.id;
           adIds[group.name].push(adId);
+          createdAdsByCreativeSize[dedupKey] = adId;
           console.log(`Created ad ${adId} for ${size} (${creative.name})`);
         } catch (adError: any) {
           console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
@@ -523,11 +533,12 @@ async function createBtCampaignForBranch(
   const lat = branch.coordinates?.lat || branch.latitude || campaign.campaign_coordinates?.lat || 0;
   const lng = branch.coordinates?.lng || branch.longitude || campaign.campaign_coordinates?.lng || 0;
 
-  // Per-branch radius: from branch_radius_settings (km), fall back to campaign_radius (meters→km)
+  // Per-branch radius: from branch_radius_settings (km), fall back to campaign_radius (already in km)
   const branchRadiusSettings = campaign.branch_radius_settings || {};
   const branchRadiusSetting = branchRadiusSettings[branch.id];
   const radiusKm = branchRadiusSetting?.radius
-    || metersToKm(campaign.campaign_radius || 10000);
+    || campaign.campaign_radius
+    || 10;
 
   let geoTargetId: number | undefined;
   let geoTargetCoordinatesId: number | undefined;
