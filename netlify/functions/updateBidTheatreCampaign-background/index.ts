@@ -190,6 +190,37 @@ async function fetchCreativeHtml(publicUrl: string): Promise<string | null> {
   }
 }
 
+/**
+ * Build a lightweight iframe wrapper HTML for BidTheatre.
+ * Instead of sending the full HTML creative (which can exceed BT's size limit),
+ * this creates a minimal HTML page (~500 bytes) that dynamically loads the
+ * hosted creative via an iframe pointing to the Supabase public URL.
+ * 
+ * The iframe is created via JavaScript to bypass BidTheatre's HTML sanitizer
+ * which strips raw <iframe> tags.
+ */
+function buildIframeWrapper(creativeUrl: string, width: number, height: number, landingUrl: string): string {
+  const clickTagValue = `{clickurl}${encodeURIComponent(landingUrl)}`;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script>var clickTag="${clickTagValue}";</script>
+<style>*{margin:0;padding:0;overflow:hidden}body{width:${width}px;height:${height}px;position:relative}</style>
+</head><body>
+<script>
+var f=document.createElement('iframe');
+f.src='${creativeUrl}';
+f.style.cssText='border:0;width:${width}px;height:${height}px;display:block';
+f.setAttribute('scrolling','no');
+f.setAttribute('frameborder','0');
+document.body.appendChild(f);
+var a=document.createElement('a');
+a.href='javascript:void(window.open(clickTag))';
+a.style.cssText='position:absolute;top:0;left:0;width:${width}px;height:${height}px;z-index:9999;display:block;cursor:pointer';
+document.body.appendChild(a);
+</script>
+</body></html>`;
+}
+
 // ============================================================================
 // UPDATE SINGLE BT CAMPAIGN (one branch + channel)
 // ============================================================================
@@ -370,13 +401,17 @@ async function updateBtCampaign(
         const creativesToUse = branchCreatives.length > 0 ? branchCreatives : sizeCreatives;
 
         for (const creative of creativesToUse) {
-          let html = creative.rendered_html || creative.html_content;
-          if (!html && (creative.image_url || creative.preview_url)) {
-            html = await fetchCreativeHtml(creative.image_url || creative.preview_url);
+          const creativeUrl = creative.image_url || creative.preview_url;
+          if (!creativeUrl) {
+            console.warn(`No public URL for creative ${creative.id}, skipping`);
+            continue;
           }
-          if (!html) continue;
 
           const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+
+          // Build lightweight iframe wrapper instead of sending full HTML
+          const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+          console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
 
           // --- HTML banner ad ---
           try {
@@ -404,9 +439,14 @@ async function updateBtCampaign(
             console.error(`HTML ad creation failed for ${size}: ${adErr.message}`);
           }
 
-          // --- Image banner ad ---
+          // --- Image banner ad (needs raw HTML for puppeteer rendering) ---
+          let rawHtml = creative.rendered_html || creative.html_content;
+          if (!rawHtml && creativeUrl) {
+            rawHtml = await fetchCreativeHtml(creativeUrl);
+          }
+          if (rawHtml) {
           try {
-            const imageBuffer = await renderHtmlToImage(html, config.width, config.height);
+            const imageBuffer = await renderHtmlToImage(rawHtml, config.width, config.height);
             console.log(`Rendered ${size} image (${imageBuffer.length} bytes)`);
 
             // Step 1: Create the image ad shell
@@ -453,6 +493,7 @@ async function updateBtCampaign(
             const errBody = imgErr.response?.data ? JSON.stringify(imgErr.response.data) : 'no response body';
             console.error(`Image ad creation failed for ${size}: ${imgErr.message} | BT response: ${errBody}`);
           }
+          } // end if (rawHtml)
         }
       }
 

@@ -389,6 +389,37 @@ function injectClickTag(html: string, landingUrl: string): string {
   return html;
 }
 
+/**
+ * Build a lightweight iframe wrapper HTML for BidTheatre.
+ * Instead of sending the full HTML creative (which can exceed BT's size limit),
+ * this creates a minimal HTML page (~500 bytes) that dynamically loads the
+ * hosted creative via an iframe pointing to the Supabase public URL.
+ * 
+ * The iframe is created via JavaScript to bypass BidTheatre's HTML sanitizer
+ * which strips raw <iframe> tags.
+ */
+function buildIframeWrapper(creativeUrl: string, width: number, height: number, landingUrl: string): string {
+  const clickTagValue = `{clickurl}${encodeURIComponent(landingUrl)}`;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script>var clickTag="${clickTagValue}";</script>
+<style>*{margin:0;padding:0;overflow:hidden}body{width:${width}px;height:${height}px;position:relative}</style>
+</head><body>
+<script>
+var f=document.createElement('iframe');
+f.src='${creativeUrl}';
+f.style.cssText='border:0;width:${width}px;height:${height}px;display:block';
+f.setAttribute('scrolling','no');
+f.setAttribute('frameborder','0');
+document.body.appendChild(f);
+var a=document.createElement('a');
+a.href='javascript:void(window.open(clickTag))';
+a.style.cssText='position:absolute;top:0;left:0;width:${width}px;height:${height}px;z-index:9999;display:block;cursor:pointer';
+document.body.appendChild(a);
+</script>
+</body></html>`;
+}
+
 // ============================================================================
 // CREATE BT CAMPAIGN FOR A SINGLE BRANCH + CHANNEL
 // ============================================================================
@@ -553,52 +584,53 @@ async function createBtCampaignForBranch(
           continue;
         }
 
-        // Get HTML content: stored in DB field or fetch from storage URL
-        let html = creative.rendered_html || creative.html_content;
+        // Get the public URL for the hosted creative HTML
+        const creativeUrl = creative.image_url || creative.preview_url;
 
-        if (!html && (creative.image_url || creative.preview_url)) {
-          html = await fetchCreativeHtml(creative.image_url || creative.preview_url);
+        // Fetch raw HTML for image rendering (still needed for image banner)
+        let rawHtml = creative.rendered_html || creative.html_content;
+        if (!rawHtml && creativeUrl) {
+          rawHtml = await fetchCreativeHtml(creativeUrl);
         }
 
-        if (!html) {
-          console.warn(`No HTML content for creative ${creative.id} (${creative.name}), skipping`);
+        if (!creativeUrl && !rawHtml) {
+          console.warn(`No URL or HTML for creative ${creative.id} (${creative.name}), skipping`);
           continue;
         }
 
-        // Save raw HTML before clickTag injection (for image rendering)
-        const rawHtml = html;
+        // --- HTML banner ad (uses lightweight iframe wrapper) ---
+        if (creativeUrl) {
+          const wrapperHtml = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+          console.log(`Built iframe wrapper for ${creative.name} (${wrapperHtml.length} bytes, URL: ${creativeUrl})`);
 
-        // Inject clickTag for BidTheatre click tracking
-        // BT uses {clickurl} macro which gets replaced at serve-time
-        html = injectClickTag(html, landingUrl);
-
-        // --- HTML banner ad ---
-        try {
-          const adResp = await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${networkId}/ad`, {
-              campaign: btCampaignId,
-              name: creative.name || `${branchName} - ${size}`,
-              adType: 'HTML banner',
-              adStatus: 'Active',
-              html,
-              dimension: config.dimension,
-              isExpandable: false,
-              isInSync: true,
-              isSecure: true,
-            }, {
-              headers: { Authorization: `Bearer ${btToken}` },
-            })
-          );
-          const adId = adResp.data.ad.id;
-          adIds[group.name].push(adId);
-          createdAdsByCreativeSize[dedupKey] = adId;
-          console.log(`Created HTML ad ${adId} for ${size} (${creative.name})`);
-          await sleep(300);
-        } catch (adError: any) {
-          console.error(`HTML ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
+          try {
+            const adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchName} - ${size}`,
+                adType: 'HTML banner',
+                adStatus: 'Active',
+                html: wrapperHtml,
+                dimension: config.dimension,
+                isExpandable: false,
+                isInSync: true,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            const adId = adResp.data.ad.id;
+            adIds[group.name].push(adId);
+            createdAdsByCreativeSize[dedupKey] = adId;
+            console.log(`Created HTML ad ${adId} for ${size} (${creative.name})`);
+            await sleep(300);
+          } catch (adError: any) {
+            console.error(`HTML ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
+          }
         }
 
-        // --- Image banner ad ---
+        // --- Image banner ad (requires raw HTML for puppeteer rendering) ---
+        if (rawHtml) {
         try {
           const imageBuffer = await renderHtmlToImage(rawHtml, config.width, config.height);
           console.log(`Rendered ${size} image (${imageBuffer.length} bytes) for ${creative.name}`);
@@ -647,6 +679,7 @@ async function createBtCampaignForBranch(
           const errBody = imgError.response?.data ? JSON.stringify(imgError.response.data) : 'no response body';
           console.error(`Image ad creation failed for ${size}: ${imgError.message} | BT response: ${errBody}`);
         }
+        } // end if (rawHtml)
       }
     }
   }

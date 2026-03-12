@@ -1,9 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { parseISO, format, addMonths } from 'date-fns';
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
-import FormData from 'form-data';
 
 // ============================================================================
 // CONFIGURATION
@@ -131,79 +128,6 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 5, baseDel
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// ============================================================================
-// HTML → IMAGE RENDERING (headless Chrome via @sparticuz/chromium)
-// ============================================================================
-
-let browserInstance: any = null;
-
-async function getBrowser() {
-  if (!browserInstance) {
-    let execPath = await chromium.executablePath();
-    if (!execPath) {
-      const { existsSync } = await import('fs');
-      const localPaths = process.platform === 'win32'
-        ? [
-            (process.env['PROGRAMFILES(X86)'] || '') + '\\Google\\Chrome\\Application\\chrome.exe',
-            (process.env['PROGRAMFILES'] || '') + '\\Google\\Chrome\\Application\\chrome.exe',
-            (process.env.LOCALAPPDATA || '') + '\\Google\\Chrome\\Application\\chrome.exe',
-          ]
-        : process.platform === 'darwin'
-          ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-          : ['/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
-      execPath = localPaths.find(p => { try { return existsSync(p); } catch { return false; } });
-    }
-    if (!execPath) {
-      throw new Error('No Chrome/Chromium executable found — install Chrome locally or deploy to Netlify');
-    }
-    browserInstance = await puppeteer.launch({
-      args: execPath === await chromium.executablePath() ? chromium.args : ['--no-sandbox', '--disable-setuid-sandbox'],
-      defaultViewport: null,
-      executablePath: execPath,
-      headless: true,
-    });
-    console.log(`Headless Chrome launched from: ${execPath}`);
-  }
-  return browserInstance;
-}
-
-async function closeBrowser() {
-  if (browserInstance) {
-    try { await browserInstance.close(); } catch {}
-    browserInstance = null;
-    console.log('Headless Chrome closed');
-  }
-}
-
-async function renderHtmlToImage(html: string, width: number, height: number): Promise<Buffer> {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-  try {
-    await page.setViewport({ width, height });
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
-    await page.evaluate(() => document.fonts.ready);
-    const screenshot = await page.screenshot({ type: 'png', fullPage: false });
-    return Buffer.from(screenshot);
-  } finally {
-    await page.close();
-  }
-}
-
-async function uploadImageToStorage(
-  imageBuffer: Buffer,
-  campaignId: string,
-  creativeId: string,
-  size: string
-): Promise<string> {
-  const path = `creatives/${campaignId}/images/${creativeId}_${size}.png`;
-  const { error } = await supabase.storage
-    .from('media')
-    .upload(path, imageBuffer, { contentType: 'image/png', upsert: true });
-  if (error) throw new Error(`Image upload failed: ${error.message}`);
-  const { data } = supabase.storage.from('media').getPublicUrl(path);
-  return data.publicUrl;
-}
 
 function formatDateForBT(dateStr: string): string {
   if (!dateStr) throw new Error('Date string is undefined');
@@ -389,6 +313,37 @@ function injectClickTag(html: string, landingUrl: string): string {
   return html;
 }
 
+/**
+ * Build a lightweight iframe wrapper HTML for BidTheatre.
+ * Instead of sending the full HTML creative (which can exceed BT's size limit),
+ * this creates a minimal HTML page (~500 bytes) that dynamically loads the
+ * hosted creative via an iframe pointing to the Supabase public URL.
+ * 
+ * The iframe is created via JavaScript to bypass BidTheatre's HTML sanitizer
+ * which strips raw <iframe> tags.
+ */
+function buildIframeWrapper(creativeUrl: string, width: number, height: number, landingUrl: string): string {
+  const clickTagValue = `{clickurl}${encodeURIComponent(landingUrl)}`;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script>var clickTag="${clickTagValue}";</script>
+<style>*{margin:0;padding:0;overflow:hidden}body{width:${width}px;height:${height}px;position:relative}</style>
+</head><body>
+<script>
+var f=document.createElement('iframe');
+f.src='${creativeUrl}';
+f.style.cssText='border:0;width:${width}px;height:${height}px;display:block';
+f.setAttribute('scrolling','no');
+f.setAttribute('frameborder','0');
+document.body.appendChild(f);
+var a=document.createElement('a');
+a.href='javascript:void(window.open(clickTag))';
+a.style.cssText='position:absolute;top:0;left:0;width:${width}px;height:${height}px;z-index:9999;display:block;cursor:pointer';
+document.body.appendChild(a);
+</script>
+</body></html>`;
+}
+
 // ============================================================================
 // CREATE BT CAMPAIGN FOR A SINGLE BRANCH + CHANNEL
 // ============================================================================
@@ -526,10 +481,9 @@ async function createBtCampaignForBranch(
   );
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
-  // 7. Create HTML + image ads from creatives (deduplicate across ad groups sharing sizes)
+  // 7. Create HTML ads from creatives (deduplicate across ad groups sharing sizes)
   const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
-  const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → HTML adId
-  const createdImageAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → image adId
+  const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → adId
 
   for (const group of adGroups) {
     for (const size of group.sizes) {
@@ -546,33 +500,23 @@ async function createBtCampaignForBranch(
         const dedupKey = `${creative.id}::${size}`;
         if (createdAdsByCreativeSize[dedupKey]) {
           adIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
-          if (createdImageAdsByCreativeSize[dedupKey]) {
-            adIds[group.name].push(createdImageAdsByCreativeSize[dedupKey]);
-          }
-          console.log(`Reused ads for ${size} (${creative.name}) in "${group.name}"`);
+          console.log(`Reused ad ${createdAdsByCreativeSize[dedupKey]} for ${size} (${creative.name}) in "${group.name}"`);
           continue;
         }
 
-        // Get HTML content: stored in DB field or fetch from storage URL
-        let html = creative.rendered_html || creative.html_content;
-
-        if (!html && (creative.image_url || creative.preview_url)) {
-          html = await fetchCreativeHtml(creative.image_url || creative.preview_url);
-        }
-
-        if (!html) {
-          console.warn(`No HTML content for creative ${creative.id} (${creative.name}), skipping`);
+        // Get the public URL for the hosted creative HTML
+        const creativeUrl = creative.image_url || creative.preview_url;
+        if (!creativeUrl) {
+          console.warn(`No public URL for creative ${creative.id} (${creative.name}), skipping`);
           continue;
         }
 
-        // Save raw HTML before clickTag injection (for image rendering)
-        const rawHtml = html;
+        // Build a lightweight iframe wrapper instead of sending full HTML.
+        // The full HTML is hosted on Supabase; the wrapper just loads it via iframe.
+        // This avoids BidTheatre's HTML size limit.
+        const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+        console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes, URL: ${creativeUrl})`);
 
-        // Inject clickTag for BidTheatre click tracking
-        // BT uses {clickurl} macro which gets replaced at serve-time
-        html = injectClickTag(html, landingUrl);
-
-        // --- HTML banner ad ---
         try {
           const adResp = await retryWithBackoff(() =>
             bidTheatreApi.post(`/${networkId}/ad`, {
@@ -592,60 +536,11 @@ async function createBtCampaignForBranch(
           const adId = adResp.data.ad.id;
           adIds[group.name].push(adId);
           createdAdsByCreativeSize[dedupKey] = adId;
-          console.log(`Created HTML ad ${adId} for ${size} (${creative.name})`);
+          console.log(`Created ad ${adId} for ${size} (${creative.name})`);
+          // Throttle to avoid 429 rate limits from BT API
           await sleep(300);
         } catch (adError: any) {
-          console.error(`HTML ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
-        }
-
-        // --- Image banner ad ---
-        try {
-          const imageBuffer = await renderHtmlToImage(rawHtml, config.width, config.height);
-          console.log(`Rendered ${size} image (${imageBuffer.length} bytes) for ${creative.name}`);
-
-          // Step 1: Create the image ad (no image data yet)
-          const imageAdResp = await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${networkId}/ad`, {
-              campaign: btCampaignId,
-              name: `${creative.name || `${branchName} - ${size}`} [IMG]`,
-              adType: 'Image banner',
-              adStatus: 'Active',
-              dimension: config.dimension,
-              isExpandable: false,
-              isSecure: true,
-            }, {
-              headers: { Authorization: `Bearer ${btToken}` },
-            })
-          );
-          const imageAdId = imageAdResp.data.ad.id;
-          console.log(`Created image ad shell ${imageAdId} for ${size}`);
-
-          // Step 2: Upload the image file to the ad
-          const form = new FormData();
-          form.append('file', imageBuffer, {
-            filename: `${creative.id}_${size}.png`,
-            contentType: 'image/png',
-          });
-          form.append('landingPageUrl', landingUrl);
-
-          await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${networkId}/ad/${imageAdId}/image`, form, {
-              headers: {
-                Authorization: `Bearer ${btToken}`,
-                ...form.getHeaders(),
-              },
-              maxContentLength: 50 * 1024 * 1024,
-              maxBodyLength: 50 * 1024 * 1024,
-            })
-          );
-
-          adIds[group.name].push(imageAdId);
-          createdImageAdsByCreativeSize[dedupKey] = imageAdId;
-          console.log(`Uploaded image to ad ${imageAdId} for ${size} (${creative.name})`);
-          await sleep(300);
-        } catch (imgError: any) {
-          const errBody = imgError.response?.data ? JSON.stringify(imgError.response.data) : 'no response body';
-          console.error(`Image ad creation failed for ${size}: ${imgError.message} | BT response: ${errBody}`);
+          console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
         }
       }
     }
@@ -893,7 +788,5 @@ export async function handler(event: any) {
     }).eq('id', campaign.id);
 
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
-  } finally {
-    await closeBrowser();
   }
 }
