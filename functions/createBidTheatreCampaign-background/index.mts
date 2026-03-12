@@ -56,6 +56,88 @@ const PDOOH_AD_GROUPS = [
 ];
 
 // ============================================================================
+// UTM & NAMING HELPERS
+// ============================================================================
+
+/**
+ * Get next sequential BT campaign number by counting distinct dental campaign IDs
+ * that already have BT campaigns.
+ */
+async function getNextCampaignNumber(): Promise<number> {
+  const { data } = await supabase
+    .from('bidtheatre_campaigns')
+    .select('campaign_id');
+  const uniqueIds = new Set((data || []).map((r: any) => r.campaign_id));
+  return uniqueIds.size + 1;
+}
+
+/**
+ * Fetch the primary service code for a campaign.
+ * Falls back to 'yleinen' if service not found.
+ */
+async function fetchPrimaryServiceCode(serviceId: string): Promise<string> {
+  if (!serviceId) return 'yleinen';
+  const { data } = await supabase
+    .from('services')
+    .select('code')
+    .eq('id', serviceId)
+    .single();
+  return data?.code || 'yleinen';
+}
+
+/**
+ * Map a service code/name to a UTM-friendly slug.
+ * e.g. 'yleinen-brandiviesti' → 'yleinen', 'hammastarkastus' → 'hammastarkastus'
+ */
+function getServiceSlug(codeOrName: string): string {
+  if (!codeOrName) return 'yleinen';
+  const lower = codeOrName.toLowerCase().trim();
+  if (lower.startsWith('yleinen')) return 'yleinen';
+  return lower.replace(/\s+/g, '_');
+}
+
+/**
+ * Build Piwik + UTM query parameters for BidTheatre landing URLs.
+ * Mirrors both pk_* (Piwik) and utm_* (GA) parameters.
+ */
+function buildUtmParams(channel: 'display' | 'pdooh', serviceSlug: string): string {
+  const year = new Date().getFullYear();
+  const funnel = serviceSlug === 'yleinen' ? 'tietoisuus' : 'harkinta';
+  const campaignName = `B2C_taktinen_kampanja_${funnel}_dental_kr2_prospektoiva_marketing-engine_${year}`;
+  const content = `banneri_${serviceSlug}`;
+
+  return [
+    `pk_campaign=${campaignName}`,
+    `pk_source=rtb`,
+    `pk_medium=display`,
+    `pk_content=${content}`,
+    `utm_campaign=${campaignName}`,
+    `utm_source=rtb`,
+    `utm_medium=display`,
+    `utm_content=${content}`,
+  ].join('&');
+}
+
+/** Append UTM parameters to a landing URL. */
+function buildLandingUrlWithUtm(baseUrl: string, channel: 'display' | 'pdooh', serviceSlug: string): string {
+  if (!baseUrl) return baseUrl;
+  const params = buildUtmParams(channel, serviceSlug);
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}${params}`;
+}
+
+/**
+ * Extract service slug from creative fields.
+ * Tries service_name, then parses creative name pattern "Branch - Service - WxH".
+ */
+function getCreativeServiceSlug(creative: any, fallbackSlug: string): string {
+  if (creative.service_name) return getServiceSlug(creative.service_name);
+  const parts = (creative.name || '').split(' - ');
+  if (parts.length >= 3) return getServiceSlug(parts[1]);
+  return fallbackSlug;
+}
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -358,7 +440,9 @@ async function createBtCampaignForBranch(
   channelDef: ChannelDef,
   btToken: string,
   networkId: string,
-  advertiserId: number
+  advertiserId: number,
+  seqNumber: number,
+  serviceSlug: string
 ) {
   const channelType = channelDef.channel;
   const adGroups = channelType === 'DISPLAY' ? DISPLAY_AD_GROUPS : PDOOH_AD_GROUPS;
@@ -382,12 +466,21 @@ async function createBtCampaignForBranch(
   // Optimization strategy: DISPLAY uses viewability optimization, PDOOH has none
   const defaultOptStrategy = channelType === 'DISPLAY' ? 538 : null;
 
+  // Campaign naming: NØRR3_SUUNTT_B2C_{seqNum}_SAVELA_K_{CHANNEL}_{campaignName}
+  const campaignName = (campaign.name || '').toUpperCase().replace(/\s+/g, '_');
+  const btCampaignName = `NØRR3_SUUNTT_B2C_${seqNumber}_SAVELA_K_${channelType}_${campaignName}`;
+
+  // Landing URL with UTM parameters
+  const baseLandingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+  const channelLower = channelType.toLowerCase() as 'display' | 'pdooh';
+  const targetURLWithUtm = buildLandingUrlWithUtm(baseLandingUrl, channelLower, serviceSlug);
+
   const campaignPayload: Record<string, any> = {
-    name: `ST / ${channelType} / ${branchName} / ${campaign.id.substring(0, 8)}`,
+    name: btCampaignName,
     advertiser: advertiserId,
     campaignManager: 'janne.savela@norr3.fi',
     campaignKPI,
-    targetURL: campaign.landing_url || 'https://terveystalo.com/suunterveystalo',
+    targetURL: targetURLWithUtm,
     defaultGeoTarget: null,
     deliveryPriority: 'even',
     defaultFilterTarget: defaultFilterTarget,
@@ -486,7 +579,7 @@ async function createBtCampaignForBranch(
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
   // 7. Create HTML ads from creatives (deduplicate across ad groups sharing sizes)
-  const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+  const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
   const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → adId
 
   for (const group of adGroups) {
@@ -514,6 +607,10 @@ async function createBtCampaignForBranch(
           console.warn(`No public URL for creative ${creative.id} (${creative.name}), skipping`);
           continue;
         }
+
+        // Build per-creative landing URL with service-specific UTM parameters
+        const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
+        const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
 
         // Build a lightweight iframe wrapper instead of sending full HTML.
         // The full HTML is hosted on Supabase; the wrapper just loads it via iframe.
@@ -700,6 +797,15 @@ async function createBidTheatreCampaign(campaign: any) {
 
   console.log(`Processing ${branches.length} branches × ${channels.length} channels`);
 
+  // Fetch primary service code for UTM parameters
+  const serviceCode = await fetchPrimaryServiceCode(campaign.service_id);
+  const serviceSlug = getServiceSlug(serviceCode);
+  console.log(`Primary service: ${serviceCode} → slug: ${serviceSlug}`);
+
+  // Get sequential campaign number for naming convention
+  const seqNumber = await getNextCampaignNumber();
+  console.log(`Sequential campaign number: ${seqNumber}`);
+
   const results: any[] = [];
   const btCampaignIds: Record<string, number[]> = { DISPLAY: [], PDOOH: [] };
   let overallSuccess = true;
@@ -710,7 +816,7 @@ async function createBidTheatreCampaign(campaign: any) {
     for (const channelDef of channels) {
       try {
         const result = await createBtCampaignForBranch(
-          campaign, branch, channelDef, btToken, networkId, advertiserId
+          campaign, branch, channelDef, btToken, networkId, advertiserId, seqNumber, serviceSlug
         );
         results.push(result);
         btCampaignIds[channelDef.channel].push(result.btCampaignId);

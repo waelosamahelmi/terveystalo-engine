@@ -41,6 +41,74 @@ const AD_DIMENSIONS: Record<string, { width: number; height: number; dimension: 
 };
 
 // ============================================================================
+// UTM & NAMING HELPERS
+// ============================================================================
+
+/**
+ * Fetch the primary service code for a campaign.
+ * Falls back to 'yleinen' if service not found.
+ */
+async function fetchPrimaryServiceCode(serviceId: string): Promise<string> {
+  if (!serviceId) return 'yleinen';
+  const { data } = await supabase
+    .from('services')
+    .select('code')
+    .eq('id', serviceId)
+    .single();
+  return data?.code || 'yleinen';
+}
+
+/**
+ * Map a service code/name to a UTM-friendly slug.
+ * e.g. 'yleinen-brandiviesti' → 'yleinen', 'hammastarkastus' → 'hammastarkastus'
+ */
+function getServiceSlug(codeOrName: string): string {
+  if (!codeOrName) return 'yleinen';
+  const lower = codeOrName.toLowerCase().trim();
+  if (lower.startsWith('yleinen')) return 'yleinen';
+  return lower.replace(/\s+/g, '_');
+}
+
+/**
+ * Build Piwik + UTM query parameters for BidTheatre landing URLs.
+ */
+function buildUtmParams(channel: 'display' | 'pdooh', serviceSlug: string): string {
+  const year = new Date().getFullYear();
+  const funnel = serviceSlug === 'yleinen' ? 'tietoisuus' : 'harkinta';
+  const campaignName = `B2C_taktinen_kampanja_${funnel}_dental_kr2_prospektoiva_marketing-engine_${year}`;
+  const content = `banneri_${serviceSlug}`;
+
+  return [
+    `pk_campaign=${campaignName}`,
+    `pk_source=rtb`,
+    `pk_medium=display`,
+    `pk_content=${content}`,
+    `utm_campaign=${campaignName}`,
+    `utm_source=rtb`,
+    `utm_medium=display`,
+    `utm_content=${content}`,
+  ].join('&');
+}
+
+/** Append UTM parameters to a landing URL. */
+function buildLandingUrlWithUtm(baseUrl: string, channel: 'display' | 'pdooh', serviceSlug: string): string {
+  if (!baseUrl) return baseUrl;
+  const params = buildUtmParams(channel, serviceSlug);
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}${params}`;
+}
+
+/**
+ * Extract service slug from creative fields.
+ */
+function getCreativeServiceSlug(creative: any, fallbackSlug: string): string {
+  if (creative.service_name) return getServiceSlug(creative.service_name);
+  const parts = (creative.name || '').split(' - ');
+  if (parts.length >= 3) return getServiceSlug(parts[1]);
+  return fallbackSlug;
+}
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -155,19 +223,25 @@ async function updateBtCampaign(
   btRecord: any, // bidtheatre_campaigns row
   campaign: any, // dental_campaigns row
   btToken: string,
-  networkId: string
+  networkId: string,
+  serviceSlug: string
 ) {
   const btCampaignId = btRecord.bt_campaign_id;
   const channelType = btRecord.channel;
+  const channelLower = channelType.toLowerCase() as 'display' | 'pdooh';
 
   console.log(`Updating BT campaign ${btCampaignId} (${channelType}) for branch ${btRecord.branch_id}`);
 
-  // 1. Update campaign name if needed
+  // 1. Update campaign name and targetURL with UTMs
+  const campaignName = (campaign.name || '').toUpperCase().replace(/\s+/g, '_');
+  const baseLandingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+  const targetURLWithUtm = buildLandingUrlWithUtm(baseLandingUrl, channelLower, serviceSlug);
+
   try {
     await retryWithBackoff(() =>
       bidTheatreApi.put(`/${networkId}/campaign/${btCampaignId}`, {
-        name: `ST / ${channelType} / ${campaign.name || campaign.id.substring(0, 8)}`,
-        targetURL: campaign.landing_url || 'https://terveystalo.com/suunterveystalo',
+        name: `NØRR3_SUUNTT_B2C_${btCampaignId}_SAVELA_K_${channelType}_${campaignName}`,
+        targetURL: targetURLWithUtm,
       }, {
         headers: { Authorization: `Bearer ${btToken}` },
       })
@@ -333,8 +407,10 @@ async function updateBtCampaign(
             continue;
           }
 
-          // Build lightweight iframe wrapper instead of sending full HTML
-          const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+          // Build lightweight iframe wrapper with service-specific UTM landing URL
+          const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+          const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
+          const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
           const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
           console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
 
@@ -444,13 +520,17 @@ export async function handler(event: any) {
     const credentials = await getBidTheatreCredentials();
     const networkId = credentials.network_id;
 
+    // Fetch primary service code for UTM parameters
+    const serviceCode = await fetchPrimaryServiceCode(campaign.service_id);
+    const serviceSlug = getServiceSlug(serviceCode);
+
     let overallSuccess = true;
     let overallErrors = '';
 
     // Update each BT campaign (one per branch × channel)
     for (const btRecord of btRecords) {
       try {
-        await updateBtCampaign(btRecord, campaign, btToken, networkId);
+        await updateBtCampaign(btRecord, campaign, btToken, networkId, serviceSlug);
         console.log(`✓ Updated BT ${btRecord.bt_campaign_id} (${btRecord.channel})`);
       } catch (err: any) {
         overallSuccess = false;

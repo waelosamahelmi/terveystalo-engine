@@ -1,31 +1,28 @@
 # BidTheatre Integration — Pending Items
 
 ## 1. Campaign Naming Convention
-**Status:** PENDING — needs confirmation  
-**Current:** `ST / {CHANNEL} / {BranchName} / {campaignIdShort}`  
-**Target:** `NØRR3_SUUNTT_B2C_{number}_{MANAGER}_{?}_DISPLAY_{CAMPAIGN_NAME}`  
+**Status:** ✅ DONE  
+**Format:** `NØRR3_SUUNTT_B2C_{seqNumber}_SAVELA_K_{CHANNEL}_{CAMPAIGN_NAME}`  
 
-Questions:
-- What does `1234` represent — sequential number or campaign ID?
-- What does `K` stand for in `SAVELA_K`?
-- Is `KAMPANJANNIMI` the user-entered campaign name?
-- How should per-branch naming work?
+- `seqNumber` = count of distinct `campaign_id` values in `bidtheatre_campaigns` + 1
+- `SAVELA_K` = hardcoded for now (user to clarify later)
+- `CAMPAIGN_NAME` = user-entered campaign name, uppercased, spaces → underscores
+- Per-branch: same name (no branch differentiation)
+- Implemented in: create + update functions (both .mts source and .ts deployed)
 
 ## 2. Spend Model "0% Margin / At cost"
 **Status:** PENDING  
 BidTheatre API may not expose this as a campaign-level setting — likely configured at the network/account level.
 
 ## 3. Click Target URL (Piwik + UTM Tags)
-**Status:** PENDING — needs UTM tag structure  
-**Current:** Uses `campaign.landing_url` directly.  
-**Target:** `{creative_url}?pk_campaign={name}&utm_source=bidtheatre&utm_medium=display&utm_campaign={name}`  
+**Status:** ✅ DONE  
+**Pattern:** `{landing_url}?pk_campaign=...&pk_source=rtb&pk_medium=display&pk_content=banneri_{serviceSlug}&utm_campaign=...&utm_source=rtb&utm_medium=display&utm_content=banneri_{serviceSlug}`  
 
-Need confirmation of exact Piwik tracking parameters and UTM tag format.
-
-## 4. Campaign Categories
-**Status:** PENDING  
-BidTheatre API returned 404 on `/campaign-category` endpoint.  
-Current code sets `category: 3` which may be correct. Need to verify the ID for "Health & Fitness - Dental care" via BT support or documentation.
+- Funnel mapping: `yleinen*` → `tietoisuus` (awareness), specific services → `harkinta` (consideration)
+- Service slug mapping: `yleinen-brandiviesti` → `yleinen`, others stay as-is
+- Per-ad service detection: checks creative.service_name, then parses creative name pattern, falls back to campaign service
+- Implemented in: create + update functions (both .mts and .ts), Google Sheets column AR
+- Meta UTM helper (`buildMetaUtmParams`) also added to Google Sheets for future use
 
 ## 5. PDOOH Filter Target (DOOH default)
 **Status:** PENDING — ID not in discovery results  

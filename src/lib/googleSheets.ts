@@ -295,6 +295,48 @@ function sheetSafe(val: string): string {
   return val;
 }
 
+/**
+ * Build Piwik + UTM query string for display landing URLs.
+ * Maps service code to funnel stage: yleinen→tietoisuus, specific services→harkinta.
+ */
+function buildDisplayUtmParams(serviceCode: string): string {
+  const slug = (!serviceCode || serviceCode.toLowerCase().startsWith('yleinen'))
+    ? 'yleinen'
+    : serviceCode.toLowerCase().replace(/\s+/g, '_');
+  const year = new Date().getFullYear();
+  const funnel = slug === 'yleinen' ? 'tietoisuus' : 'harkinta';
+  const campaignName = `B2C_taktinen_kampanja_${funnel}_dental_kr2_prospektoiva_marketing-engine_${year}`;
+  const content = `banneri_${slug}`;
+  return [
+    `pk_campaign=${campaignName}`, `pk_source=rtb`, `pk_medium=display`, `pk_content=${content}`,
+    `utm_campaign=${campaignName}`, `utm_source=rtb`, `utm_medium=display`, `utm_content=${content}`,
+  ].join('&');
+}
+
+/**
+ * Build Piwik + UTM query string for Meta (social) landing URLs.
+ */
+function buildMetaUtmParams(serviceCode: string): string {
+  const slug = (!serviceCode || serviceCode.toLowerCase().startsWith('yleinen'))
+    ? 'yleinen'
+    : serviceCode.toLowerCase().replace(/\s+/g, '_');
+  const year = new Date().getFullYear();
+  const funnel = slug === 'yleinen' ? 'tietoisuus' : 'harkinta';
+  const campaignName = `B2C_taktinen_kampanja_maksettu_${funnel}_dental_kr2_marketing-engine_${year}`;
+  const content = `video_${slug}`;
+  return [
+    `pk_campaign=${campaignName}`, `pk_source=facebook`, `pk_medium=social`, `pk_content=${content}`,
+    `utm_campaign=${campaignName}`, `utm_source=facebook`, `utm_medium=social`, `utm_content=${content}`,
+  ].join('&');
+}
+
+/** Append UTM query string to a base URL. */
+function appendUtm(baseUrl: string, utmParams: string): string {
+  if (!baseUrl || !utmParams) return baseUrl || '';
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}${utmParams}`;
+}
+
 // Helper to format a dental campaign into a sheet row
 // Accepts optional overrides for multi-location rows (branch override, service override, budget override, creative URLs)
 function formatDentalCampaignRow(
@@ -434,7 +476,7 @@ function formatDentalCampaignRow(
     campaign.subheadline || '',                                   // AO: subheadline
     campaign.offer_text || '',                                    // AP: offer_text
     campaign.cta_text || '',                                      // AQ: cta_text
-    campaign.landing_url || '',                                   // AR: landing_url
+    appendUtm(campaign.landing_url || '', buildDisplayUtmParams(svc?.code || '')), // AR: landing_url (with display UTMs)
     campaign.background_image_url || '',                          // AS: background_image_url
     (campaign.general_brand_message || '').replace(/<br\s*\/?>/gi, ' '), // AT: general_brand_message (<br> replaced with space)
     (campaign.target_screens_count || 0).toString(),              // AU: target_screens_count
