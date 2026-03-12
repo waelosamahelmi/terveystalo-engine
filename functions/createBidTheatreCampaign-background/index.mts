@@ -601,19 +601,22 @@ async function createBtCampaignForBranch(
         try {
           const imageBuffer = await renderHtmlToImage(rawHtml, config.width, config.height);
           const imageUrl = await uploadImageToStorage(imageBuffer, campaign.id, creative.id, size);
+          console.log(`Uploading image ad for ${size}: ${imageUrl}`);
+
+          const imageAdPayload = {
+            campaign: btCampaignId,
+            name: `${creative.name || `${branchName} - ${size}`} [IMG]`,
+            adType: 'Standard banner',
+            adStatus: 'Active',
+            imageUrl,
+            landingPageUrl: landingUrl,
+            dimension: config.dimension,
+            isExpandable: false,
+            isSecure: true,
+          };
 
           const imageAdResp = await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${networkId}/ad`, {
-              campaign: btCampaignId,
-              name: `${creative.name || `${branchName} - ${size}`} [IMG]`,
-              adType: 'Standard banner',
-              adStatus: 'Active',
-              imageUrl,
-              landingPageUrl: landingUrl,
-              dimension: config.dimension,
-              isExpandable: false,
-              isSecure: true,
-            }, {
+            bidTheatreApi.post(`/${networkId}/ad`, imageAdPayload, {
               headers: { Authorization: `Bearer ${btToken}` },
             })
           );
@@ -623,7 +626,8 @@ async function createBtCampaignForBranch(
           console.log(`Created image ad ${imageAdId} for ${size} (${creative.name})`);
           await sleep(300);
         } catch (imgError: any) {
-          console.error(`Image ad creation failed for ${size}: ${imgError.message}`);
+          const errBody = imgError.response?.data ? JSON.stringify(imgError.response.data) : 'no response body';
+          console.error(`Image ad creation failed for ${size}: ${imgError.message} | BT response: ${errBody}`);
         }
       }
     }
