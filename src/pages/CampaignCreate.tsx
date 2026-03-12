@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createCampaign } from '../lib/campaignService';
+import { createCampaign, launchCampaign } from '../lib/campaignService';
 import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService';
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore, store } from '../lib/store';
@@ -2227,7 +2227,18 @@ const CampaignCreate = () => {
       }, user?.id || '');
 
       if (campaign) {
-        toast.success('Kampanja luotu!');
+        // Trigger BidTheatre campaign creation (Display / PDOOH channels)
+        if (formData.channel_display || formData.channel_pdooh) {
+          const launched = await launchCampaign(campaign.id);
+          if (launched) {
+            toast.success('Kampanja luotu ja lähetetty BidTheatreen!');
+          } else {
+            toast.error('Kampanja luotu, mutta BidTheatre-lähetys epäonnistui. Tarkista kampanjan tila.');
+            console.warn('BidTheatre launch failed – campaign saved as draft');
+          }
+        } else {
+          toast.success('Kampanja luotu!');
+        }
         navigate(`/campaigns/${campaign.id}`);
       } else {
         throw new Error('Campaign creation failed');
