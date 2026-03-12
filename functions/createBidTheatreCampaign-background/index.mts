@@ -35,28 +35,49 @@ const bidTheatreApi = axios.create({
 // ============================================================================
 
 const AD_DIMENSIONS: Record<string, { width: number; height: number; dimension: number }> = {
-  '300x300': { width: 300, height: 300, dimension: 10 },
-  '300x431': { width: 300, height: 431, dimension: 1888 },
+  '300x300': { width: 300, height: 300, dimension: 22 },
+  '300x431': { width: 300, height: 431, dimension: 697 },
   '300x600': { width: 300, height: 600, dimension: 11 },
   '620x891': { width: 620, height: 891, dimension: 1888 },
   '980x400': { width: 980, height: 400, dimension: 15 },
   '1080x1920': { width: 1080, height: 1920, dimension: 385 },
+  '2160x3840': { width: 2160, height: 3840, dimension: 6286 },
 };
 
 // Ad group definitions per channel
 const DISPLAY_AD_GROUPS = [
-  { name: 'Mobile sizes', sizes: ['300x600', '300x431'] },
-  { name: 'Small desktop', sizes: ['300x600', '300x300'] },
-  { name: 'Large desktop sizes', sizes: ['620x891', '980x400'] },
+  { name: 'Desktop sizes', sizes: ['300x600', '620x891', '980x400'] },
+  { name: 'Mobile sizes', sizes: ['300x300', '300x600', '300x431'] },
 ];
 
 const PDOOH_AD_GROUPS = [
   { name: 'Default campaign', sizes: ['1080x1920'] },
+  { name: '2160x3840', sizes: ['2160x3840'] },
 ];
 
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+// BidTheatre audience IDs mapped from campaign age targeting
+const AUDIENCE_MAP: Record<string, number> = {
+  '18-35': 145429,  // Suun TT - 18-35 years old
+  '18-64': 145431,  // Suun TT - 18-64 years old
+  '25-64': 145430,  // Suun TT - 25-64 years old
+  '40+':   145433,  // Suun TT - 40 or older
+};
+
+/**
+ * Map campaign age range (target_age_min, target_age_max) to the best-fit BT audience ID.
+ */
+function mapAgeRangeToAudience(minAge: number, maxAge: number): number | null {
+  if (minAge <= 18 && maxAge <= 35) return AUDIENCE_MAP['18-35'];
+  if (minAge <= 18 && maxAge <= 64) return AUDIENCE_MAP['18-64'];
+  if (minAge >= 25 && maxAge <= 64) return AUDIENCE_MAP['25-64'];
+  if (minAge >= 40) return AUDIENCE_MAP['40+'];
+  // Default fallback: 18-64
+  return AUDIENCE_MAP['18-64'];
+}
 
 interface ChannelDef {
   channel: 'DISPLAY' | 'PDOOH';
@@ -130,6 +151,73 @@ async function getBidStrategyTemplates(channel: string) {
   return data || [];
 }
 
+/**
+ * Get or create a reusable geo-target for a branch.
+ * Checks `branches.bt_geo_target_id` first; if not set, creates one in BT and saves the ID.
+ */
+async function getOrCreateGeoTarget(
+  branch: any,
+  radiusKm: number,
+  btToken: string,
+  networkId: string
+): Promise<{ geoTargetId: number; geoTargetCoordinatesId: number }> {
+  const lat = branch.coordinates?.lat || branch.latitude || 0;
+  const lng = branch.coordinates?.lng || branch.longitude || 0;
+  const branchName = branch.short_name || branch.name || 'Branch';
+  const branchCity = branch.city || '';
+
+  // Check if branch already has a geo-target in BT
+  if (branch.bt_geo_target_id) {
+    // Geo-target exists — create a new coordinate entry for this radius
+    const coordResp = await retryWithBackoff(() =>
+      bidTheatreApi.post(`/${networkId}/geo-target/${branch.bt_geo_target_id}/geo-target-coordinate`, {
+        latitude: lat,
+        longitude: lng,
+        radius: radiusKm,
+      }, {
+        headers: { Authorization: `Bearer ${btToken}` },
+      })
+    );
+    return {
+      geoTargetId: branch.bt_geo_target_id,
+      geoTargetCoordinatesId: coordResp.data.geoTargetCoordinate.id,
+    };
+  }
+
+  // Create new geo-target
+  const geoResp = await retryWithBackoff(() =>
+    bidTheatreApi.post(`/${networkId}/geo-target`, {
+      name: `ST / ${branchName}, ${branchCity}`,
+    }, {
+      headers: { Authorization: `Bearer ${btToken}` },
+    })
+  );
+  const geoTargetId = geoResp.data.geoTarget.id;
+
+  const coordResp = await retryWithBackoff(() =>
+    bidTheatreApi.post(`/${networkId}/geo-target/${geoTargetId}/geo-target-coordinate`, {
+      latitude: lat,
+      longitude: lng,
+      radius: radiusKm,
+    }, {
+      headers: { Authorization: `Bearer ${btToken}` },
+    })
+  );
+
+  // Save geo-target ID back to branch for reuse
+  await supabase
+    .from('branches')
+    .update({ bt_geo_target_id: geoTargetId })
+    .eq('id', branch.id);
+
+  console.log(`Created reusable geo-target ${geoTargetId} for ${branchName} at ${lat},${lng} r=${radiusKm}km`);
+
+  return {
+    geoTargetId,
+    geoTargetCoordinatesId: coordResp.data.geoTargetCoordinate.id,
+  };
+}
+
 // ============================================================================
 // FETCH CREATIVES FROM SUPABASE
 // ============================================================================
@@ -181,6 +269,46 @@ async function fetchCreativeHtml(publicUrl: string): Promise<string | null> {
   }
 }
 
+/**
+ * Inject clickTag into HTML creative for BidTheatre click tracking.
+ * BidTheatre replaces {clickurl} at serve-time with its tracking redirect URL.
+ * 
+ * Strategy:
+ * 1. If HTML already has a clickTag variable (var clickTag = ...), replace its value
+ * 2. If HTML has {{clickTag}} placeholder, replace it
+ * 3. Otherwise, inject a clickTag script in the <head> and wrap the body content in a clickable link
+ */
+function injectClickTag(html: string, landingUrl: string): string {
+  const clickTagValue = `{clickurl}${encodeURIComponent(landingUrl)}`;
+
+  // Case 1: Already has clickTag variable declaration
+  if (/var\s+clickTag\s*=/.test(html)) {
+    return html.replace(
+      /var\s+clickTag\s*=\s*['"][^'"]*['"]/,
+      `var clickTag = "${clickTagValue}"`
+    );
+  }
+
+  // Case 2: Has {{clickTag}} placeholder
+  if (html.includes('{{clickTag}}')) {
+    return html.replace(/\{\{clickTag\}\}/g, clickTagValue);
+  }
+
+  // Case 3: Inject clickTag script into head
+  const clickTagScript = `<script>var clickTag = "${clickTagValue}";</script>`;
+
+  if (html.includes('</head>')) {
+    html = html.replace('</head>', `${clickTagScript}\n</head>`);
+  } else if (html.includes('<body')) {
+    html = html.replace('<body', `${clickTagScript}\n<body`);
+  } else {
+    // No head or body tag — prepend
+    html = clickTagScript + '\n' + html;
+  }
+
+  return html;
+}
+
 // ============================================================================
 // CREATE BT CAMPAIGN FOR A SINGLE BRANCH + CHANNEL
 // ============================================================================
@@ -201,20 +329,43 @@ async function createBtCampaignForBranch(
   console.log(`Creating BT campaign: ${branchName} / ${channelType}`);
 
   // 1. Create BT campaign
-  const campaignPayload = {
+  // KPI: 1=Clicks (traffic objective), 3=Viewability (reach objective)
+  const campaignKPI = campaign.campaign_objective === 'reach' ? 3 : 1;
+
+  // Audience: map age range to BT audience ID (DISPLAY only, not PDOOH)
+  const audienceId = channelType === 'DISPLAY'
+    ? mapAgeRangeToAudience(campaign.target_age_min || 18, campaign.target_age_max || 64)
+    : null;
+
+  // Filter targets: Suun TT Display=66781, PDOOH uses campaign default
+  const defaultFilterTarget = channelType === 'DISPLAY' ? 66781 : null;
+
+  // Optimization strategy: DISPLAY uses viewability optimization, PDOOH has none
+  const defaultOptStrategy = channelType === 'DISPLAY' ? 538 : null;
+
+  const campaignPayload: Record<string, any> = {
     name: `ST / ${channelType} / ${branchName} / ${campaign.id.substring(0, 8)}`,
     advertiser: advertiserId,
-    campaignKPI: 3,
+    campaignManager: 'janne.savela@norr3.fi',
+    campaignKPI,
     targetURL: campaign.landing_url || 'https://terveystalo.com/suunterveystalo',
     defaultGeoTarget: null,
-    expectedTotalImps: channelType === 'DISPLAY' ? 8422 : 12500,
     deliveryPriority: 'even',
-    defaultFilterTarget: channelType === 'DISPLAY' ? 22418 : 32491,
-    defaultOptimizationStrategy: channelType === 'DISPLAY' ? 538 : 519,
+    defaultFilterTarget: defaultFilterTarget,
     allowWideTargeting: false,
     renderOBA: false,
-    takeScreenshots: false,
+    takeScreenshots: true,
   };
+
+  // Only set optimization strategy if defined (PDOOH has none)
+  if (defaultOptStrategy) {
+    campaignPayload.defaultOptimizationStrategy = defaultOptStrategy;
+  }
+
+  // Set audience for DISPLAY campaigns
+  if (audienceId) {
+    campaignPayload.defaultAudience = audienceId;
+  }
 
   const campaignResp = await retryWithBackoff(() =>
     bidTheatreApi.post(`/${networkId}/campaign`, campaignPayload, {
@@ -222,9 +373,9 @@ async function createBtCampaignForBranch(
     })
   );
   const btCampaignId = campaignResp.data.campaign.id;
-  console.log(`Created BT campaign ${btCampaignId} for ${branchName} / ${channelType}`);
+  console.log(`Created BT campaign ${btCampaignId} for ${branchName} / ${channelType} (KPI=${campaignKPI}, audience=${audienceId})`);
 
-  // 2. Set category (3 = Health & Beauty)
+  // 2. Set category (3 = Health & Beauty — closest to Health & Fitness - Dental care)
   await retryWithBackoff(() =>
     bidTheatreApi.post(`/${networkId}/campaign/${btCampaignId}/category`, { category: 3 }, {
       headers: { Authorization: `Bearer ${btToken}` },
@@ -296,6 +447,8 @@ async function createBtCampaignForBranch(
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
   // 7. Create HTML ads from creatives
+  const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+
   for (const group of adGroups) {
     for (const size of group.sizes) {
       const config = AD_DIMENSIONS[size];
@@ -318,6 +471,10 @@ async function createBtCampaignForBranch(
           console.warn(`No HTML content for creative ${creative.id} (${creative.name}), skipping`);
           continue;
         }
+
+        // Inject clickTag for BidTheatre click tracking
+        // BT uses {clickurl} macro which gets replaced at serve-time
+        html = injectClickTag(html, landingUrl);
 
         try {
           const adResp = await retryWithBackoff(() =>
@@ -362,35 +519,23 @@ async function createBtCampaignForBranch(
     }
   }
 
-  // 9. Set geo-targeting using branch coordinates
+  // 9. Set geo-targeting using branch coordinates (reusable per branch)
   const lat = branch.coordinates?.lat || branch.latitude || campaign.campaign_coordinates?.lat || 0;
   const lng = branch.coordinates?.lng || branch.longitude || campaign.campaign_coordinates?.lng || 0;
-  const radius = campaign.campaign_radius || 1500;
+
+  // Per-branch radius: from branch_radius_settings (km), fall back to campaign_radius (meters→km)
+  const branchRadiusSettings = campaign.branch_radius_settings || {};
+  const branchRadiusSetting = branchRadiusSettings[branch.id];
+  const radiusKm = branchRadiusSetting?.radius
+    || metersToKm(campaign.campaign_radius || 10000);
 
   let geoTargetId: number | undefined;
   let geoTargetCoordinatesId: number | undefined;
 
   if (lat && lng) {
-    const geoResp = await retryWithBackoff(() =>
-      bidTheatreApi.post(`/${networkId}/geo-target`, {
-        name: `${branch.address || branchName}, ${branchCity}`,
-      }, {
-        headers: { Authorization: `Bearer ${btToken}` },
-      })
-    );
-    geoTargetId = geoResp.data.geoTarget.id;
-
-    const coordResp = await retryWithBackoff(() =>
-      bidTheatreApi.post(`/${networkId}/geo-target/${geoTargetId}/geo-target-coordinate`, {
-        latitude: lat,
-        longitude: lng,
-        radius: metersToKm(radius),
-      }, {
-        headers: { Authorization: `Bearer ${btToken}` },
-      })
-    );
-    geoTargetCoordinatesId = coordResp.data.geoTargetCoordinate.id;
-    console.log(`Created geo-target ${geoTargetId} at ${lat},${lng} r=${metersToKm(radius)}km`);
+    const geoResult = await getOrCreateGeoTarget(branch, radiusKm, btToken, networkId);
+    geoTargetId = geoResult.geoTargetId;
+    geoTargetCoordinatesId = geoResult.geoTargetCoordinatesId;
   }
 
   // 10. Create bid strategies from templates
@@ -398,9 +543,19 @@ async function createBtCampaignForBranch(
   const bidStrategyIds: number[] = [];
 
   for (const template of bidStrategyTemplates) {
-    const adGroupId = channelType === 'DISPLAY'
-      ? adGroupIds[template.adgroup_name || 'Large desktop sizes']
-      : adGroupIds['Default campaign'];
+    // Map bid strategy to ad group:
+    // DISPLAY: adgroup_name from template (e.g. 'Desktop sizes', 'Mobile sizes')
+    // PDOOH: '2160x3840' group for Outshine strategies, 'Default campaign' for all others
+    let adGroupId: number | undefined;
+    if (channelType === 'DISPLAY') {
+      adGroupId = adGroupIds[template.adgroup_name || 'Desktop sizes'];
+    } else {
+      // For PDOOH, check if strategy name contains 'Outshine' → use 2160x3840 ad group
+      const isOutshine = (template.name || '').toLowerCase().includes('outshine');
+      adGroupId = isOutshine
+        ? adGroupIds['2160x3840'] || adGroupIds['Default campaign']
+        : adGroupIds['Default campaign'];
+    }
 
     if (!adGroupId) {
       console.warn(`No ad group found for strategy "${template.name}", skipping`);
@@ -441,7 +596,7 @@ async function createBtCampaignForBranch(
       geo_target_coordinates_id: geoTargetCoordinatesId || null,
       latitude: lat || null,
       longitude: lng || null,
-      radius,
+      radius: radiusKm * 1000,
       ad_group_ids: adGroupIds,
       ad_ids: adIds,
       bid_strategy_ids: bidStrategyIds,
@@ -468,7 +623,7 @@ async function createBidTheatreCampaign(campaign: any) {
   const btToken = await getBidTheatreToken();
   const credentials = await getBidTheatreCredentials();
   const networkId = credentials.network_id;
-  const advertiserId = credentials.advertiser_id || 22717;
+  const advertiserId = credentials.advertiser_id || 24674; // Suun Terveystalo
 
   // Determine active channels
   const channels: ChannelDef[] = [];

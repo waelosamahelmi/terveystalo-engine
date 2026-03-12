@@ -212,12 +212,14 @@ export async function createCampaignCreatives(
         { type: 'display', width: 300, height: 300, folder: 'display' },
         { type: 'display', width: 300, height: 431, folder: 'display' },
         { type: 'display', width: 300, height: 600, folder: 'display' },
+        { type: 'display', width: 620, height: 891, folder: 'display' },
         { type: 'display', width: 980, height: 400, folder: 'display' },
       );
     }
     if (formData.channel_pdooh) {
       channelSizes.push(
         { type: 'pdooh', width: 1080, height: 1920, folder: 'pdooh' },
+        { type: 'pdooh', width: 2160, height: 3840, folder: 'pdooh' },
       );
     }
 
@@ -271,11 +273,12 @@ export async function createCampaignCreatives(
         for (const cs of channelSizes) {
           const sizeStr = `${cs.width}x${cs.height}`;
 
-          // Find matching template
+          // Find matching template (2160x3840 falls back to 1080x1920 with 2x upscale)
+          const isUpscaled = cs.width === 2160 && cs.height === 3840;
           const template = templates.find(t =>
             t.type === cs.type &&
-            t.width === cs.width &&
-            t.height === cs.height &&
+            t.width === (isUpscaled ? 1080 : cs.width) &&
+            t.height === (isUpscaled ? 1920 : cs.height) &&
             t.active
           );
           if (!template) {
@@ -427,6 +430,12 @@ export async function createCampaignCreatives(
           if (cs.type === 'pdooh') {
             html = html.replace('</head>',
               '<style>.cta, .cta-button, .cta-wrap, .scene-4-cta { display: none !important; }</style></head>');
+          }
+
+          // 2160x3840: upscale from 1080x1920 via CSS transform
+          if (isUpscaled) {
+            html = html.replace('</head>',
+              `<style>html,body{width:2160px;height:3840px;margin:0;padding:0;overflow:hidden}body>*:first-child{transform:scale(2);transform-origin:top left}</style></head>`);
           }
 
           // Collect upload item for batch upload via Netlify function
@@ -614,6 +623,7 @@ export async function createCampaign(
     target_age_max: formData.target_age_max,
     target_genders: formData.target_genders,
     campaign_objective: formData.campaign_objective || 'traffic',
+    branch_radius_settings: formData.branch_radius_settings || null,
 
     status: 'draft' as CampaignStatus,
     created_by: userId

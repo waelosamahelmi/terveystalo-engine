@@ -2220,6 +2220,7 @@ const CampaignCreate = () => {
         meta_video_url: creativeConfig.selectedVideo || undefined,
         meta_video_file: creativeConfig.videoFile || undefined,
         meta_audio_url: creativeConfig.selectedAudio || undefined,
+        branch_radius_settings: branchRadiusSettings,
       }, user?.id || '');
 
       if (campaign) {
