@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { parseISO, format, addMonths } from 'date-fns';
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
 
 // ============================================================================
 // CONFIGURATION
@@ -100,6 +102,64 @@ function formatDateForBT(dateStr: string): string {
 
 function metersToKm(meters: number): number {
   return Math.max(1, Math.ceil(meters / 1000));
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ============================================================================
+// HTML → IMAGE RENDERING (headless Chrome via @sparticuz/chromium)
+// ============================================================================
+
+let browserInstance: any = null;
+
+async function getBrowser() {
+  if (!browserInstance) {
+    browserInstance = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: null,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    });
+    console.log('Headless Chrome launched for image rendering');
+  }
+  return browserInstance;
+}
+
+async function closeBrowser() {
+  if (browserInstance) {
+    try { await browserInstance.close(); } catch {}
+    browserInstance = null;
+    console.log('Headless Chrome closed');
+  }
+}
+
+async function renderHtmlToImage(html: string, width: number, height: number): Promise<Buffer> {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height });
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.evaluate(() => document.fonts.ready);
+    const screenshot = await page.screenshot({ type: 'png', fullPage: false });
+    return Buffer.from(screenshot);
+  } finally {
+    await page.close();
+  }
+}
+
+async function uploadImageToStorage(
+  imageBuffer: Buffer,
+  campaignId: string,
+  creativeId: string,
+  size: string
+): Promise<string> {
+  const path = `creatives/${campaignId}/images/${creativeId}_${size}.png`;
+  const { error } = await supabase.storage
+    .from('media')
+    .upload(path, imageBuffer, { contentType: 'image/png', upsert: true });
+  if (error) throw new Error(`Image upload failed: ${error.message}`);
+  const { data } = supabase.storage.from('media').getPublicUrl(path);
+  return data.publicUrl;
 }
 
 async function fetchCreativeHtml(publicUrl: string): Promise<string | null> {
@@ -298,6 +358,9 @@ async function updateBtCampaign(
           }
           if (!html) continue;
 
+          const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+
+          // --- HTML banner ad ---
           try {
             const adResp = await retryWithBackoff(() =>
               bidTheatreApi.post(`/${networkId}/ad`, {
@@ -317,9 +380,39 @@ async function updateBtCampaign(
             const adId = adResp.data.ad.id;
             if (!newAdIds[groupName]) newAdIds[groupName] = [];
             newAdIds[groupName].push(adId);
-            console.log(`Created updated ad ${adId} for ${size}`);
+            console.log(`Created updated HTML ad ${adId} for ${size}`);
+            await sleep(300);
           } catch (adErr: any) {
-            console.error(`Ad creation failed for ${size}: ${adErr.message}`);
+            console.error(`HTML ad creation failed for ${size}: ${adErr.message}`);
+          }
+
+          // --- Standard banner (image) ad ---
+          try {
+            const imageBuffer = await renderHtmlToImage(html, config.width, config.height);
+            const imageUrl = await uploadImageToStorage(imageBuffer, campaign.id, creative.id, size);
+
+            const imageAdResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: `${creative.name || `${branchLabel} - ${size}`} [IMG]`,
+                adType: 'Standard banner',
+                adStatus: 'Active',
+                imageUrl,
+                landingPageUrl: landingUrl,
+                dimension: config.dimension,
+                isExpandable: false,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            const imageAdId = imageAdResp.data.ad.id;
+            if (!newAdIds[groupName]) newAdIds[groupName] = [];
+            newAdIds[groupName].push(imageAdId);
+            console.log(`Created updated image ad ${imageAdId} for ${size}`);
+            await sleep(300);
+          } catch (imgErr: any) {
+            console.error(`Image ad creation failed for ${size}: ${imgErr.message}`);
           }
         }
       }
@@ -441,5 +534,7 @@ export async function handler(event: any) {
   } catch (error: any) {
     console.error('Fatal error in updateBidTheatreCampaign:', error);
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+  } finally {
+    await closeBrowser();
   }
 }

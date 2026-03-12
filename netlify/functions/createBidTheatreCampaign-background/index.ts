@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { parseISO, format, addMonths } from 'date-fns';
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
 
 // ============================================================================
 // CONFIGURATION
@@ -128,6 +130,62 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 5, baseDel
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ============================================================================
+// HTML → IMAGE RENDERING (headless Chrome via @sparticuz/chromium)
+// ============================================================================
+
+let browserInstance: any = null;
+
+async function getBrowser() {
+  if (!browserInstance) {
+    browserInstance = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: null,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    });
+    console.log('Headless Chrome launched for image rendering');
+  }
+  return browserInstance;
+}
+
+async function closeBrowser() {
+  if (browserInstance) {
+    try { await browserInstance.close(); } catch {}
+    browserInstance = null;
+    console.log('Headless Chrome closed');
+  }
+}
+
+async function renderHtmlToImage(html: string, width: number, height: number): Promise<Buffer> {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width, height });
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.evaluate(() => document.fonts.ready);
+    const screenshot = await page.screenshot({ type: 'png', fullPage: false });
+    return Buffer.from(screenshot);
+  } finally {
+    await page.close();
+  }
+}
+
+async function uploadImageToStorage(
+  imageBuffer: Buffer,
+  campaignId: string,
+  creativeId: string,
+  size: string
+): Promise<string> {
+  const path = `creatives/${campaignId}/images/${creativeId}_${size}.png`;
+  const { error } = await supabase.storage
+    .from('media')
+    .upload(path, imageBuffer, { contentType: 'image/png', upsert: true });
+  if (error) throw new Error(`Image upload failed: ${error.message}`);
+  const { data } = supabase.storage.from('media').getPublicUrl(path);
+  return data.publicUrl;
+}
 
 function formatDateForBT(dateStr: string): string {
   if (!dateStr) throw new Error('Date string is undefined');
@@ -450,9 +508,10 @@ async function createBtCampaignForBranch(
   );
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
-  // 7. Create HTML ads from creatives (deduplicate across ad groups sharing sizes)
+  // 7. Create HTML + image ads from creatives (deduplicate across ad groups sharing sizes)
   const landingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
-  const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → adId
+  const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → HTML adId
+  const createdImageAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → image adId
 
   for (const group of adGroups) {
     for (const size of group.sizes) {
@@ -469,7 +528,10 @@ async function createBtCampaignForBranch(
         const dedupKey = `${creative.id}::${size}`;
         if (createdAdsByCreativeSize[dedupKey]) {
           adIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
-          console.log(`Reused ad ${createdAdsByCreativeSize[dedupKey]} for ${size} (${creative.name}) in "${group.name}"`);
+          if (createdImageAdsByCreativeSize[dedupKey]) {
+            adIds[group.name].push(createdImageAdsByCreativeSize[dedupKey]);
+          }
+          console.log(`Reused ads for ${size} (${creative.name}) in "${group.name}"`);
           continue;
         }
 
@@ -485,10 +547,14 @@ async function createBtCampaignForBranch(
           continue;
         }
 
+        // Save raw HTML before clickTag injection (for image rendering)
+        const rawHtml = html;
+
         // Inject clickTag for BidTheatre click tracking
         // BT uses {clickurl} macro which gets replaced at serve-time
         html = injectClickTag(html, landingUrl);
 
+        // --- HTML banner ad ---
         try {
           const adResp = await retryWithBackoff(() =>
             bidTheatreApi.post(`/${networkId}/ad`, {
@@ -508,11 +574,39 @@ async function createBtCampaignForBranch(
           const adId = adResp.data.ad.id;
           adIds[group.name].push(adId);
           createdAdsByCreativeSize[dedupKey] = adId;
-          console.log(`Created ad ${adId} for ${size} (${creative.name})`);
-          // Throttle to avoid 429 rate limits from BT API
+          console.log(`Created HTML ad ${adId} for ${size} (${creative.name})`);
           await sleep(300);
         } catch (adError: any) {
-          console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
+          console.error(`HTML ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
+        }
+
+        // --- Standard banner (image) ad ---
+        try {
+          const imageBuffer = await renderHtmlToImage(rawHtml, config.width, config.height);
+          const imageUrl = await uploadImageToStorage(imageBuffer, campaign.id, creative.id, size);
+
+          const imageAdResp = await retryWithBackoff(() =>
+            bidTheatreApi.post(`/${networkId}/ad`, {
+              campaign: btCampaignId,
+              name: `${creative.name || `${branchName} - ${size}`} [IMG]`,
+              adType: 'Standard banner',
+              adStatus: 'Active',
+              imageUrl,
+              landingPageUrl: landingUrl,
+              dimension: config.dimension,
+              isExpandable: false,
+              isSecure: true,
+            }, {
+              headers: { Authorization: `Bearer ${btToken}` },
+            })
+          );
+          const imageAdId = imageAdResp.data.ad.id;
+          adIds[group.name].push(imageAdId);
+          createdImageAdsByCreativeSize[dedupKey] = imageAdId;
+          console.log(`Created image ad ${imageAdId} for ${size} (${creative.name})`);
+          await sleep(300);
+        } catch (imgError: any) {
+          console.error(`Image ad creation failed for ${size}: ${imgError.message}`);
         }
       }
     }
@@ -760,5 +854,7 @@ export async function handler(event: any) {
     }).eq('id', campaign.id);
 
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+  } finally {
+    await closeBrowser();
   }
 }
