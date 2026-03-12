@@ -375,9 +375,9 @@ async function createBtCampaignForBranch(
   const btCampaignId = campaignResp.data.campaign.id;
   console.log(`Created BT campaign ${btCampaignId} for ${branchName} / ${channelType} (KPI=${campaignKPI}, audience=${audienceId})`);
 
-  // 2. Set category (3 = Health & Beauty — closest to Health & Fitness - Dental care)
+  // 2. Set category (158 = Health & Fitness - Dental Care)
   await retryWithBackoff(() =>
-    bidTheatreApi.post(`/${networkId}/campaign/${btCampaignId}/category`, { category: 3 }, {
+    bidTheatreApi.post(`/${networkId}/campaign/${btCampaignId}/category`, { category: 158 }, {
       headers: { Authorization: `Bearer ${btToken}` },
     })
   );
