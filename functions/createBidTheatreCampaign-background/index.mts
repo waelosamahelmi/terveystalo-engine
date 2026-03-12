@@ -108,7 +108,7 @@ async function getBidTheatreToken() {
   return token;
 }
 
-async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 5, baseDelay = 2000): Promise<T> {
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -116,7 +116,9 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDel
     } catch (error: any) {
       lastError = error;
       if (axios.isAxiosError(error) && error.response?.status === 429 && attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, attempt - 1)));
+        const delay = baseDelay * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s, 32s
+        console.log(`Rate limited (429), retry ${attempt}/${maxRetries} in ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         throw error;
       }
@@ -124,6 +126,8 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, baseDel
   }
   throw lastError;
 }
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function formatDateForBT(dateStr: string): string {
   if (!dateStr) throw new Error('Date string is undefined');
@@ -505,6 +509,8 @@ async function createBtCampaignForBranch(
           adIds[group.name].push(adId);
           createdAdsByCreativeSize[dedupKey] = adId;
           console.log(`Created ad ${adId} for ${size} (${creative.name})`);
+          // Throttle to avoid 429 rate limits from BT API
+          await sleep(300);
         } catch (adError: any) {
           console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
         }
