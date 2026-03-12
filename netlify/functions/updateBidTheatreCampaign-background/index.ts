@@ -114,13 +114,30 @@ let browserInstance: any = null;
 
 async function getBrowser() {
   if (!browserInstance) {
+    let execPath = await chromium.executablePath();
+    if (!execPath) {
+      const { existsSync } = await import('fs');
+      const localPaths = process.platform === 'win32'
+        ? [
+            (process.env['PROGRAMFILES(X86)'] || '') + '\\Google\\Chrome\\Application\\chrome.exe',
+            (process.env['PROGRAMFILES'] || '') + '\\Google\\Chrome\\Application\\chrome.exe',
+            (process.env.LOCALAPPDATA || '') + '\\Google\\Chrome\\Application\\chrome.exe',
+          ]
+        : process.platform === 'darwin'
+          ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+          : ['/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
+      execPath = localPaths.find(p => { try { return existsSync(p); } catch { return false; } });
+    }
+    if (!execPath) {
+      throw new Error('No Chrome/Chromium executable found — install Chrome locally or deploy to Netlify');
+    }
     browserInstance = await puppeteer.launch({
-      args: chromium.args,
+      args: execPath === await chromium.executablePath() ? chromium.args : ['--no-sandbox', '--disable-setuid-sandbox'],
       defaultViewport: null,
-      executablePath: await chromium.executablePath(),
+      executablePath: execPath,
       headless: true,
     });
-    console.log('Headless Chrome launched for image rendering');
+    console.log(`Headless Chrome launched from: ${execPath}`);
   }
   return browserInstance;
 }
