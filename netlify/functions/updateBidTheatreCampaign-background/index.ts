@@ -1,9 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { parseISO, format, addMonths } from 'date-fns';
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
-import FormData from 'form-data';
 
 // ============================================================================
 // CONFIGURATION
@@ -106,79 +103,6 @@ function metersToKm(meters: number): number {
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// ============================================================================
-// HTML → IMAGE RENDERING (headless Chrome via @sparticuz/chromium)
-// ============================================================================
-
-let browserInstance: any = null;
-
-async function getBrowser() {
-  if (!browserInstance) {
-    let execPath = await chromium.executablePath();
-    if (!execPath) {
-      const { existsSync } = await import('fs');
-      const localPaths = process.platform === 'win32'
-        ? [
-            (process.env['PROGRAMFILES(X86)'] || '') + '\\Google\\Chrome\\Application\\chrome.exe',
-            (process.env['PROGRAMFILES'] || '') + '\\Google\\Chrome\\Application\\chrome.exe',
-            (process.env.LOCALAPPDATA || '') + '\\Google\\Chrome\\Application\\chrome.exe',
-          ]
-        : process.platform === 'darwin'
-          ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-          : ['/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
-      execPath = localPaths.find(p => { try { return existsSync(p); } catch { return false; } });
-    }
-    if (!execPath) {
-      throw new Error('No Chrome/Chromium executable found — install Chrome locally or deploy to Netlify');
-    }
-    browserInstance = await puppeteer.launch({
-      args: execPath === await chromium.executablePath() ? chromium.args : ['--no-sandbox', '--disable-setuid-sandbox'],
-      defaultViewport: null,
-      executablePath: execPath,
-      headless: true,
-    });
-    console.log(`Headless Chrome launched from: ${execPath}`);
-  }
-  return browserInstance;
-}
-
-async function closeBrowser() {
-  if (browserInstance) {
-    try { await browserInstance.close(); } catch {}
-    browserInstance = null;
-    console.log('Headless Chrome closed');
-  }
-}
-
-async function renderHtmlToImage(html: string, width: number, height: number): Promise<Buffer> {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-  try {
-    await page.setViewport({ width, height });
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
-    await page.evaluate(() => document.fonts.ready);
-    const screenshot = await page.screenshot({ type: 'png', fullPage: false });
-    return Buffer.from(screenshot);
-  } finally {
-    await page.close();
-  }
-}
-
-async function uploadImageToStorage(
-  imageBuffer: Buffer,
-  campaignId: string,
-  creativeId: string,
-  size: string
-): Promise<string> {
-  const path = `creatives/${campaignId}/images/${creativeId}_${size}.png`;
-  const { error } = await supabase.storage
-    .from('media')
-    .upload(path, imageBuffer, { contentType: 'image/png', upsert: true });
-  if (error) throw new Error(`Image upload failed: ${error.message}`);
-  const { data } = supabase.storage.from('media').getPublicUrl(path);
-  return data.publicUrl;
-}
 
 async function fetchCreativeHtml(publicUrl: string): Promise<string | null> {
   try {
@@ -443,61 +367,7 @@ async function updateBtCampaign(
             console.error(`HTML ad creation failed for ${size}: ${adErr.message}`);
           }
 
-          // --- Image banner ad (needs raw HTML for puppeteer rendering) ---
-          let rawHtml = creative.rendered_html || creative.html_content;
-          if (!rawHtml && creativeUrl) {
-            rawHtml = await fetchCreativeHtml(creativeUrl);
-          }
-          if (rawHtml) {
-          try {
-            const imageBuffer = await renderHtmlToImage(rawHtml, config.width, config.height);
-            console.log(`Rendered ${size} image (${imageBuffer.length} bytes)`);
 
-            // Step 1: Create the image ad shell
-            const imageAdResp = await retryWithBackoff(() =>
-              bidTheatreApi.post(`/${networkId}/ad`, {
-                campaign: btCampaignId,
-                name: `${creative.name || `${branchLabel} - ${size}`} [IMG]`,
-                adType: 'Image banner',
-                adStatus: 'Active',
-                dimension: config.dimension,
-                isExpandable: false,
-                isSecure: true,
-              }, {
-                headers: { Authorization: `Bearer ${btToken}` },
-              })
-            );
-            const imageAdId = imageAdResp.data.ad.id;
-            console.log(`Created image ad shell ${imageAdId} for ${size}`);
-
-            // Step 2: Upload the image file to the ad
-            const form = new FormData();
-            form.append('file', imageBuffer, {
-              filename: `${creative.id}_${size}.png`,
-              contentType: 'image/png',
-            });
-            form.append('landingPageUrl', landingUrl);
-
-            await retryWithBackoff(() =>
-              bidTheatreApi.post(`/${networkId}/ad/${imageAdId}/image`, form, {
-                headers: {
-                  Authorization: `Bearer ${btToken}`,
-                  ...form.getHeaders(),
-                },
-                maxContentLength: 50 * 1024 * 1024,
-                maxBodyLength: 50 * 1024 * 1024,
-              })
-            );
-
-            if (!newAdIds[groupName]) newAdIds[groupName] = [];
-            newAdIds[groupName].push(imageAdId);
-            console.log(`Uploaded image to ad ${imageAdId} for ${size}`);
-            await sleep(300);
-          } catch (imgErr: any) {
-            const errBody = imgErr.response?.data ? JSON.stringify(imgErr.response.data) : 'no response body';
-            console.error(`Image ad creation failed for ${size}: ${imgErr.message} | BT response: ${errBody}`);
-          }
-          } // end if (rawHtml)
         }
       }
 
@@ -591,8 +461,10 @@ export async function handler(event: any) {
         console.log(`✓ Updated BT ${btRecord.bt_campaign_id} (${btRecord.channel})`);
       } catch (err: any) {
         overallSuccess = false;
-        overallErrors += `BT ${btRecord.bt_campaign_id}: ${err.message}\n`;
-        console.error(`✗ BT ${btRecord.bt_campaign_id}: ${err.message}`);
+        const errBody = err.response?.data ? JSON.stringify(err.response.data) : '';
+        const errDetail = errBody ? `${err.message} | BT response: ${errBody}` : err.message;
+        overallErrors += `BT ${btRecord.bt_campaign_id}: ${errDetail}\n`;
+        console.error(`✗ BT ${btRecord.bt_campaign_id}: ${errDetail}`);
       }
     }
 
@@ -618,7 +490,5 @@ export async function handler(event: any) {
   } catch (error: any) {
     console.error('Fatal error in updateBidTheatreCampaign:', error);
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
-  } finally {
-    await closeBrowser();
   }
 }
