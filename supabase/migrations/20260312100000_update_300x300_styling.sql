@@ -1,0 +1,68 @@
+-- ============================================================================
+-- SUUN TERVEYSTALO - UPDATE 300x300 TEMPLATE STYLING
+-- Date: 2026-03-12
+-- Description: 
+--   - Headline (Otsikko) much bigger: 14px → 22px
+--   - Offer title (Tarjouksen otsikko) centered + less bold: 700 → 600
+--   - Offer date (Voimassaoloaika) less bold: 600 → 400
+--   - CTA button less bold: 700 → 600
+-- ============================================================================
+
+UPDATE creative_templates 
+SET html_template = '<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="ad.size" content="width=300,height=300">
+    <title>300x300 Ad Banner - Suun Terveystalo</title>
+    <style>
+        @font-face { font-family: ''TerveystaloSans''; src: url(''/font/TerveystaloSans-Regular.woff2'') format(''woff2''), url(''/font/TerveystaloSans-Regular.woff'') format(''woff''); font-weight: 400; font-style: normal; }
+        @font-face { font-family: ''TerveystaloSans''; src: url(''/font/TerveystaloSans-SemiBold.woff2'') format(''woff2''), url(''/font/TerveystaloSans-SemiBold.woff'') format(''woff''); font-weight: 600; font-style: normal; }
+        @font-face { font-family: ''TerveystaloSans''; src: url(''/font/TerveystaloSans-Bold.woff2'') format(''woff2''), url(''/font/TerveystaloSans-Bold.woff'') format(''woff''); font-weight: 700; font-style: normal; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #333; font-family: ''TerveystaloSans'', sans-serif; }
+        .ad-container { width: 300px; height: 300px; background-color: #08091A; position: relative; overflow: hidden; color: #ffffff; text-align: center; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideInFromTop { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInFromLeft { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes slideInFromRight { from { opacity: 0; transform: translateX(30px) rotate(-30deg); } to { opacity: 1; transform: translateX(0) rotate(-30deg); } }
+        @keyframes slideInFromBottom { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes scaleIn { from { opacity: 0; transform: translateX(-50%) scale(0.8); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+        @keyframes pulse { 0%, 100% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.05); } }
+        .main-image { position: absolute; top: 50px; left: 0; width: 100%; height: 200px; z-index: 1; object-fit: cover; object-position: center top; -webkit-mask-image: radial-gradient(ellipse 85% 80% at 50% 45%, black 40%, transparent 80%); mask-image: radial-gradient(ellipse 85% 80% at 50% 45%, black 40%, transparent 80%); opacity: 0; animation: fadeIn 0.8s ease-out 0.2s forwards; }
+        .artwork { position: absolute; bottom: -45px; right: -55px; width: 180px; height: 180px; z-index: 2; object-fit: contain; transform: rotate(-30deg); opacity: 0; animation: slideInFromRight 0.7s ease-out 0.5s forwards; }
+        .logo { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); width: 120px; height: auto; max-height: 22px; z-index: 10; object-fit: contain; opacity: 0; animation: fadeIn 0.6s ease-out 1.2s forwards; }
+        .text-area { position: relative; z-index: 10; padding-top: 15px; width: 100%; opacity: 0; animation: slideInFromTop 0.6s ease-out 0.1s forwards; }
+        .headline { font-size: 22px; font-weight: 700; line-height: 1.1; margin-bottom: 6px; }
+        .subheadline { font-size: 9px; line-height: 1.35; max-width: 90%; margin: 0 auto; }
+        .price-bubble { position: absolute; z-index: 15; top: 125px; left: 12px; background-color: #ffffff; color: #004E9A; width: 85px; height: 85px; border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center; box-shadow: 0px 4px 12px rgba(0,0,0,0.3); opacity: 0; animation: slideInFromLeft 0.6s ease-out 0.4s forwards; }
+        .pb-title { font-size: 8px; font-weight: 600; line-height: 1.1; text-align: center; width: 100%; }
+        .pb-price { font-size: 32px; font-weight: 700; line-height: 0.9; margin: 2px 0; letter-spacing: -1px; display: flex; align-items: flex-start; }
+        .pb-currency { font-size: 16px; margin-top: 2px; margin-left: 1px; }
+        .pb-date { font-size: 6px; font-weight: 400; text-align: center; line-height: 1.2; }
+        .cta-button { position: absolute; z-index: 15; bottom: 55px; left: 50%; transform: translateX(-50%); background-color: #ffffff; color: #004E9A; text-decoration: none; font-weight: 600; font-size: 10px; padding: 8px 20px; border-radius: 20px; white-space: nowrap; box-shadow: 0 3px 8px rgba(0,0,0,0.2); opacity: 0; animation: scaleIn 0.5s ease-out 0.8s forwards, pulse 2s ease-in-out 2s infinite; }
+        .address { position: absolute; bottom: 12px; width: 100%; text-align: center; font-size: 9px; font-weight: 400; z-index: 11; color: #fff; opacity: 0; animation: slideInFromBottom 0.5s ease-out 1s forwards; }
+    </style>
+</head>
+<body>
+    <div class="ad-container">
+        <img src="{{image_url}}" alt="Dentist" class="main-image">
+        <img src="{{artwork_url}}" alt="" class="artwork">
+        <div class="text-area">
+            <h1 class="headline">{{headline}}</h1>
+            <p class="subheadline">{{subheadline}}</p>
+        </div>
+        <div class="price-bubble">
+            <span class="pb-title">{{offer_title}}</span>
+            <div class="pb-price">{{price}}<span class="pb-currency">€</span></div>
+            <span class="pb-date">{{offer_date}}</span>
+        </div>
+        <a href="{{click_url}}" class="cta-button">{{cta_text}}</a>
+        <img src="{{logo_url}}" alt="Suun Terveystalo" class="logo">
+        <div class="address">{{branch_address}}</div>
+    </div>
+</body>
+</html>',
+updated_at = NOW()
+WHERE name = 'Suun Terveystalo 300x300';
