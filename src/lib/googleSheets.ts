@@ -492,7 +492,7 @@ function formatDentalCampaignRow(
     ((campaign as any).offer_date || (campaign as any).offer_subtitle || '').replace(/<br\s*\/?>/gi, ' ').replace(/\|/g, ' '), // CA: offer_subtitle (Voimassaoloaika)
 
     // ── Smartly creative ID (CB) ──
-    `${campaign.id}-${svc?.code || 'unknown'}`,                   // CB: creative_id (campaign_id + service_code, unique per ad version)
+    `${campaign.id}-${(br?.name || 'branch').toLowerCase().replace(/\s+/g, '-')}-${svc?.code || 'unknown'}`, // CB: creative_id (campaign_id-branch-service, unique per ad version)
   ];
 }
 
