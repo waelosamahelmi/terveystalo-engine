@@ -417,6 +417,12 @@ function formatDentalCampaignRow(
     : metaVideoUrl.includes('mies') ? 'Mies'
     : metaVideoUrl ? 'Custom' : '';
 
+  // Audio track type (Brändillinen / Geneerinen)
+  const metaAudioUrl = (campaign as any).meta_audio_url || '';
+  const audioTrackType = metaAudioUrl.toLowerCase().includes('br\u00e4ndillinen') ? 'Brändillinen'
+    : metaAudioUrl.toLowerCase().includes('geneerinen') ? 'Geneerinen'
+    : metaAudioUrl ? 'Custom' : '';
+
   // Excluded locations in Smartly format
   const excludedLocations = options?.excludedBranchesData
     ? formatExcludedBranches(options.excludedBranchesData, radius)
@@ -571,19 +577,18 @@ function formatDentalCampaignRow(
     // ── Smartly creative ID (CB) ──
     `${campaign.id}-${(br?.name || 'branch').toLowerCase().replace(/\s+/g, '-')}-${svc?.code || 'unknown'}`, // CB: creative_id (campaign_id-branch-service, unique per ad version)
 
-    // ── Video / Creative extras (CC-CE) ──
+    // ── Video / Creative extras (CC-CG) ──
     videoGender,                                                  // CC: background_video_gender (Nainen / Mies / Custom)
     ((campaign as any).offer_subtitle || '').replace(/\|/g, ' '), // CD: offer_bubble_subtitle (Alateksti hintalapussa)
-    (() => {                                                      // CE: service_price (price from offer bubble / service_prices)
+    (() => {                                                      // CE: service_price (price for this specific service)
       const servicePrices = (campaign as any).service_prices;
-      if (servicePrices && svc) {
-        // Try to find price by service ID match
-        for (const [, price] of Object.entries(servicePrices)) {
-          if (price) return String(price);
-        }
+      if (servicePrices && svc?.id && servicePrices[svc.id]) {
+        return String(servicePrices[svc.id]);
       }
-      return campaign.offer_text || svc?.default_price || '';
+      return (svc?.default_price || '').replace(/€/g, '').trim() || campaign.offer_text || '';
     })(),
+    audioTrackType,                                               // CF: audio_track_type (Brändillinen / Geneerinen)
+    metaVideoUrl,                                                 // CG: meta_video_url (raw URL for reference)
   ];
 }
 

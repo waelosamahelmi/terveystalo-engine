@@ -4896,13 +4896,23 @@ const CampaignCreate = () => {
                     {creativeConfig.priceBubbleMode === 'price' && (
                       <div>
                         <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Hinta</p>
-                        <p className="text-sm font-semibold text-gray-900">
-                          {(() => {
-                            const svcId = selectedService?.id;
-                            const price = (svcId && creativeConfig.servicePrices[svcId]) || creativeConfig.offer || '49';
-                            return `${price}€`;
-                          })()}
-                        </p>
+                        {selectedServices.filter(s => s.code !== 'yleinen-brandiviesti').length > 1 ? (
+                          <div className="space-y-0.5">
+                            {selectedServices.filter(s => s.code !== 'yleinen-brandiviesti').map(svc => (
+                              <p key={svc.id} className="text-sm font-semibold text-gray-900">
+                                {getServiceName(svc)}: {creativeConfig.servicePrices[svc.id] || creativeConfig.offer || '49'}€
+                              </p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm font-semibold text-gray-900">
+                            {(() => {
+                              const svc = selectedServices.find(s => s.code !== 'yleinen-brandiviesti') || selectedService;
+                              const price = (svc?.id && creativeConfig.servicePrices[svc.id]) || creativeConfig.offer || '49';
+                              return `${price}€`;
+                            })()}
+                          </p>
+                        )}
                       </div>
                     )}
                     <div>
