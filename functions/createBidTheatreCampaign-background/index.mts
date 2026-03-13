@@ -719,7 +719,7 @@ async function createBtCampaignForBranch(
           geoTarget: geoTargetId || null,
           name: template.name,
           paused: template.paused,
-          filterTarget: template.filterTarget || null,
+          filterTarget: template.filter_target || null,
         }, {
           headers: { Authorization: `Bearer ${btToken}` },
         })

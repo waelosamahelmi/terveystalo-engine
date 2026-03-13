@@ -1144,9 +1144,11 @@ const CampaignCreate = () => {
   }, [currentStep, recommendationApplied, formData.total_budget, applyBudgetRecommendation]);
 
   // Fetch screens when branches or radii change
+  // Optimized: fetch all screens once, then compute per-branch counts locally
   useEffect(() => {
+    let cancelled = false;
+
     const fetchBranchScreens = async () => {
-      // Fetch screens for each selected branch (both local and nationwide modes)
       if (formData.branch_ids.length === 0) {
         setBranchScreenCounts({});
         setCombinedBranchScreens([]);
@@ -1154,41 +1156,69 @@ const CampaignCreate = () => {
       }
 
       try {
+        // Fetch ALL active screens once (instead of N separate queries)
+        const { data: allActiveScreens, error } = await supabase
+          .from('media_screens')
+          .select('*')
+          .eq('status', 'active');
+
+        if (error || !allActiveScreens || cancelled) return;
+
         const screenCounts: Record<string, number> = {};
-        const allScreens: MediaScreen[] = [];
+        const combinedScreens: MediaScreen[] = [];
         const seenScreenIds = new Set<number>();
 
-        // Fetch screens for each branch
+        // Haversine distance calculation (meters)
+        const calcDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+          const R = 6371e3;
+          const φ1 = lat1 * Math.PI / 180;
+          const φ2 = lat2 * Math.PI / 180;
+          const Δφ = (lat2 - lat1) * Math.PI / 180;
+          const Δλ = (lon2 - lon1) * Math.PI / 180;
+          const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        };
+
         for (const branchId of formData.branch_ids) {
           const branch = branches.find(b => b.id === branchId);
           if (!branch) continue;
 
-          const radius = branchRadiusSettings[branchId]?.radius || 10;
-          const result = await countScreensInRadius(
-            branch.latitude,
-            branch.longitude || 0,
-            radius * 1000
-          );
+          const lat = branch.latitude ?? branch.coordinates?.lat ?? 0;
+          const lng = branch.longitude ?? branch.coordinates?.lng ?? 0;
+          if (!lat || !lng) { screenCounts[branchId] = 0; continue; }
 
-          screenCounts[branchId] = result.total;
+          const radiusKm = branchRadiusSettings[branchId]?.radius || 10;
+          const radiusMeters = radiusKm * 1000;
 
-          // Add unique screens to combined list
-          result.screensInRadius.forEach(screen => {
-            if (!seenScreenIds.has(screen.id)) {
-              seenScreenIds.add(screen.id);
-              allScreens.push(screen);
+          let branchCount = 0;
+          for (const screen of allActiveScreens) {
+            if (!screen.latitude || !screen.longitude) continue;
+            const dist = calcDistance(lat, lng, screen.latitude, screen.longitude);
+            if (dist <= radiusMeters) {
+              branchCount++;
+              if (!seenScreenIds.has(screen.id)) {
+                seenScreenIds.add(screen.id);
+                combinedScreens.push(screen);
+              }
             }
-          });
+          }
+          screenCounts[branchId] = branchCount;
         }
 
-        setBranchScreenCounts(screenCounts);
-        setCombinedBranchScreens(allScreens);
+        if (!cancelled) {
+          setBranchScreenCounts(screenCounts);
+          setCombinedBranchScreens(combinedScreens);
+        }
       } catch (error) {
         console.error('Error loading branch screens:', error);
       }
     };
 
-    fetchBranchScreens();
+    // Debounce to avoid excessive re-fetching during rapid slider changes
+    const timer = setTimeout(fetchBranchScreens, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [formData.branch_ids, formData.ad_type, branchRadiusSettings, branches]);
 
   // Auto-initialize branch budget allocations when selected branches change
@@ -1210,7 +1240,7 @@ const CampaignCreate = () => {
         return cleaned;
       }
       // Initialize evenly
-      const evenPct = Math.round(100 / formData.branch_ids.length);
+      const evenPct = Math.floor(100 / formData.branch_ids.length);
       return Object.fromEntries(
         formData.branch_ids.map((id, i) => [
           id,
@@ -1783,6 +1813,8 @@ const CampaignCreate = () => {
       serviceNameElative = serviceNameElative.slice(0, -5) + 'äynnistä';
     } else if (serviceNameElative.endsWith('nti')) {
       serviceNameElative = serviceNameElative.slice(0, -3) + 'nnistä';
+    } else if (serviceNameElative.endsWith('us')) {
+      serviceNameElative = serviceNameElative.slice(0, -2) + 'uksesta';
     } else {
       serviceNameElative = serviceNameElative + 'sta';
     }
@@ -1830,7 +1862,7 @@ const CampaignCreate = () => {
         }
       } else if (isMultiService) {
         // Multi-service
-        messageText = `Sujuvampaa suunterveyttä ${serviceNameElative} erikoisosaamisesta vaativiin hoitoihin`;
+        messageText = `Sujuvampaa suunterveyttä aina ${serviceNameElative} erikoisosaamista vaativiin hoitoihin.`;
       } else {
         // Single service with conjugated city name
         if (isMultiLocation) {
@@ -1908,6 +1940,11 @@ const CampaignCreate = () => {
     // Branch address - shows the location text when showAddress is true
     const finalAddress = showAddress ? locationText : '';
 
+    // Scale badge price font size for 3+ digit prices
+    const priceDigits = String(finalPrice).replace(/[^0-9]/g, '').length;
+    const badgePriceSize = priceDigits >= 3 ? '62' : '82';
+    const badgeEuroSize = priceDigits >= 3 ? '40' : '52';
+
     return {
       // Text content
       title: 'Suun Terveystalo',
@@ -1930,7 +1967,7 @@ const CampaignCreate = () => {
       ...(isMetaTemplate ? {
         scene3_line1: 'Sujuvampaa',
         scene3_line2: 'terveyttä',
-        scene3_line3: isMultiLocation ? '' : (activeBranch?.city || ''),
+        scene3_line3: isMultiLocation ? '' : (activeBranch?.city ? getConjugatedCity(activeBranch.city) : ''),
         scene3_line4: 'Suun Terveystalossa.',
       } : {
         scene3_line1: 'Sujuvampaa',
@@ -2057,10 +2094,10 @@ const CampaignCreate = () => {
       badge_pad_right: '10',
       badge_label_size: '26',
       badge_label_weight: '700',
-      badge_price_size: '82',
+      badge_price_size: badgePriceSize,
       badge_price_weight: '900',
       badge_price_lineheight: '0.85',
-      badge_euro_size: '52',
+      badge_euro_size: badgeEuroSize,
       badge_euro_weight: '700',
       badge_euro_top: '6',
       badge_euro_left: '2',
@@ -2070,7 +2107,7 @@ const CampaignCreate = () => {
       headline_start_y: '30',
       headline_end_y: '90',
       subline_top: '50',
-      subline_size: '62',
+      subline_size: '70',
       subline_weight: '800',
       subline_start_y: '10',
       subline_end_y: '10',
@@ -2574,7 +2611,7 @@ const CampaignCreate = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {/* Left: Branch Cards */}
                   <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2">
-                    {filteredBranches.slice(0, 20).map(branch => {
+                    {filteredBranches.map(branch => {
                       const isSelected = formData.branch_ids.includes(branch.id);
                       const branchRadius = branchRadiusSettings[branch.id]?.radius || 10;
                       return (
@@ -3184,7 +3221,12 @@ const CampaignCreate = () => {
               }
 
               const allocations = needsInit
-                ? Object.fromEntries(selectedBranches.map(b => [b.id, Math.round(100 / selectedBranches.length)]))
+                ? Object.fromEntries(selectedBranches.map((b, i) => [
+                    b.id,
+                    i === selectedBranches.length - 1
+                      ? 100 - Math.floor(100 / selectedBranches.length) * (selectedBranches.length - 1)
+                      : Math.floor(100 / selectedBranches.length)
+                  ]))
                 : cleanedAllocations;
 
               const totalPct = Object.values(allocations).reduce((s, v) => s + v, 0);
@@ -3276,7 +3318,7 @@ const CampaignCreate = () => {
               };
 
               const handleDistributeEvenly = () => {
-                const evenPct = Math.round(100 / selectedBranches.length);
+                const evenPct = Math.floor(100 / selectedBranches.length);
                 const newAllocations = Object.fromEntries(
                   selectedBranches.map((b, i) => [
                     b.id,
@@ -4579,7 +4621,12 @@ const CampaignCreate = () => {
                         {creativeConfig.priceBubbleMode !== 'no-price' && selectedService?.code !== 'yleinen-brandiviesti' && (
                           <div className="flex items-center justify-between text-xs">
                             <span className="text-gray-500">Hinta</span>
-                            <span className="font-medium text-[#004E9A]">{creativeConfig.offer}€</span>
+                            <span className="font-medium text-[#004E9A]">
+                              {(() => {
+                                const svcId = (previewService || selectedService)?.id;
+                                return `${(svcId && creativeConfig.servicePrices[svcId]) || creativeConfig.offer || '49'}€`;
+                              })()}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -4849,7 +4896,13 @@ const CampaignCreate = () => {
                     {creativeConfig.priceBubbleMode === 'price' && (
                       <div>
                         <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Hinta</p>
-                        <p className="text-sm font-semibold text-gray-900">{creativeConfig.offer || '49'}€</p>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {(() => {
+                            const svcId = selectedService?.id;
+                            const price = (svcId && creativeConfig.servicePrices[svcId]) || creativeConfig.offer || '49';
+                            return `${price}€`;
+                          })()}
+                        </p>
                       </div>
                     )}
                     <div>

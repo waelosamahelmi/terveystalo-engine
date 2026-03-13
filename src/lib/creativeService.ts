@@ -1328,6 +1328,12 @@ export async function generateAllMetaCreatives(
               }
             }
 
+            // Scale badge price font for 3+ digit prices
+            const creativePrice = isGeneralBrandMessage ? '' : (service.default_price || formData.offer_text || '49');
+            const creativePriceDigits = String(creativePrice).replace(/[^0-9]/g, '').length;
+            const creativeBadgePriceSize = creativePriceDigits >= 3 ? '62' : '82';
+            const creativeBadgeEuroSize = creativePriceDigits >= 3 ? '40' : '52';
+
             const variables: Record<string, string> = {
               // Text content
               title: 'Suun Terveystalo',
@@ -1335,7 +1341,7 @@ export async function generateAllMetaCreatives(
               subheadline: messageText,
               offer_title: isGeneralBrandMessage ? '' : (service.default_offer_fi || serviceName),
               offer_subtitle: isGeneralBrandMessage ? '' : 'uusille asiakkaille',
-              price: isGeneralBrandMessage ? '' : (service.default_price || formData.offer_text || '49'),
+              price: creativePrice,
               currency: '€',
               cta_text: formData.cta_text || 'Varaa aika',
               branch_address: branchAddress,
@@ -1460,10 +1466,10 @@ export async function generateAllMetaCreatives(
               badge_pad_right: '10',
               badge_label_size: '26',
               badge_label_weight: '700',
-              badge_price_size: '82',
+              badge_price_size: creativeBadgePriceSize,
               badge_price_weight: '900',
               badge_price_lineheight: '0.85',
-              badge_euro_size: '52',
+              badge_euro_size: creativeBadgeEuroSize,
               badge_euro_weight: '700',
               badge_euro_top: '6',
               badge_euro_left: '2',
@@ -1473,7 +1479,7 @@ export async function generateAllMetaCreatives(
               headline_start_y: '30',
               headline_end_y: '90',
               subline_top: '50',
-              subline_size: '62',
+              subline_size: '70',
               subline_weight: '800',
               subline_start_y: '10',
               subline_end_y: '10',

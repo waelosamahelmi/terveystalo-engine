@@ -121,6 +121,8 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     serviceNameElative = serviceNameElative.slice(0, -5) + 'äynnistä';
   } else if (serviceNameElative.endsWith('nti')) {
     serviceNameElative = serviceNameElative.slice(0, -3) + 'nnistä';
+  } else if (serviceNameElative.endsWith('us')) {
+    serviceNameElative = serviceNameElative.slice(0, -2) + 'uksesta';
   } else {
     serviceNameElative = serviceNameElative + 'sta';
   }
@@ -138,7 +140,7 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
       const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
       messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
     } else if (isMultiService) {
-      messageText = `Sujuvampaa suunterveyttä ${serviceNameElative} erikoisosaamisesta vaativiin hoitoihin`;
+      messageText = `Sujuvampaa suunterveyttä aina ${serviceNameElative} erikoisosaamista vaativiin hoitoihin.`;
     } else {
       const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
       messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
@@ -187,6 +189,11 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
   const finalPrice = isGeneralBrandMessage ? '' : (servicePrice || formData.offer_text || '49');
   const finalAddress = showAddress ? locationText : '';
 
+  // Scale badge price font size for 3+ digit prices
+  const priceDigits = finalPrice.replace(/[^0-9]/g, '').length;
+  const badgePriceSize = priceDigits >= 3 ? '62' : '82';
+  const badgeEuroSize = priceDigits >= 3 ? '40' : '52';
+
   const vars: Record<string, string> = {
     // Text content
     title: 'Suun Terveystalo',
@@ -203,7 +210,7 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     ...(isMetaTemplate ? {
       scene3_line1: 'Sujuvampaa',
       scene3_line2: 'terveyttä',
-      scene3_line3: branch.city || '',
+      scene3_line3: branch.city ? getConjugatedCity(branch.city) : '',
       scene3_line4: 'Suun Terveystalossa.',
     } : {
       scene3_line1: 'Sujuvampaa',
@@ -328,10 +335,10 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     badge_pad_right: '10',
     badge_label_size: '26',
     badge_label_weight: '700',
-    badge_price_size: '82',
+    badge_price_size: badgePriceSize,
     badge_price_weight: '900',
     badge_price_lineheight: '0.85',
-    badge_euro_size: '52',
+    badge_euro_size: badgeEuroSize,
     badge_euro_weight: '700',
     badge_euro_top: '6',
     badge_euro_left: '2',
@@ -341,7 +348,7 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     headline_start_y: '30',
     headline_end_y: '90',
     subline_top: '50',
-    subline_size: '62',
+    subline_size: '70',
     subline_weight: '800',
     subline_start_y: '10',
     subline_end_y: '10',

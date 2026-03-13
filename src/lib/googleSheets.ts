@@ -3,7 +3,7 @@ import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus,
 import { parseISO, format } from 'date-fns';
 import { supabase } from './supabase';
 import type { AdVersionUrls } from './campaignService';
-import { getConjugatedCity } from './metaTemplateVariables';
+import { getConjugatedCity, findMatchingBundle } from './metaTemplateVariables';
 
 // Google Sheets API endpoint
 const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -347,6 +347,7 @@ function formatDentalCampaignRow(
     budgetOverride?: { total: number; meta: number; display: number; pdooh: number; audio: number };
     excludedBranchesData?: Array<{ address: string; city: string }>;
     creativeUrls?: AdVersionUrls;
+    allBranches?: Array<{ name: string; short_name?: string; city: string }>;
   }
 ): string[] {
   const startDate = safeFormatDate(campaign.campaign_start_date || campaign.start_date);
@@ -393,8 +394,28 @@ function formatDentalCampaignRow(
   // Smartly address format: "Streetname X, City, Finland /radius/kilometer"
   const smartlyAddress = formatSmartlyAddress(br?.address, br?.city, radius);
 
-  // Creative address format: "Streetname X, City"
-  const creativeAddr = formatCreativeAddress(br?.address, br?.city);
+  // Creative address format: "Streetname X, City" or grouped location names for multi-branch
+  let creativeAddr = formatCreativeAddress(br?.address, br?.city);
+
+  // Location grouping: if campaign has multiple branches, check for bundle match
+  const allBranches = options?.allBranches || [];
+  if (allBranches.length > 1) {
+    const branchNames = allBranches.map(b => b.short_name || b.name || b.city);
+    const matchingBundle = findMatchingBundle(branchNames);
+    if (matchingBundle) {
+      creativeAddr = matchingBundle.bundleAddress;
+    } else {
+      // Use short names joined with bullet separator
+      const uniqueCities = [...new Set(allBranches.map(b => b.short_name || b.name || b.city))];
+      creativeAddr = uniqueCities.join(' \u2022 ');
+    }
+  }
+
+  // Background video gender (Nainen / Mies / custom)
+  const metaVideoUrl = (campaign as any).meta_video_url || '';
+  const videoGender = metaVideoUrl.includes('nainen') ? 'Nainen'
+    : metaVideoUrl.includes('mies') ? 'Mies'
+    : metaVideoUrl ? 'Custom' : '';
 
   // Excluded locations in Smartly format
   const excludedLocations = options?.excludedBranchesData
@@ -526,7 +547,21 @@ function formatDentalCampaignRow(
     options?.creativeUrls?.pdooh_1080x1920_url || '',              // BW: pdooh_1080x1920_url
 
     // ── Offer / Brand columns (BX-CA) ──
-    'Sujuvampaa suunterveyttä hammastarkastuksista erikoisosaamista vaativiin hoitoihin.', // BX: brand_message
+    (() => {
+      // Build dynamic brand_message based on service elative form
+      const svcName = svc?.name_fi || svc?.name || '';
+      let svcElative = svcName.toLowerCase();
+      if (svcElative.endsWith('äynti')) {
+        svcElative = svcElative.slice(0, -5) + 'äynnistä';
+      } else if (svcElative.endsWith('nti')) {
+        svcElative = svcElative.slice(0, -3) + 'nnistä';
+      } else if (svcElative.endsWith('us')) {
+        svcElative = svcElative.slice(0, -2) + 'uksesta';
+      } else {
+        svcElative = svcElative + 'sta';
+      }
+      return `Sujuvampaa suunterveyttä aina ${svcElative} erikoisosaamista vaativiin hoitoihin.`;
+    })(), // BX: brand_message
     br?.city                                                      // BY: offer_message
       ? `Sujuvampaa suunterveyttä ${getConjugatedCity(br.city)} Suun Terveystalossa.`
       : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.',
@@ -535,6 +570,20 @@ function formatDentalCampaignRow(
 
     // ── Smartly creative ID (CB) ──
     `${campaign.id}-${(br?.name || 'branch').toLowerCase().replace(/\s+/g, '-')}-${svc?.code || 'unknown'}`, // CB: creative_id (campaign_id-branch-service, unique per ad version)
+
+    // ── Video / Creative extras (CC-CE) ──
+    videoGender,                                                  // CC: background_video_gender (Nainen / Mies / Custom)
+    ((campaign as any).offer_subtitle || '').replace(/\|/g, ' '), // CD: offer_bubble_subtitle (Alateksti hintalapussa)
+    (() => {                                                      // CE: service_price (price from offer bubble / service_prices)
+      const servicePrices = (campaign as any).service_prices;
+      if (servicePrices && svc) {
+        // Try to find price by service ID match
+        for (const [, price] of Object.entries(servicePrices)) {
+          if (price) return String(price);
+        }
+      }
+      return campaign.offer_text || svc?.default_price || '';
+    })(),
   ];
 }
 
@@ -647,6 +696,7 @@ export async function addDentalCampaignToSheet(
             budgetOverride: adVersionCount > 1 ? splitBudget : undefined,
             excludedBranchesData,
             creativeUrls: urls,
+            allBranches: branchList.map(b => ({ name: b.name, short_name: (b as any).short_name, city: b.city })),
           }));
         }
       }
