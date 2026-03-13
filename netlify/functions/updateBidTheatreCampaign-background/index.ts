@@ -424,6 +424,8 @@ async function updateBtCampaign(
                 adType: 'HTML banner',
                 adStatus: 'Active',
                 html,
+                targetURL: landingUrl,
+                clickThroughURL: landingUrl,
                 dimension: config.dimension,
                 isExpandable: false,
                 isInSync: true,
