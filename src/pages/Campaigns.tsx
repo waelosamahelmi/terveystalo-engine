@@ -26,7 +26,8 @@ import {
   Target,
   TrendingUp,
   RefreshCw,
-  X
+  X,
+  Pencil
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -121,6 +122,19 @@ const CampaignCard = ({ campaign, onPause, onResume, onClose, onDuplicate, onDel
                     <Eye size={16} className="mr-3 text-gray-400" />
                     Näytä tiedot
                   </button>
+                  
+                  {(campaign.status === 'active' || campaign.status === 'draft' || campaign.status === 'paused') && (
+                    <button
+                      onClick={() => {
+                        navigate(`/campaigns/create?edit=${campaign.id}`);
+                        setMenuOpen(false);
+                      }}
+                      className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700"
+                    >
+                      <Pencil size={16} className="mr-3 text-gray-400" />
+                      Muokkaa
+                    </button>
+                  )}
                   
                   {campaign.status === 'active' && (
                     <button

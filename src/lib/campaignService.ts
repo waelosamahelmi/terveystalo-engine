@@ -691,14 +691,20 @@ export async function createCampaign(
       console.error('Google Sheets sync failed (non-blocking):', e);
     }
 
-    // 3. Trigger BidTheatre campaign creation for DISPLAY / PDOOH channels
+    // 3. Set campaign to active immediately (BT sync happens in background)
+    await supabase
+      .from('dental_campaigns')
+      .update({ status: 'active' as CampaignStatus })
+      .eq('id', data.id);
+
+    // 4. Trigger BidTheatre campaign creation for DISPLAY / PDOOH channels
     if (data.channel_display || data.channel_pdooh) {
       try {
         console.log('Triggering BidTheatre campaign creation for', data.id);
         const btResp = await fetch('/.netlify/functions/createBidTheatreCampaign-background', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
+          body: JSON.stringify({ ...data, status: 'active' }),
         });
         const btText = await btResp.text();
         console.log('BT create response:', btResp.status, btText.substring(0, 300));
@@ -706,6 +712,10 @@ export async function createCampaign(
         console.error('BidTheatre campaign creation failed (non-blocking):', e);
       }
     }
+
+    // Update Sheet with active status (fire and forget)
+    updateDentalCampaignStatusInSheet(data.id, 'active')
+      .catch(e => console.error('Sheet status sync failed (non-blocking):', e));
   }
 
   return data;
@@ -738,6 +748,15 @@ export async function updateCampaign(
   if (data) {
     updateDentalCampaignInSheet(data)
       .catch(e => console.error('Google Sheets update sync failed (non-blocking):', e));
+
+    // Trigger BidTheatre update if campaign has BT campaigns
+    if (data.channel_display || data.channel_pdooh) {
+      fetch('/.netlify/functions/updateBidTheatreCampaign-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      }).catch(e => console.error('BidTheatre update sync failed (non-blocking):', e));
+    }
   }
 
   return data;

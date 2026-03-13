@@ -4,8 +4,8 @@
 // ============================================================================
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createCampaign } from '../lib/campaignService';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { createCampaign, updateCampaign, getCampaignById } from '../lib/campaignService';
 import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService';
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore, store } from '../lib/store';
@@ -858,6 +858,9 @@ const backgroundImages = [
 
 const CampaignCreate = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editCampaignId = searchParams.get('edit');
+  const isEditMode = !!editCampaignId;
   const { services, branches, campaigns, user } = useStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
@@ -1017,6 +1020,48 @@ const CampaignCreate = () => {
     // Excluded branches
     excluded_branch_ids: [],
   });
+
+  // ---- Edit Mode: load existing campaign data ----
+  useEffect(() => {
+    if (!editCampaignId) return;
+    getCampaignById(editCampaignId).then(c => {
+      if (!c) { toast.error('Kampanjaa ei löytynyt'); navigate('/campaigns'); return; }
+      setFormData(prev => ({
+        ...prev,
+        name: c.name || '',
+        service_id: c.service_id || '',
+        service_ids: c.service_id ? [c.service_id] : [],
+        branch_id: c.branch_id || '',
+        branch_ids: c.branch_id ? [c.branch_id] : (c as any).branch_ids || [],
+        start_date: c.start_date || prev.start_date,
+        end_date: c.end_date || prev.end_date,
+        is_ongoing: !c.end_date || (c as any).campaign_end_date === 'ONGOING',
+        total_budget: c.total_budget || prev.total_budget,
+        channel_meta: !!c.channel_meta,
+        channel_display: !!c.channel_display,
+        channel_pdooh: !!c.channel_pdooh,
+        channel_audio: !!c.channel_audio,
+        budget_meta: c.budget_meta || 0,
+        budget_display: c.budget_display || 0,
+        budget_pdooh: c.budget_pdooh || 0,
+        budget_audio: c.budget_audio || 0,
+        headline: c.headline || '',
+        offer_text: c.offer_text || '',
+        cta_text: c.cta_text || 'Varaa aika',
+        landing_url: c.landing_url || '',
+        description: c.description || '',
+        ad_type: (c as any).ad_type || undefined,
+        target_age_min: (c as any).target_age_min || 18,
+        target_age_max: (c as any).target_age_max || 65,
+        target_genders: (c as any).target_genders || ['all'],
+        campaign_objective: (c as any).campaign_objective || 'traffic',
+        meta_primary_text: (c as any).meta_primary_text || '',
+        meta_headline: (c as any).meta_headline || '',
+        meta_description: (c as any).meta_description || '',
+        excluded_branch_ids: (c as any).excluded_branch_ids || [],
+      }));
+    }).catch(err => { console.error('Failed to load campaign for edit:', err); toast.error('Virhe kampanjan lataamisessa'); });
+  }, [editCampaignId]);
 
   // Calculate channel budget recommendation based on campaign factors
   const getChannelBudgetRecommendation = useCallback(() => {
@@ -2202,8 +2247,8 @@ const CampaignCreate = () => {
         return;
       }
 
-      // Create campaign in Supabase
-      const campaign = await createCampaign({
+      // Create or update campaign in Supabase
+      const campaignPayload = {
         ...formData,
         name: campaignName,
         headline: creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.',
@@ -2224,17 +2269,30 @@ const CampaignCreate = () => {
         meta_video_file: creativeConfig.videoFile || undefined,
         meta_audio_url: creativeConfig.selectedAudio || undefined,
         branch_radius_settings: branchRadiusSettings,
-      }, user?.id || '');
+      };
 
-      if (campaign) {
-        toast.success('Kampanja luotu!');
-        navigate(`/campaigns/${campaign.id}`);
+      if (isEditMode && editCampaignId) {
+        // Update existing campaign
+        const updated = await updateCampaign(editCampaignId, campaignPayload);
+        if (updated) {
+          toast.success('Kampanja päivitetty!');
+          navigate(`/campaigns/${editCampaignId}`);
+        } else {
+          throw new Error('Campaign update failed');
+        }
       } else {
-        throw new Error('Campaign creation failed');
+        // Create new campaign
+        const campaign = await createCampaign(campaignPayload, user?.id || '');
+        if (campaign) {
+          toast.success('Kampanja luotu!');
+          navigate(`/campaigns/${campaign.id}`);
+        } else {
+          throw new Error('Campaign creation failed');
+        }
       }
     } catch (error) {
-      console.error('Error creating campaign:', error);
-      toast.error('Kampanjan luominen epäonnistui');
+      console.error('Error saving campaign:', error);
+      toast.error(isEditMode ? 'Kampanjan päivittäminen epäonnistui' : 'Kampanjan luominen epäonnistui');
     } finally {
       setSaving(false);
     }
@@ -2267,7 +2325,7 @@ const CampaignCreate = () => {
         </button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Luo uusi kampanja</h1>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{isEditMode ? 'Muokkaa kampanjaa' : 'Luo uusi kampanja'}</h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1">
               Vaihe {currentStep + 1}/{steps.length} • {steps[currentStep].name}
             </p>
@@ -4930,12 +4988,12 @@ const CampaignCreate = () => {
             {saving ? (
               <>
                 <RefreshCw size={18} className="mr-2 animate-spin" />
-                Luodaan...
+                {isEditMode ? 'Päivitetään...' : 'Luodaan...'}
               </>
             ) : (
               <>
                 <Sparkles size={18} className="mr-2" />
-                Luo kampanja
+                {isEditMode ? 'Tallenna muutokset' : 'Luo kampanja'}
               </>
             )}
           </button>

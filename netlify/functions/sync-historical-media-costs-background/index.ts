@@ -360,6 +360,93 @@ export const handler: Handler = async (event) => {
           });
 
         if (upsertError) throw upsertError;
+
+        // === Write daily stats to campaign_analytics table ===
+        const analyticsRows: Record<string, any>[] = [];
+        const totalDisplayImps = displayStats.basic?.nrImps || 0;
+        const totalDisplayClicks = displayStats.basic?.nrClicks || 0;
+        const totalPdoohImps = pdoohStats.basic?.nrImps || 0;
+        const totalPdoohClicks = pdoohStats.basic?.nrClicks || 0;
+        const syncNow = new Date().toISOString();
+
+        for (const day of displayStats.daily) {
+          const imps = day.nrImps || 0;
+          const spend = day.cost || 0;
+          const clicks = totalDisplayImps > 0
+            ? Math.round((imps / totalDisplayImps) * totalDisplayClicks)
+            : 0;
+          analyticsRows.push({
+            campaign_id: campaign.id,
+            date: day.date,
+            channel: 'display',
+            impressions: imps,
+            clicks,
+            spend,
+            ctr: imps > 0 ? clicks / imps : 0,
+            cpc: clicks > 0 ? spend / clicks : null,
+            cpm: imps > 0 ? (spend / imps) * 1000 : null,
+            engagement_rate: displayStats.basic?.engagementRate || null,
+            last_sync_at: syncNow,
+            sync_source: 'bidtheatre_historical_sync',
+          });
+        }
+
+        for (const day of pdoohStats.daily) {
+          const imps = day.nrImps || 0;
+          const spend = day.cost || 0;
+          const clicks = totalPdoohImps > 0
+            ? Math.round((imps / totalPdoohImps) * totalPdoohClicks)
+            : 0;
+          analyticsRows.push({
+            campaign_id: campaign.id,
+            date: day.date,
+            channel: 'pdooh',
+            impressions: imps,
+            clicks,
+            spend,
+            ctr: imps > 0 ? clicks / imps : 0,
+            cpc: clicks > 0 ? spend / clicks : null,
+            cpm: imps > 0 ? (spend / imps) * 1000 : null,
+            engagement_rate: pdoohStats.basic?.engagementRate || null,
+            last_sync_at: syncNow,
+            sync_source: 'bidtheatre_historical_sync',
+          });
+        }
+
+        if (analyticsRows.length > 0) {
+          const displayRows = analyticsRows.filter(r => r.channel === 'display');
+          const pdoohRows = analyticsRows.filter(r => r.channel === 'pdooh');
+
+          if (displayRows.length > 0) {
+            const latest = displayRows[displayRows.length - 1];
+            latest.device_stats = displayStats.devices;
+            latest.geo_stats = displayStats.geo;
+            latest.site_stats = displayStats.sites;
+            latest.audience_stats = displayStats.audience;
+            latest.viewable_rate = displayViewableRate || null;
+            latest.viewable_impressions = displayStats.sites.reduce((sum, s) => sum + (s.nrImps || 0), 0);
+          }
+          if (pdoohRows.length > 0) {
+            const latest = pdoohRows[pdoohRows.length - 1];
+            latest.device_stats = pdoohStats.devices;
+            latest.geo_stats = pdoohStats.geo;
+            latest.site_stats = pdoohStats.sites;
+            latest.audience_stats = pdoohStats.audience;
+            latest.viewable_rate = pdoohViewableRate || null;
+            latest.viewable_impressions = pdoohStats.sites.reduce((sum, s) => sum + (s.nrImps || 0), 0);
+          }
+
+          const { error: analyticsError } = await supabase
+            .from('campaign_analytics')
+            .upsert(analyticsRows, { onConflict: 'campaign_id,date,channel' });
+
+          if (analyticsError) {
+            console.error(`Failed to upsert campaign_analytics for ${campaign.id}: ${analyticsError.message}`);
+          } else {
+            console.log(`  ✓ Wrote ${analyticsRows.length} daily analytics rows`);
+          }
+        }
+
         results.successful.push(campaign.id);
         console.log(`✓ Synced historical stats for campaign ${campaign.id}`);
       } catch (error: any) {

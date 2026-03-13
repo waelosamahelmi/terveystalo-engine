@@ -7,8 +7,15 @@ import type { Handler, HandlerEvent, HandlerContext } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 
 // Initialize Supabase client
-const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY!;
+function getEnvVar(names: string[]): string {
+  for (const name of names) {
+    if (process.env[name]) return process.env[name] || '';
+  }
+  return '';
+}
+
+const supabaseUrl = getEnvVar(['SUPABASE_URL', 'VITE_SUPABASE_URL']);
+const supabaseServiceKey = getEnvVar(['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_KEY', 'VITE_SUPABASE_SERVICE_ROLE_KEY']);
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Slack signing secret for verification
@@ -118,8 +125,8 @@ async function listCampaigns(args: string[]): Promise<SlackResponse> {
     const limit = parseInt(args[0]) || 5;
     
     const { data: campaigns, error } = await supabase
-      .from("campaigns")
-      .select("id, name, status, budget, start_date, end_date")
+      .from("dental_campaigns")
+      .select("id, name, status, total_budget, start_date, end_date")
       .order("created_at", { ascending: false })
       .limit(Math.min(limit, 10));
 
@@ -150,7 +157,7 @@ async function listCampaigns(args: string[]): Promise<SlackResponse> {
         text: {
           type: "mrkdwn",
           text: `${getStatusEmoji(campaign.status)} *${campaign.name}*\n` +
-            `Budjetti: ${formatCurrency(campaign.budget || 0)} | ` +
+            `Budjetti: ${formatCurrency(campaign.total_budget || 0)} | ` +
             `${formatDate(campaign.start_date)} - ${formatDate(campaign.end_date)}`,
         },
         accessory: {
@@ -190,7 +197,7 @@ async function getCampaignStatus(campaignId: string): Promise<SlackResponse> {
 
   try {
     const { data: campaign, error } = await supabase
-      .from("campaigns")
+      .from("dental_campaigns")
       .select("*")
       .eq("id", campaignId)
       .single();
@@ -204,13 +211,13 @@ async function getCampaignStatus(campaignId: string): Promise<SlackResponse> {
 
     // Get campaign stats
     const { data: stats } = await supabase
-      .from("campaign_daily_stats")
-      .select("impressions, clicks, cost")
+      .from("campaign_analytics")
+      .select("impressions, clicks, spend")
       .eq("campaign_id", campaignId);
 
     const totalImpressions = stats?.reduce((sum, s) => sum + (s.impressions || 0), 0) || 0;
     const totalClicks = stats?.reduce((sum, s) => sum + (s.clicks || 0), 0) || 0;
-    const totalCost = stats?.reduce((sum, s) => sum + (s.cost || 0), 0) || 0;
+    const totalCost = stats?.reduce((sum, s) => sum + (s.spend || 0), 0) || 0;
     const ctr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : "0.00";
 
     return {
@@ -233,7 +240,7 @@ async function getCampaignStatus(campaignId: string): Promise<SlackResponse> {
             },
             {
               type: "mrkdwn",
-              text: `*Budjetti:*\n${formatCurrency(campaign.budget || 0)}`,
+              text: `*Budjetti:*\n${formatCurrency(campaign.total_budget || 0)}`,
             },
             {
               type: "mrkdwn",
@@ -241,7 +248,7 @@ async function getCampaignStatus(campaignId: string): Promise<SlackResponse> {
             },
             {
               type: "mrkdwn",
-              text: `*Jäljellä:*\n${formatCurrency((campaign.budget || 0) - totalCost)}`,
+              text: `*Jäljellä:*\n${formatCurrency((campaign.total_budget || 0) - totalCost)}`,
             },
           ],
         },
@@ -306,8 +313,8 @@ async function getCampaignSummary(): Promise<SlackResponse> {
   try {
     // Get campaign counts by status
     const { data: campaigns } = await supabase
-      .from("campaigns")
-      .select("status, budget");
+      .from("dental_campaigns")
+      .select("status, total_budget");
 
     const statusCounts: Record<string, number> = {
       active: 0,
@@ -321,9 +328,9 @@ async function getCampaignSummary(): Promise<SlackResponse> {
 
     campaigns?.forEach((c) => {
       statusCounts[c.status] = (statusCounts[c.status] || 0) + 1;
-      totalBudget += c.budget || 0;
+      totalBudget += c.total_budget || 0;
       if (c.status === "active") {
-        activeBudget += c.budget || 0;
+        activeBudget += c.total_budget || 0;
       }
     });
 
@@ -332,13 +339,13 @@ async function getCampaignSummary(): Promise<SlackResponse> {
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const { data: weekStats } = await supabase
-      .from("campaign_daily_stats")
-      .select("impressions, clicks, cost")
+      .from("campaign_analytics")
+      .select("impressions, clicks, spend")
       .gte("date", weekAgo.toISOString().split("T")[0]);
 
     const weekImpressions = weekStats?.reduce((sum, s) => sum + (s.impressions || 0), 0) || 0;
     const weekClicks = weekStats?.reduce((sum, s) => sum + (s.clicks || 0), 0) || 0;
-    const weekCost = weekStats?.reduce((sum, s) => sum + (s.cost || 0), 0) || 0;
+    const weekCost = weekStats?.reduce((sum, s) => sum + (s.spend || 0), 0) || 0;
 
     return {
       response_type: "in_channel",
@@ -447,8 +454,8 @@ async function getCampaignSummary(): Promise<SlackResponse> {
 async function listActiveCampaigns(): Promise<SlackResponse> {
   try {
     const { data: campaigns, error } = await supabase
-      .from("campaigns")
-      .select("id, name, budget, start_date, end_date")
+      .from("dental_campaigns")
+      .select("id, name, total_budget, start_date, end_date")
       .eq("status", "active")
       .order("start_date", { ascending: true });
 
@@ -476,13 +483,13 @@ async function listActiveCampaigns(): Promise<SlackResponse> {
     for (const campaign of campaigns) {
       // Get current spend
       const { data: stats } = await supabase
-        .from("campaign_daily_stats")
-        .select("cost")
+        .from("campaign_analytics")
+        .select("spend")
         .eq("campaign_id", campaign.id);
 
-      const spent = stats?.reduce((sum, s) => sum + (s.cost || 0), 0) || 0;
-      const remaining = (campaign.budget || 0) - spent;
-      const spentPercentage = campaign.budget ? ((spent / campaign.budget) * 100).toFixed(0) : "0";
+      const spent = stats?.reduce((sum, s) => sum + (s.spend || 0), 0) || 0;
+      const remaining = (campaign.total_budget || 0) - spent;
+      const spentPercentage = campaign.total_budget ? ((spent / campaign.total_budget) * 100).toFixed(0) : "0";
 
       blocks.push({
         type: "section",
@@ -490,7 +497,7 @@ async function listActiveCampaigns(): Promise<SlackResponse> {
           type: "mrkdwn",
           text: `*${campaign.name}*\n` +
             `📅 ${formatDate(campaign.start_date)} - ${formatDate(campaign.end_date)}\n` +
-            `💰 Budjetti: ${formatCurrency(campaign.budget || 0)} | Käytetty: ${spentPercentage}%`,
+            `💰 Budjetti: ${formatCurrency(campaign.total_budget || 0)} | Käytetty: ${spentPercentage}%`,
         },
         accessory: {
           type: "button",
