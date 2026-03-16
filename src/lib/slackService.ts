@@ -281,17 +281,17 @@ export async function testSlackWebhook(webhookUrl: string): Promise<{ success: b
       ]
     };
 
-    const response = await fetch(webhookUrl, {
+    const response = await fetch('/.netlify/functions/slack-proxy', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(testMessage)
+      body: JSON.stringify({ webhookUrl, payload: testMessage })
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || 'Webhook request failed');
+    const result = await response.json();
+    if (!response.ok || !result.ok) {
+      throw new Error(result.body || result.error || 'Webhook request failed');
     }
 
     return { success: true };
@@ -362,16 +362,17 @@ export async function sendSlackNotification(
       ]
     };
 
-    const response = await fetch(integration.webhook_url, {
+    const response = await fetch('/.netlify/functions/slack-proxy', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(slackMessage)
+      body: JSON.stringify({ webhookUrl: integration.webhook_url, payload: slackMessage })
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to send Slack notification');
+    const result = await response.json();
+    if (!response.ok || !result.ok) {
+      throw new Error(result.body || result.error || 'Failed to send Slack notification');
     }
 
     // Log the notification (fire and forget)
