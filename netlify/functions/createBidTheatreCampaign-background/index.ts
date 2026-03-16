@@ -482,6 +482,7 @@ async function createBtCampaignForBranch(
     campaignKPI,
     targetURL: targetURLWithUtm,
     defaultGeoTarget: null,
+    defaultLineItem: 306116, // 0% Margin / At cost
     deliveryPriority: 'even',
     defaultFilterTarget: defaultFilterTarget,
     allowWideTargeting: false,

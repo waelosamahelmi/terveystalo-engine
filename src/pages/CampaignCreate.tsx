@@ -1592,18 +1592,21 @@ const CampaignCreate = () => {
     return `Suositus: ${recommended.toLocaleString('fi-FI')}€ (${Math.round(rec.pct * 100)}% kokonaisbudjetista)`;
   };
 
-  // Update total budget - each enabled channel gets 50% of the total
+  // Update total budget - divide equally among enabled channels
   const updateTotalBudget = (newTotal: number) => {
-    const channelBudget = Math.round(newTotal * 0.5);
+    setFormData(prev => {
+      const enabledCount = [prev.channel_meta, prev.channel_display, prev.channel_pdooh, prev.channel_audio].filter(Boolean).length;
+      const channelBudget = enabledCount > 0 ? Math.round(newTotal / enabledCount) : 0;
 
-    setFormData(prev => ({
-      ...prev,
-      total_budget: newTotal,
-      budget_meta: prev.channel_meta ? channelBudget : 0,
-      budget_display: prev.channel_display ? channelBudget : 0,
-      budget_pdooh: prev.channel_pdooh ? channelBudget : 0,
-      budget_audio: prev.channel_audio ? channelBudget : 0,
-    }));
+      return {
+        ...prev,
+        total_budget: newTotal,
+        budget_meta: prev.channel_meta ? channelBudget : 0,
+        budget_display: prev.channel_display ? channelBudget : 0,
+        budget_pdooh: prev.channel_pdooh ? channelBudget : 0,
+        budget_audio: prev.channel_audio ? channelBudget : 0,
+      };
+    });
   };
 
   // Open Terveystalo budget edit dialog
@@ -2833,7 +2836,7 @@ const CampaignCreate = () => {
                       <button
                         key={gender.id}
                         type="button"
-                        onClick={() => setFormData({ ...formData, target_genders: [gender.id] })}
+                        onClick={() => setFormData(prev => ({ ...prev, target_genders: [gender.id] }))}
                         className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
                           isActive
                             ? 'border-[#00A5B5] bg-[#00A5B5]/5'
@@ -3844,73 +3847,7 @@ const CampaignCreate = () => {
                       </div>
                       )}
 
-                      {/* Excluded Branches (Toimipisteet) */}
-                      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-red-50 to-white">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-lg bg-red-100">
-                              <X size={18} className="text-red-600" />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold text-gray-900">Poissuljetut toimipisteet</h3>
-                              <p className="text-xs text-gray-500">Valitse toimipisteet, jotka haluat sulkea pois kohdennuksesta</p>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="p-5">
-                          {branches.filter(b => b.active && !formData.branch_ids.includes(b.id)).length > 0 ? (
-                            <div className="space-y-3">
-                              {(formData.excluded_branch_ids || []).length > 0 && (
-                                <div className="flex flex-wrap gap-2 mb-3">
-                                  {(formData.excluded_branch_ids || []).map(id => {
-                                    const branch = branches.find(b => b.id === id);
-                                    if (!branch) return null;
-                                    return (
-                                      <span key={id} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-full text-xs font-medium">
-                                        {branch.address}, {branch.city}
-                                        <button
-                                          type="button"
-                                          onClick={() => setFormData(prev => ({
-                                            ...prev,
-                                            excluded_branch_ids: (prev.excluded_branch_ids || []).filter(eid => eid !== id)
-                                          }))}
-                                          className="hover:text-red-900"
-                                        >
-                                          <X size={12} />
-                                        </button>
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                              <select
-                                value=""
-                                onChange={(e) => {
-                                  if (e.target.value) {
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      excluded_branch_ids: [...(prev.excluded_branch_ids || []), e.target.value]
-                                    }));
-                                  }
-                                }}
-                                className="w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:border-[#00A5B5] outline-none"
-                              >
-                                <option value="">Lisää poissuljettu toimipiste...</option>
-                                {branches
-                                  .filter(b => b.active && !formData.branch_ids.includes(b.id) && !(formData.excluded_branch_ids || []).includes(b.id))
-                                  .map(b => (
-                                    <option key={b.id} value={b.id}>{b.address}, {b.city}</option>
-                                  ))
-                                }
-                              </select>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500 text-center py-4">
-                              Ei poissulkemattomia toimipisteitä.
-                            </p>
-                          )}
-                        </div>
-                      </div>
+
                     </div>
                   )}
 
@@ -4774,7 +4711,7 @@ const CampaignCreate = () => {
                   <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                     <p className="text-xs font-medium text-gray-600">Yhteensä</p>
                     <p className="text-sm font-semibold text-[#00A5B5]">
-                      {Object.values(branchScreenCounts).reduce((sum, c) => sum + c, 0)} näyttöä
+                      {combinedBranchScreens.length} näyttöä
                     </p>
                   </div>
                 )}
