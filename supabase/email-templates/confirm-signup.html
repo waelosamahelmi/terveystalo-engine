@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vahvista sähköpostiosoitteesi – Suun Terveystalo</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F8FAFB;font-family:'Inter','Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFB;">
+    <tr>
+      <td align="center" style="padding:40px 20px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="padding:0 0 32px 0;">
+              <img src="{{ .SiteURL }}/refs/assets/SuunTerveystalo_logo.png" alt="Suun Terveystalo" width="200" style="display:block;max-width:200px;height:auto;">
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#FFFFFF;border-radius:12px;box-shadow:0 2px 8px rgba(27,54,93,0.08);overflow:hidden;">
+
+              <!-- Teal accent bar -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="height:4px;background:linear-gradient(90deg,#00A5B5,#008B99);font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+              </table>
+
+              <!-- Content -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:40px 40px 16px 40px;">
+                    <h1 style="margin:0 0 8px 0;font-family:'Poppins','Inter','Helvetica Neue',sans-serif;font-size:24px;font-weight:700;color:#1B365D;">
+                      Tervetuloa! 👋
+                    </h1>
+                    <p style="margin:0;font-size:16px;line-height:26px;color:#6B7280;">
+                      Vahvista sähköpostiosoitteesi ja pääset alkuun.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 40px 16px 40px;">
+                    <p style="margin:0;font-size:15px;line-height:24px;color:#1A1A1A;">
+                      Kiitos rekisteröitymisestäsi Suun Terveystalon NØRR3 Marketing Engineen. Vahvista sähköpostiosoitteesi klikkaamalla alla olevaa painiketta.
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- CTA Button -->
+                <tr>
+                  <td align="center" style="padding:24px 40px 32px 40px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="center" style="background-color:#00A5B5;border-radius:8px;">
+                          <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:14px 40px;font-family:'Inter','Helvetica Neue',sans-serif;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:8px;">
+                            Vahvista sähköposti
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Fallback link -->
+                <tr>
+                  <td style="padding:0 40px 32px 40px;">
+                    <p style="margin:0;font-size:13px;line-height:20px;color:#6B7280;">
+                      Jos painike ei toimi, kopioi ja liitä tämä linkki selaimeen:
+                    </p>
+                    <p style="margin:8px 0 0 0;font-size:13px;line-height:20px;word-break:break-all;">
+                      <a href="{{ .ConfirmationURL }}" style="color:#00A5B5;text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:32px 20px 0 20px;">
+              <p style="margin:0;font-size:12px;color:#9CA3AF;">
+                Tämä viesti lähetettiin automaattisesti. Älä vastaa tähän viestiin.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
