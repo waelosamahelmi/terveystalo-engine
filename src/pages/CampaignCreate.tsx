@@ -2410,7 +2410,7 @@ const CampaignCreate = () => {
         }
       } else {
         // Create new campaign
-        const campaign = await createCampaign(campaignPayload, user?.id || '');
+        const campaign = await createCampaign(campaignPayload, user?.id || '', user?.name || user?.email || '');
         if (campaign) {
           toast.success('Kampanja luotu!');
           navigate(`/campaigns/${campaign.id}`);

@@ -21,6 +21,7 @@ import { format, parse, parseISO } from 'date-fns';
 import L from 'leaflet';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
+import { useStore } from '../lib/store';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -121,6 +122,8 @@ const CampaignDetails = () => {
   const { campaignId } = useParams<{ campaignId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const { campaigns } = useStore();
+  const campaign = campaigns.find(c => c.id === campaignId);
   const { spendData } = location.state || {};
   const [tabIndex, setTabIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -529,7 +532,10 @@ const CampaignDetails = () => {
           Back to Media Costs
         </button>
 
-        <h1 className="text-3xl font-bold text-gray-800 mb-6">Campaign Details: {campaignId}</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">{campaign?.name || `Campaign Details: ${campaignId}`}</h1>
+        {campaign?.creator?.name && (
+          <p className="text-sm text-gray-500 mb-6">Luonut: {campaign.creator.name}</p>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">

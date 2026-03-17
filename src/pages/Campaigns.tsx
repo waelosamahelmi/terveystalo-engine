@@ -27,7 +27,8 @@ import {
   TrendingUp,
   RefreshCw,
   X,
-  Pencil
+  Pencil,
+  User
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -217,6 +218,14 @@ const CampaignCard = ({ campaign, onPause, onResume, onClose, onDuplicate, onDel
             {format(new Date(campaign.start_date), 'd.M.yyyy')} - {campaign.end_date ? format(new Date(campaign.end_date), 'd.M.yyyy') : 'Jatkuva'}
           </span>
         </div>
+
+        {/* Creator */}
+        {campaign.creator?.name && (
+          <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mt-2">
+            <User size={14} className="mr-1.5" />
+            <span>{campaign.creator.name}</span>
+          </div>
+        )}
       </div>
 
       {/* Budget Progress */}
@@ -421,7 +430,8 @@ const Campaigns = () => {
   const isDemo = isDemoMode();
   
   // Get data from global store - instant, no loading
-  const { campaigns: allCampaigns, services: allServices, branches: allBranches, refreshCampaigns } = useStore();
+  const { campaigns: allCampaigns, services: allServices, branches: allBranches, refreshCampaigns, user } = useStore();
+  const canCreateCampaign = user?.role !== 'viewer';
   
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -596,10 +606,12 @@ const Campaigns = () => {
           >
             <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
           </button>
-          <Link to="/campaigns/create" className="btn-primary">
-            <Plus size={18} className="mr-2" />
-            Luo kampanja
-          </Link>
+          {canCreateCampaign && (
+            <Link to="/campaigns/create" className="btn-primary">
+              <Plus size={18} className="mr-2" />
+              Luo kampanja
+            </Link>
+          )}
         </div>
       </div>
 
@@ -669,7 +681,7 @@ const Campaigns = () => {
               ? 'Yhtään kampanjaa ei löytynyt hakuehdoilla.'
               : 'Aloita luomalla ensimmäinen kampanja.'}
           </p>
-          {!searchQuery && activeFiltersCount === 0 && (
+          {!searchQuery && activeFiltersCount === 0 && canCreateCampaign && (
             <Link to="/campaigns/create" className="btn-primary">
               <Plus size={18} className="mr-2" />
               Luo ensimmäinen kampanja

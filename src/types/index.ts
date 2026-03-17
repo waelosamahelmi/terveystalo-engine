@@ -234,6 +234,7 @@ export interface DentalCampaign {
   updated_at: string;
   
   // Relations
+  creator?: { name: string; email: string; image_url?: string };
   creatives?: Creative[];
 }
 

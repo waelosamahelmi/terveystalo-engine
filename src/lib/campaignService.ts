@@ -97,6 +97,7 @@ export async function getCampaigns(filters?: CampaignFilters): Promise<DentalCam
       *,
       service:services(*),
       branch:branches(*),
+      creator:users!created_by(name, email, image_url),
       creatives(*)
     `)
     .order('created_at', { ascending: false });
@@ -150,6 +151,7 @@ export async function getCampaignById(id: string): Promise<DentalCampaign | null
       *,
       service:services(*),
       branch:branches(*),
+      creator:users!created_by(name, email, image_url),
       creatives(*)
     `)
     .eq('id', id)
@@ -658,7 +660,8 @@ export async function createCampaignCreatives(
  */
 export async function createCampaign(
   formData: CampaignFormData, 
-  userId: string
+  userId: string,
+  userName?: string
 ): Promise<DentalCampaign | null> {
   // Calculate daily budgets
   const startDate = new Date(formData.start_date);
@@ -753,11 +756,27 @@ export async function createCampaign(
       `Kampanja *${data.name}* on luotu ja odottaa aktivointia.`,
       {
         'Kampanja': data.name,
+        'Luoja': userName || 'Tuntematon',
         'Budjetti': `€${data.total_budget}`,
         'Alkaa': data.start_date,
         'Päättyy': data.end_date
       }
     ).catch(() => {}); // Fire and forget
+
+    // Log campaign creation to activity log
+    supabase.from('activity_logs').insert({
+      user_id: userId,
+      action: 'create',
+      entity_type: 'campaign',
+      entity_id: data.id,
+      details: {
+        name: data.name,
+        user_name: userName || 'Tuntematon',
+        budget: data.total_budget,
+        branch: data.branch?.name || null,
+        service: data.service?.name || null
+      }
+    }).then(() => {}).catch(() => {}); // Fire and forget
 
     // 1. Create creative HTML files and upload to Supabase Storage FIRST
     //    Returns per ad-version (branch×service) URLs so we can include them in the sheet

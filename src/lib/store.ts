@@ -200,7 +200,7 @@ class GlobalStore {
         supabase.from('users').select('*').order('name'),
         supabase.from('branches').select('*, budget:branch_budgets(*)').order('name'),
         supabase.from('services').select('*').order('sort_order'),
-        supabase.from('dental_campaigns').select('*, service:services(*), branch:branches(*)').order('created_at', { ascending: false }),
+        supabase.from('dental_campaigns').select('*, service:services(*), branch:branches(*), creator:users!created_by(name, email, image_url)').order('created_at', { ascending: false }),
       ]);
 
       if (usersRes.data) this._users = usersRes.data;
@@ -268,7 +268,7 @@ class GlobalStore {
   };
 
   refreshCampaigns = async () => {
-    const { data } = await supabase.from('dental_campaigns').select('*, service:services(*), branch:branches(*)').order('created_at', { ascending: false });
+    const { data } = await supabase.from('dental_campaigns').select('*, service:services(*), branch:branches(*), creator:users!created_by(name, email, image_url)').order('created_at', { ascending: false });
     if (data) { this._campaigns = data; this.notify(); }
   };
 

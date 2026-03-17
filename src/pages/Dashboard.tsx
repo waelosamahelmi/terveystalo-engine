@@ -452,7 +452,8 @@ const Dashboard = () => {
   const isDemo = isDemoMode();
   
   // Get data from global store - instant!
-  const { campaigns, branches } = useStore();
+  const { campaigns, branches, user } = useStore();
+  const canCreateCampaign = user?.role !== 'viewer';
   
   // Computed data from store (use demo data in demo mode)
   const activeCampaigns = useMemo(() => {
@@ -679,17 +680,19 @@ const Dashboard = () => {
           >
             <RefreshCw size={18} className={refreshing || loading ? 'animate-spin' : ''} />
           </button>
-          <DemoTooltip
-            id="dashboard-create"
-            title="Luo uusi kampanja"
-            description="Klikkaa tästä luodaksesi uuden mainoskampanjan. Ohjattu prosessi auttaa sinua valitsemaan palvelun, sijainnin ja budjetin."
-            position="left"
-          >
-            <Link to="/campaigns/create" className="btn-primary" data-demo-tooltip="create-campaign">
-              <Plus size={18} className="mr-2" />
-              Uusi kampanja
-            </Link>
-          </DemoTooltip>
+          {canCreateCampaign && (
+            <DemoTooltip
+              id="dashboard-create"
+              title="Luo uusi kampanja"
+              description="Klikkaa tästä luodaksesi uuden mainoskampanjan. Ohjattu prosessi auttaa sinua valitsemaan palvelun, sijainnin ja budjetin."
+              position="left"
+            >
+              <Link to="/campaigns/create" className="btn-primary" data-demo-tooltip="create-campaign">
+                <Plus size={18} className="mr-2" />
+                Uusi kampanja
+              </Link>
+            </DemoTooltip>
+          )}
         </div>
       </div>
 
@@ -820,13 +823,15 @@ const Dashboard = () => {
           <div className="card p-6 dark:bg-slate-800/70 dark:border-white/10">
             <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Pikatoiminnot</h2>
             <div className="space-y-3">
-              <QuickAction
-                title="Luo kampanja"
-                description="Aloita uusi mainoskampanja"
-                icon={Plus}
-                to="/campaigns/create"
-                color="bg-[#00A5B5]"
-              />
+              {canCreateCampaign && (
+                <QuickAction
+                  title="Luo kampanja"
+                  description="Aloita uusi mainoskampanja"
+                  icon={Plus}
+                  to="/campaigns/create"
+                  color="bg-[#00A5B5]"
+                />
+              )}
               <QuickAction
                 title="Lisää piste"
                 description="Rekisteröi uusi toimipiste"
