@@ -1571,20 +1571,37 @@ const CampaignCreate = () => {
     setFormData(prev => {
       const updated = { ...prev, [channelKey]: newEnabled };
 
-      // When enabling a channel, set its budget to 50% of total
-      // When disabling, set to 0
-      if (newEnabled) {
-        const channelBudget = Math.round(formData.total_budget * 0.5);
-
-        if (channel === 'meta') updated.budget_meta = channelBudget;
-        if (channel === 'display') updated.budget_display = channelBudget;
-        if (channel === 'pdooh') updated.budget_pdooh = channelBudget;
-        if (channel === 'audio') updated.budget_audio = channelBudget;
-      } else {
+      if (!newEnabled) {
+        // Disabling: zero out the channel budget
         if (channel === 'meta') updated.budget_meta = 0;
         if (channel === 'display') updated.budget_display = 0;
         if (channel === 'pdooh') updated.budget_pdooh = 0;
         if (channel === 'audio') updated.budget_audio = 0;
+
+        // Redistribute freed budget among remaining enabled channels
+        const freed = prev[`budget_${channel}` as keyof typeof prev] as number || 0;
+        const remainingChannels: ('meta' | 'display' | 'pdooh' | 'audio')[] = ['meta', 'display', 'pdooh', 'audio']
+          .filter(ch => ch !== channel && updated[`channel_${ch}` as keyof typeof updated]) as any;
+
+        if (remainingChannels.length > 0 && freed > 0) {
+          const extra = Math.floor(freed / remainingChannels.length);
+          const leftover = freed - extra * remainingChannels.length;
+          remainingChannels.forEach((ch, i) => {
+            const key = `budget_${ch}` as keyof typeof updated;
+            (updated as any)[key] = ((updated as any)[key] || 0) + extra + (i === 0 ? leftover : 0);
+          });
+        }
+      } else {
+        // Enabling: take proportional share from existing channels
+        const enabledChannels: ('meta' | 'display' | 'pdooh' | 'audio')[] = ['meta', 'display', 'pdooh', 'audio']
+          .filter(ch => updated[`channel_${ch}` as keyof typeof updated]) as any;
+        const count = enabledChannels.length;
+        const share = Math.floor(prev.total_budget / count);
+        const leftover = prev.total_budget - share * count;
+        enabledChannels.forEach((ch, i) => {
+          const key = `budget_${ch}` as keyof typeof updated;
+          (updated as any)[key] = share + (i === 0 ? leftover : 0);
+        });
       }
 
       return updated;
@@ -1611,19 +1628,56 @@ const CampaignCreate = () => {
     return `Suositus: ${recommended.toLocaleString('fi-FI')}€ (${Math.round(rec.pct * 100)}% kokonaisbudjetista)`;
   };
 
-  // Update total budget - divide equally among enabled channels
+  // Update total budget - re-apply recommendation ratios, or divide equally as fallback
   const updateTotalBudget = (newTotal: number) => {
+    // If recommendation was already applied, re-apply with the new total
+    if (recommendationApplied) {
+      const recommendation = getChannelBudgetRecommendation();
+      const newBudgets = {
+        budget_meta: Math.round(newTotal * recommendation.meta / 100),
+        budget_display: Math.round(newTotal * recommendation.display / 100),
+        budget_pdooh: recommendation.pdooh > 0 ? Math.round(newTotal * recommendation.pdooh / 100) : 0,
+        budget_audio: Math.round(newTotal * recommendation.audio / 100),
+      };
+      // Fix rounding so channel sum === newTotal
+      const allocated = newBudgets.budget_meta + newBudgets.budget_display + newBudgets.budget_pdooh + newBudgets.budget_audio;
+      const remainder = newTotal - allocated;
+      if (remainder !== 0) {
+        const budgetKeys: ('budget_meta' | 'budget_display' | 'budget_pdooh' | 'budget_audio')[] = ['budget_meta', 'budget_display', 'budget_pdooh', 'budget_audio'];
+        const largest = budgetKeys.reduce((a, b) => newBudgets[a] >= newBudgets[b] ? a : b);
+        newBudgets[largest] += remainder;
+      }
+      setFormData(prev => ({
+        ...prev,
+        total_budget: newTotal,
+        ...newBudgets,
+        channel_meta: newBudgets.budget_meta > 0,
+        channel_display: newBudgets.budget_display > 0,
+        channel_pdooh: newBudgets.budget_pdooh > 0,
+        channel_audio: newBudgets.budget_audio > 0,
+      }));
+      setBranchChannelOverrides({});
+      return;
+    }
+
+    // Fallback: divide equally among enabled channels (with rounding fix)
     setFormData(prev => {
-      const enabledCount = [prev.channel_meta, prev.channel_display, prev.channel_pdooh, prev.channel_audio].filter(Boolean).length;
-      const channelBudget = enabledCount > 0 ? Math.round(newTotal / enabledCount) : 0;
+      const enabledChannels: ('budget_meta' | 'budget_display' | 'budget_pdooh' | 'budget_audio')[] = [];
+      if (prev.channel_meta) enabledChannels.push('budget_meta');
+      if (prev.channel_display) enabledChannels.push('budget_display');
+      if (prev.channel_pdooh) enabledChannels.push('budget_pdooh');
+      if (prev.channel_audio) enabledChannels.push('budget_audio');
+      const count = enabledChannels.length;
+      const channelBudget = count > 0 ? Math.floor(newTotal / count) : 0;
+      const leftover = count > 0 ? newTotal - channelBudget * count : 0;
 
       return {
         ...prev,
         total_budget: newTotal,
-        budget_meta: prev.channel_meta ? channelBudget : 0,
-        budget_display: prev.channel_display ? channelBudget : 0,
-        budget_pdooh: prev.channel_pdooh ? channelBudget : 0,
-        budget_audio: prev.channel_audio ? channelBudget : 0,
+        budget_meta: prev.channel_meta ? channelBudget + (enabledChannels.indexOf('budget_meta') === 0 ? leftover : 0) : 0,
+        budget_display: prev.channel_display ? channelBudget + (enabledChannels.indexOf('budget_display') === 0 ? leftover : 0) : 0,
+        budget_pdooh: prev.channel_pdooh ? channelBudget + (enabledChannels.indexOf('budget_pdooh') === 0 ? leftover : 0) : 0,
+        budget_audio: prev.channel_audio ? channelBudget + (enabledChannels.indexOf('budget_audio') === 0 ? leftover : 0) : 0,
       };
     });
   };
