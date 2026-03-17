@@ -1589,7 +1589,7 @@ export async function generateAllMetaCreatives(
           }
           // Hide address if not showing address
           if (!showAddress) {
-            templateHtml = templateHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address, .scene-4-address { display: none !important; }</style></head>');
+            templateHtml = templateHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .Torikatu1Lahti, .branch_address, .scene-4-address { display: none !important; }</style></head>');
           }
           // Hide CTA for PDOOH (Meta templates shouldn't hit this, but for safety)
           if (template.type === 'pdooh') {

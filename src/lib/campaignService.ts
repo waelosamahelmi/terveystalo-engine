@@ -489,6 +489,7 @@ export async function createCampaignCreatives(
                 cs.width,
                 baseUrl
               ),
+              pricetag_top: (formData.background_image_url || '').includes('mies') ? '920px' : '720.62px',
               click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
               offer_date: isGeneralBrandMessage ? '' : (formData.offer_date || 'Varaa viimeistään 28.10.'),
               disclaimer_text: (cs.type === 'pdooh' && !isGeneralBrandMessage) ? (formData.disclaimer_text || '') : '',
@@ -518,7 +519,7 @@ export async function createCampaignCreatives(
           }
           if (!showAddress) {
             html = html.replace('</head>',
-              '<style>.address, .Torikatu1Laht, .branch_address, .scene-4-address { display: none !important; }</style></head>');
+              '<style>.address, .Torikatu1Laht, .Torikatu1Lahti, .branch_address, .scene-4-address { display: none !important; }</style></head>');
           }
           // PDOOH: hide CTA
           if (cs.type === 'pdooh') {

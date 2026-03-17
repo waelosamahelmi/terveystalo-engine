@@ -2049,7 +2049,9 @@ const CampaignCreate = () => {
         scene3_line1: 'Sujuvampaa',
         scene3_line2: 'suun',
         scene3_line3: 'terveyttä',
-        scene3_line4: activeBranch?.city ? getConjugatedCity(activeBranch.city) : 'Oulun',
+        scene3_line4: matchingBundle
+          ? matchingBundle.bundleCopy.match(/suunterveyttä\s+(\S+)/)?.[1] || (activeBranch?.city ? getConjugatedCity(activeBranch.city) : 'Oulun')
+          : (activeBranch?.city ? getConjugatedCity(activeBranch.city) : 'Oulun'),
         scene3_line5: isMultiLocation ? 'Suun Terveystaloissa.' : 'Suun Terveystalossa.',
       }),
 
@@ -2067,6 +2069,8 @@ const CampaignCreate = () => {
       logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
       artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork-700w.png`,
       image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen-980w.jpg`,
+      // Pricetag position: lower for mies image to avoid covering face
+      pricetag_top: (creativeConfig.backgroundImage || '').includes('mies') ? '920px' : '720.62px',
       image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
       image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
 
@@ -2287,7 +2291,7 @@ const CampaignCreate = () => {
 
     if (!showAddress) {
       // Inject CSS to hide address
-      renderedHtml = renderedHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address { display: none !important; }</style></head>');
+      renderedHtml = renderedHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .Torikatu1Lahti, .branch_address { display: none !important; }</style></head>');
     }
 
     // Hide legal/disclaimer text for non-PDOOH templates (legal text is only for PDOOH)
@@ -2312,7 +2316,7 @@ const CampaignCreate = () => {
     // Fix address alignment for specific sizes
     // 300x300: left-align address with logo and other text
     if (previewSize.id === '300x300') {
-      renderedHtml = renderedHtml.replace('</head>', '<style>.Torikatu1Laht { text-align: left !important; justify-content: flex-start !important; }</style></head>');
+      renderedHtml = renderedHtml.replace('</head>', '<style>.Torikatu1Laht, .Torikatu1Lahti { text-align: left !important; justify-content: flex-start !important; }</style></head>');
     }
 
     // Font URL rewriting is handled inside renderTemplateHtml()
