@@ -415,7 +415,8 @@ export async function countScreensInRadius(lat: number, lng: number, radius: num
     const { data, error } = await supabase
       .from('media_screens')
       .select('*')
-      .eq('status', 'active');
+      .eq('status', 'active')
+      .limit(10000);
       
     if (error) throw error;
     
@@ -840,7 +841,8 @@ export async function getMediaScreens(): Promise<{ data: MediaScreen[] | null; e
   return await supabase
     .from('media_screens')
     .select('*')
-    .order('site_url', { ascending: true });
+    .order('site_url', { ascending: true })
+    .limit(10000);
 }
 
 /**

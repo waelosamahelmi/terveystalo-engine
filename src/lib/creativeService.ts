@@ -226,6 +226,28 @@ export function renderTemplateHtml(
   // Fix font URLs for local dev / cross-origin iframe previews
   html = fixFontUrls(html);
 
+  // Add font-display: swap to all @font-face rules for faster rendering
+  html = html.replace(/@font-face\s*\{([^}]*?)\}/g, (match, content) => {
+    if (content.includes('font-display')) return match;
+    return match.replace('}', '  font-display: swap;\n}');
+  });
+
+  // Optimize image URLs for Supabase storage (add transform params)
+  const adWidth = template.width ? parseInt(String(template.width), 10) : 0;
+  if (adWidth > 0) {
+    html = html.replace(
+      /(src=["'])([^"']*\.supabase\.co\/storage\/v1\/object\/public\/[^"']+)(["'])/g,
+      (_match, prefix, url, suffix) => {
+        const transformUrl = url.replace(
+          '/storage/v1/object/public/',
+          '/storage/v1/render/image/public/'
+        );
+        const sep = transformUrl.includes('?') ? '&' : '?';
+        return `${prefix}${transformUrl}${sep}width=${adWidth}&quality=75${suffix}`;
+      }
+    );
+  }
+
   // Inject CSS to hide empty headline_line2 elements (for split templates using single headline with <br/>)
   // Also widen headline elements for 300x431 and 300x600 to fit text on one line
   const hideEmptyLine2Css = `
@@ -1361,8 +1383,8 @@ export async function generateAllMetaCreatives(
               scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
               scene2_image: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces',
               logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
-              artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
-              image_url: `${baseUrl}/refs/assets/nainen.jpg`,
+              artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork-1200w.png`,
+              image_url: `${baseUrl}/refs/assets/nainen-1080w.jpg`,
               image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
               image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
 

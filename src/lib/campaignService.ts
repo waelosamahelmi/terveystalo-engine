@@ -15,6 +15,69 @@ import {
 
 import { getCreativeTemplates, renderTemplateHtml, fixFontUrls } from './creativeService';
 import { buildMetaTemplateVariables, getConjugatedCity, findMatchingBundle } from './metaTemplateVariables';
+
+/**
+ * BidTheatre creative size limits (IAB standards)
+ * Desktop sizes: 300 KB max initial load
+ * Mobile sizes: 200 KB max initial load
+ */
+const BT_SIZE_LIMITS: Record<string, number> = {
+  '300x300': 200,   // mobile
+  '300x431': 200,   // mobile
+  '300x600': 200,   // mobile (also desktop, use stricter limit)
+  '620x891': 300,   // desktop
+  '980x400': 300,   // desktop
+  '1080x1920': 300, // pdooh
+  '2160x3840': 300, // pdooh
+};
+
+/**
+ * Get an optimized background image URL based on the creative width.
+ * Default local assets (nainen.jpg, mies.jpg) are 17+ MB originals.
+ * Pre-generated optimized versions exist at /refs/assets/{name}-{width}w.jpg.
+ * For user-uploaded Supabase storage images, appends transform params.
+ */
+function getOptimizedBackgroundUrl(originalUrl: string, adWidth: number, baseUrl: string): string {
+  if (!originalUrl) return originalUrl;
+
+  // Determine the optimal image width bucket
+  const widthBucket = adWidth <= 300 ? 300 : adWidth <= 620 ? 620 : adWidth <= 980 ? 980 : 1080;
+
+  // Check for default local assets (nainen.jpg, mies.jpg)
+  const localAssetMatch = originalUrl.match(/\/refs\/assets\/(nainen|mies)\.jpg$/i);
+  if (localAssetMatch) {
+    const name = localAssetMatch[1];
+    return originalUrl.replace(`${name}.jpg`, `${name}-${widthBucket}w.jpg`);
+  }
+
+  // For Supabase storage images, use image transform API
+  if (originalUrl.includes('.supabase.co/storage/v1/object/public/')) {
+    const transformUrl = originalUrl.replace(
+      '/storage/v1/object/public/',
+      '/storage/v1/render/image/public/'
+    );
+    const separator = transformUrl.includes('?') ? '&' : '?';
+    return `${transformUrl}${separator}width=${widthBucket}&quality=75`;
+  }
+
+  return originalUrl;
+}
+
+/**
+ * Get an optimized artwork URL based on creative width.
+ * Default artwork (2868x1266 original) has pre-generated optimized versions.
+ */
+function getOptimizedArtworkUrl(originalUrl: string, adWidth: number): string {
+  if (!originalUrl) return originalUrl;
+
+  // Check for default artwork (terveystalo-artwork.png)
+  if (originalUrl.match(/\/refs\/assets\/terveystalo-artwork\.png$/i)) {
+    const widthBucket = adWidth <= 620 ? '700w' : '1200w';
+    return originalUrl.replace('terveystalo-artwork.png', `terveystalo-artwork-${widthBucket}.png`);
+  }
+
+  return originalUrl;
+}
 import type {
   DentalCampaign,
   CampaignFormData,
@@ -142,7 +205,7 @@ function buildTemplateVariables(formData: CampaignFormData, showAddress: boolean
     branch_address: showAddress ? address : '',
     city_name: city,
     logo_url: 'https://suunterveystalo.netlify.app/refs/assets/SuunTerveystalo_logo.png',
-    image_url: formData.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen.jpg',
+    image_url: formData.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen-980w.jpg',
     click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
     disclaimer_text: '',
   };
@@ -394,8 +457,12 @@ export async function createCampaignCreatives(
               city_name: city || 'Helsinki',
               ...scene3Vars,
               logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
-              artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
-              image_url: formData.background_image_url || `${baseUrl}/refs/assets/nainen.jpg`,
+              artwork_url: getOptimizedArtworkUrl(`${baseUrl}/refs/assets/terveystalo-artwork.png`, cs.width),
+              image_url: getOptimizedBackgroundUrl(
+                formData.background_image_url || `${baseUrl}/refs/assets/nainen.jpg`,
+                cs.width,
+                baseUrl
+              ),
               click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
               offer_date: isGeneralBrandMessage ? '' : (formData.offer_date || 'Varaa viimeistään 28.10.'),
               disclaimer_text: formData.disclaimer_text || '',

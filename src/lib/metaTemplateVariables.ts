@@ -230,8 +230,8 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
     scene2_image: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces',
     logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
-    artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
-    image_url: formData.background_image_url || `${baseUrl}/refs/assets/nainen.jpg`,
+    artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork-1200w.png`,
+    image_url: formData.background_image_url || `${baseUrl}/refs/assets/nainen-1080w.jpg`,
     image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
     image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
 

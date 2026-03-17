@@ -131,7 +131,7 @@ export async function generateVideosForCampaign(
       price: campaign.offer_text || '',
       cta_text: campaign.cta_text || 'Varaa aika',
       branch_address: campaign.branch?.address || '',
-      image_url: campaign.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen.jpg',
+      image_url: campaign.background_image_url || 'https://suunterveystalo.netlify.app/refs/assets/nainen-1080w.jpg',
       disclaimer_text: '', // Meta ads typically don't show disclaimers
     };
 

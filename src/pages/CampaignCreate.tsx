@@ -848,8 +848,8 @@ const MapComponent = ({ branches, center, radius = 10, screens, allScreens, onRa
 // ============================================================================
 
 const backgroundImages = [
-  { id: 'mies', name: 'Mies', url: '/refs/assets/mies.jpg' },
-  { id: 'nainen', name: 'Nainen', url: '/refs/assets/nainen.jpg' },
+  { id: 'mies', name: 'Mies', url: '/refs/assets/mies-980w.jpg' },
+  { id: 'nainen', name: 'Nainen', url: '/refs/assets/nainen-980w.jpg' },
 ];
 
 // ============================================================================
@@ -1108,6 +1108,16 @@ const CampaignCreate = () => {
       recs.meta = Math.round(100 - recs.display - recs.pdooh);
     }
 
+    // Normalize percentages to always sum to exactly 100%
+    const total = recs.meta + recs.display + recs.pdooh + recs.audio;
+    if (total !== 100 && total > 0) {
+      const diff = 100 - total;
+      // Add/subtract the difference to the largest active channel
+      const channels: ('meta' | 'display' | 'pdooh' | 'audio')[] = ['meta', 'display', 'pdooh', 'audio'];
+      const largest = channels.reduce((a, b) => recs[a] >= recs[b] ? a : b);
+      recs[largest] += diff;
+    }
+
     return recs;
   }, [formData.campaign_objective, formData.ad_type, branchScreenCounts]);
 
@@ -1120,6 +1130,14 @@ const CampaignCreate = () => {
       budget_pdooh: recommendation.pdooh > 0 ? Math.round(formData.total_budget * recommendation.pdooh / 100) : 0,
       budget_audio: Math.round(formData.total_budget * recommendation.audio / 100),
     };
+    // Ensure rounding doesn't leave unallocated budget — assign remainder to largest channel
+    const allocated = newBudgets.budget_meta + newBudgets.budget_display + newBudgets.budget_pdooh + newBudgets.budget_audio;
+    const remainder = formData.total_budget - allocated;
+    if (remainder !== 0) {
+      const budgetKeys: ('budget_meta' | 'budget_display' | 'budget_pdooh' | 'budget_audio')[] = ['budget_meta', 'budget_display', 'budget_pdooh', 'budget_audio'];
+      const largest = budgetKeys.reduce((a, b) => newBudgets[a] >= newBudgets[b] ? a : b);
+      newBudgets[largest] += remainder;
+    }
     setFormData(prev => ({
       ...prev,
       ...newBudgets,
@@ -1160,7 +1178,8 @@ const CampaignCreate = () => {
         const { data: allActiveScreens, error } = await supabase
           .from('media_screens')
           .select('*')
-          .eq('status', 'active');
+          .eq('status', 'active')
+          .limit(10000);
 
         if (error || !allActiveScreens || cancelled) return;
 
@@ -1992,8 +2011,8 @@ const CampaignCreate = () => {
 
       // Images (for PDOOH templates - single image + logo)
       logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
-      artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork.png`,
-      image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen.jpg`,
+      artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork-700w.png`,
+      image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen-980w.jpg`,
       image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
       image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
 

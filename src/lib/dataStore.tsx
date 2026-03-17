@@ -203,7 +203,8 @@ export const DataStoreProvider = ({ children }: DataStoreProviderProps) => {
       const { data, error } = await supabase
         .from('media_screens')
         .select('*')
-        .order('name');
+        .order('name')
+        .limit(10000);
       if (!error && data) setMediaScreens(data);
     } catch (e) {
       console.error('Error fetching media screens:', e);
