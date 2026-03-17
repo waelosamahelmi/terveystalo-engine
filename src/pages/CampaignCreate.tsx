@@ -2248,6 +2248,7 @@ const CampaignCreate = () => {
       offer_date: isGeneralBrandMessage ? '' : (creativeConfig.offerDate || 'Varaa viimeistään 28.10.'),
       click_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
       disclaimer_text: isGeneralBrandMessage ? '' : (creativeConfig.disclaimerText || ''),
+      legal_text: isGeneralBrandMessage ? '' : (creativeConfig.disclaimerText || ''),
     };
   }, [creativeConfig, selectedBranch, selectedBranches, selectedService, previewService, getTemplateForSize, previewSize, previewBranchId]);
 
@@ -2287,6 +2288,16 @@ const CampaignCreate = () => {
     if (!showAddress) {
       // Inject CSS to hide address
       renderedHtml = renderedHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address { display: none !important; }</style></head>');
+    }
+
+    // Hide legal/disclaimer text for non-PDOOH templates (legal text is only for PDOOH)
+    if (template.type !== 'pdooh') {
+      renderedHtml = renderedHtml.replace('</head>', '<style>.disclaimer, .LegalTeksti { display: none !important; }</style></head>');
+    }
+
+    // Also hide legal text for brand campaigns on PDOOH
+    if (template.type === 'pdooh' && serviceForPreview?.code === 'yleinen-brandiviesti') {
+      renderedHtml = renderedHtml.replace('</head>', '<style>.disclaimer, .LegalTeksti { display: none !important; }</style></head>');
     }
 
     // PDOOH or empty CTA: Remove CTA button entirely (hide element AND its white background shape)

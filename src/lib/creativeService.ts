@@ -1579,6 +1579,14 @@ export async function generateAllMetaCreatives(
           if (isGeneralBrandMessage) {
             templateHtml = templateHtml.replace('</head>', '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble, .price-badge-wrap { display: none !important; }</style></head>');
           }
+          // Hide legal/disclaimer text for non-PDOOH templates (legal text is only for PDOOH)
+          if (template.type !== 'pdooh') {
+            templateHtml = templateHtml.replace('</head>', '<style>.disclaimer, .LegalTeksti { display: none !important; }</style></head>');
+          }
+          // Also hide legal text for brand campaigns on PDOOH
+          if (template.type === 'pdooh' && isGeneralBrandMessage) {
+            templateHtml = templateHtml.replace('</head>', '<style>.disclaimer, .LegalTeksti { display: none !important; }</style></head>');
+          }
           // Hide address if not showing address
           if (!showAddress) {
             templateHtml = templateHtml.replace('</head>', '<style>.address, .Torikatu1Laht, .branch_address, .scene-4-address { display: none !important; }</style></head>');

@@ -491,7 +491,8 @@ export async function createCampaignCreatives(
               ),
               click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
               offer_date: isGeneralBrandMessage ? '' : (formData.offer_date || 'Varaa viimeistään 28.10.'),
-              disclaimer_text: isGeneralBrandMessage ? '' : (formData.disclaimer_text || ''),
+              disclaimer_text: (cs.type === 'pdooh' && !isGeneralBrandMessage) ? (formData.disclaimer_text || '') : '',
+              legal_text: (cs.type === 'pdooh' && !isGeneralBrandMessage) ? (formData.disclaimer_text || '') : '',
             };
           }
 
@@ -513,7 +514,7 @@ export async function createCampaignCreatives(
           // Apply CSS injections
           if (isGeneralBrandMessage) {
             html = html.replace('</head>',
-              '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble, .price-badge-wrap { display: none !important; }</style></head>');
+              '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble, .price-badge-wrap, .disclaimer { display: none !important; }</style></head>');
           }
           if (!showAddress) {
             html = html.replace('</head>',
