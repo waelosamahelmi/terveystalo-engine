@@ -15,9 +15,9 @@ const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
 // Sheet name for Suun Terveystalo feed
 const SHEET_NAME = 'FEED';
 
-// Extended column range (A:CA = 79 columns for all fields including meta status/URLs, per-size creative URLs, and offer columns)
-const SHEET_RANGE = `${SHEET_NAME}!A:CA`;
-const COLUMN_COUNT = 79;
+// Extended column range (A:CH = 86 columns for all fields including meta status/URLs, per-size creative URLs, offer columns, and smartly_id)
+const SHEET_RANGE = `${SHEET_NAME}!A:CH`;
+const COLUMN_COUNT = 86;
 
 // ============================================================================
 // SHEET SYNC TRACKING — update sheet_row_id & sheet_last_sync in DB
@@ -712,6 +712,11 @@ export async function addDentalCampaignToSheet(
         excludedBranchesData,
       })];
     }
+
+    // Append smartly_id: sequential row number (1-based) within this campaign
+    rows.forEach((row, index) => {
+      row.push(String(index + 1)); // CH: smartly_id
+    });
 
     const response = await axios.post(
       `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_RANGE}:append?valueInputOption=USER_ENTERED`,
