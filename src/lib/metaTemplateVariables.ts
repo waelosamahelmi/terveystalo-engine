@@ -69,7 +69,7 @@ const LOCATION_BUNDLES: Array<{
 ];
 
 export function findMatchingBundle(branchNames: string[]): typeof LOCATION_BUNDLES[number] | null {
-  const normalizedNames = branchNames.map(n => n.replace('Terveystalo ', '').trim()).sort();
+  const normalizedNames = branchNames.map(n => n.replace('Suun Terveystalo ', '').replace('Terveystalo ', '').trim()).sort();
   for (const bundle of LOCATION_BUNDLES) {
     const bundleSorted = [...bundle.locations].sort();
     if (normalizedNames.length === bundleSorted.length &&
@@ -127,23 +127,46 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     serviceNameElative = serviceNameElative + 'sta';
   }
 
-  // Location text for address — always use the specific branch's address
-  // (each creative file is rendered for one branch, so it must be branch-specific)
+  // Check for location bundle match (e.g., Helsinki group, Espoo group)
+  const { allBranches } = params;
+  const isMultiLocation = allBranches.length > 1;
+  const branchNames = allBranches.map(b => b.short_name || b.name || b.city);
+  const matchingBundle = isMultiLocation ? findMatchingBundle(branchNames) : null;
+
+  // Location text for address
   const city = branch.city || '';
   const address = branch.address || '';
-  const locationText = address ? `${address}, ${city}` : city;
+  let locationText: string;
+  if (matchingBundle) {
+    locationText = matchingBundle.bundleAddress;
+  } else if (isMultiLocation) {
+    const uniqueCities = [...new Set(allBranches.map(b => b.short_name || b.city))].sort();
+    locationText = uniqueCities.join(' \u2022 ');
+  } else {
+    locationText = address ? `${address}, ${city}` : city;
+  }
 
-  // Subheadline / message — always branch-specific
+  // Subheadline / message
   let messageText = formData.subheadline || '';
   if (!messageText) {
-    if (isGeneralBrandMessage) {
-      const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-      messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
+    if (matchingBundle) {
+      messageText = matchingBundle.bundleCopy;
+    } else if (isGeneralBrandMessage) {
+      if (isMultiLocation) {
+        messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+      } else {
+        const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+        messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
+      }
     } else if (isMultiService) {
       messageText = `Sujuvampaa suunterveyttä aina ${serviceNameElative} erikoisosaamista vaativiin hoitoihin.`;
     } else {
-      const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-      messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
+      if (isMultiLocation) {
+        messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+      } else {
+        const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+        messageText = `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`;
+      }
     }
   }
 
@@ -206,18 +229,22 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
     cta_text: formData.cta_text || 'Varaa aika',
     branch_address: finalAddress,
 
-    // Scene 3 text lines — always use the specific branch city
+    // Scene 3 text lines — use bundle city for multi-location bundles
     ...(isMetaTemplate ? {
       scene3_line1: 'Sujuvampaa',
       scene3_line2: 'terveyttä',
-      scene3_line3: branch.city ? getConjugatedCity(branch.city) : '',
-      scene3_line4: 'Suun Terveystalossa.',
+      scene3_line3: matchingBundle
+        ? matchingBundle.bundleCopy.match(/suunterveyttä\s+(\S+)/)?.[1] || (branch.city ? getConjugatedCity(branch.city) : '')
+        : (branch.city ? getConjugatedCity(branch.city) : ''),
+      scene3_line4: matchingBundle ? 'Suun Terveystaloissa.' : 'Suun Terveystalossa.',
     } : {
       scene3_line1: 'Sujuvampaa',
       scene3_line2: 'suun',
       scene3_line3: 'terveyttä',
-      scene3_line4: branch.city ? getConjugatedCity(branch.city) : 'Oulun',
-      scene3_line5: 'Suun Terveystalossa.',
+      scene3_line4: matchingBundle
+        ? matchingBundle.bundleCopy.match(/suunterveyttä\s+(\S+)/)?.[1] || (branch.city ? getConjugatedCity(branch.city) : 'Oulun')
+        : (branch.city ? getConjugatedCity(branch.city) : 'Oulun'),
+      scene3_line5: matchingBundle ? 'Suun Terveystaloissa.' : 'Suun Terveystalossa.',
     }),
 
     city_name: branch.city || 'Oulu',

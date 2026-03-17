@@ -398,18 +398,33 @@ export async function createCampaignCreatives(
             }
 
             // Subheadline / message text — must use conjugated city like preview
+            // Check for location bundle match (e.g., Helsinki group, Espoo group)
+            const isMultiLocation = branches.length > 1;
+            const branchNamesForBundle = branches.map(b => (b as any).short_name || b.name || b.city);
+            const matchingBundle = isMultiLocation ? findMatchingBundle(branchNamesForBundle) : null;
+
             let messageText = formData.subheadline;
             if (!messageText) {
-              if (isGeneralBrandMessage) {
-                const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-                messageText = cityConj
-                  ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
-                  : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+              if (matchingBundle) {
+                messageText = matchingBundle.bundleCopy;
+              } else if (isGeneralBrandMessage) {
+                if (isMultiLocation) {
+                  messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+                } else {
+                  const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+                  messageText = cityConj
+                    ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
+                    : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+                }
               } else {
-                const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-                messageText = cityConj
-                  ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
-                  : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+                if (isMultiLocation) {
+                  messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+                } else {
+                  const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
+                  messageText = cityConj
+                    ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
+                    : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+                }
               }
             }
 
@@ -432,15 +447,26 @@ export async function createCampaignCreatives(
             const priceValue = isGeneralBrandMessage ? '' : (servicePrice || formData.offer_text || '49');
             const city = branch.city || '';
             const address = branch.address || '';
-            const locationText = address ? `${address}, ${city}` : city;
+            let locationText: string;
+            if (matchingBundle) {
+              locationText = matchingBundle.bundleAddress;
+            } else if (isMultiLocation) {
+              const uniqueCities = [...new Set(branches.map(b => (b as any).short_name || b.city))].sort();
+              locationText = uniqueCities.join(' \u2022 ');
+            } else {
+              locationText = address ? `${address}, ${city}` : city;
+            }
 
             // Scene 3 text lines (for PDOOH and Meta-style templates)
+            const bundleCityConj = matchingBundle
+              ? matchingBundle.bundleCopy.match(/suunterveyttä\s+(\S+)/)?.[1] || (city ? getConjugatedCity(city) : 'Oulun')
+              : (city ? getConjugatedCity(city) : 'Oulun');
             const scene3Vars: Record<string, string> = {
               scene3_line1: 'Sujuvampaa',
               scene3_line2: 'suun',
               scene3_line3: 'terveyttä',
-              scene3_line4: city ? getConjugatedCity(city) : 'Oulun',
-              scene3_line5: 'Suun Terveystalossa.',
+              scene3_line4: bundleCityConj,
+              scene3_line5: matchingBundle ? 'Suun Terveystaloissa.' : 'Suun Terveystalossa.',
             };
 
             vars = {
@@ -465,7 +491,7 @@ export async function createCampaignCreatives(
               ),
               click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
               offer_date: isGeneralBrandMessage ? '' : (formData.offer_date || 'Varaa viimeistään 28.10.'),
-              disclaimer_text: formData.disclaimer_text || '',
+              disclaimer_text: isGeneralBrandMessage ? '' : (formData.disclaimer_text || ''),
             };
           }
 

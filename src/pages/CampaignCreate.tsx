@@ -187,7 +187,7 @@ function getConjugatedCity(city: string): string {
 
 // Helper: check if selected branches match a location bundle
 function findMatchingBundle(branchNames: string[]): typeof LOCATION_BUNDLES[number] | null {
-  const normalizedNames = branchNames.map(n => n.replace('Terveystalo ', '').trim()).sort();
+  const normalizedNames = branchNames.map(n => n.replace('Suun Terveystalo ', '').replace('Terveystalo ', '').trim()).sort();
   for (const bundle of LOCATION_BUNDLES) {
     const bundleSorted = [...bundle.locations].sort();
     if (normalizedNames.length === bundleSorted.length &&
@@ -2247,7 +2247,7 @@ const CampaignCreate = () => {
       // Other variables
       offer_date: isGeneralBrandMessage ? '' : (creativeConfig.offerDate || 'Varaa viimeistään 28.10.'),
       click_url: creativeConfig.targetUrl || 'https://terveystalo.com/suunterveystalo',
-      disclaimer_text: creativeConfig.disclaimerText || '',
+      disclaimer_text: isGeneralBrandMessage ? '' : (creativeConfig.disclaimerText || ''),
     };
   }, [creativeConfig, selectedBranch, selectedBranches, selectedService, previewService, getTemplateForSize, previewSize, previewBranchId]);
 
@@ -3893,8 +3893,8 @@ const CampaignCreate = () => {
                         </div>
                       </div>
 
-                      {/* Legal Text - for PDOOH */}
-                      {formData.channel_pdooh && (
+                      {/* Legal Text - for PDOOH (offer campaigns only, not brand) */}
+                      {formData.channel_pdooh && selectedService?.code !== 'yleinen-brandiviesti' && (
                       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                         <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-amber-50 to-white">
                           <div className="flex items-center gap-3">
