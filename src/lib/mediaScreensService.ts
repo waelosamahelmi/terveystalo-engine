@@ -841,8 +841,7 @@ export async function getMediaScreens(): Promise<{ data: MediaScreen[] | null; e
   return await supabase
     .from('media_screens')
     .select('*')
-    .order('site_url', { ascending: true })
-    .limit(10000);
+    .order('site_url', { ascending: true });
 }
 
 /**

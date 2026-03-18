@@ -52,7 +52,7 @@ const LOCATION_BUNDLES: Array<{
     bundleAddress: 'Masala \u2022 Veikkola \u2022 Lohja',
   },
   {
-    locations: ['Itäkeskus', 'Oulunkylä', 'Kamppi', 'Redi'],
+    locations: ['Itäkeskus', 'Ogeli', 'Kamppi', 'Redi'],
     bundleCopy: 'Sujuvampaa suunterveyttä Helsingin Suun Terveystaloissa',
     bundleAddress: 'Kamppi \u2022 Itäkeskus \u2022 Ogeli \u2022 Redi',
   },

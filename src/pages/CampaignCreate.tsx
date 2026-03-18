@@ -164,7 +164,7 @@ const LOCATION_BUNDLES: Array<{
     bundleAddress: 'Masala \u2022 Veikkola \u2022 Lohja',
   },
   {
-    locations: ['Itäkeskus', 'Oulunkylä', 'Kamppi', 'Redi'],
+    locations: ['Itäkeskus', 'Ogeli', 'Kamppi', 'Redi'],
     bundleCopy: 'Sujuvampaa suunterveyttä Helsingin Suun Terveystaloissa',
     bundleAddress: 'Kamppi \u2022 Itäkeskus \u2022 Ogeli \u2022 Redi',
   },
@@ -4957,7 +4957,7 @@ const CampaignCreate = () => {
                   {/* Media selections */}
                   {(creativeConfig.videoFile || creativeConfig.selectedVideo || creativeConfig.selectedAudio || creativeConfig.audioFile) && (
                     <div className="border-t border-gray-100 pt-4">
-                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Media</p>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Meta Media</p>
                       <div className="flex flex-wrap gap-2">
                         {(creativeConfig.videoFile || creativeConfig.selectedVideo) && (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-pink-50 text-pink-700">

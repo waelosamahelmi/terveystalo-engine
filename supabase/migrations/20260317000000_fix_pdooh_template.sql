@@ -20,7 +20,7 @@ SET html_template = REPLACE(
         ),
         -- Fix 2: Change Price from column to row layout for separate € sizing
         'display: flex; flex-direction: column; color: #0046AD; font-size: 133px;',
-        'display: flex; flex-direction: row; align-items: flex-start; justify-content: center; color: #0046AD; font-size: 133px;'
+        'display: flex; flex-direction: row; align-items: baseline; justify-content: center; color: #0046AD; font-size: 133px;'
       ),
       -- Fix 3: Separate € into its own span for smaller sizing
       '{{price}}€',
@@ -28,7 +28,7 @@ SET html_template = REPLACE(
     ),
     -- Fix 4: Add Price-currency CSS class before closing </style>
     '</style>',
-    '        .Price-currency { font-size: 65px; margin-top: 10px; margin-left: 2px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; }
+    '        .Price-currency { font-size: 50px; margin-left: 2px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; }
     </style>'
   ),
   -- Fix 5: Make pricetag top position a template variable

@@ -1116,7 +1116,11 @@ export async function generateMetaVideoCreativeFallback(
             ctx.textAlign = 'center';
             ctx.fillText(overlayConfig.offerTitle.replace(/[|\n]/g, ' '), textX, bubbleY + 30);
             ctx.font = 'bold 48px Inter, sans-serif';
-            ctx.fillText(`${overlayConfig.price}€`, textX, bubbleY + 75);
+            const priceText = `${overlayConfig.price}`;
+            const priceWidth = ctx.measureText(priceText).width;
+            ctx.fillText(priceText, textX - 10, bubbleY + 75);
+            ctx.font = 'bold 30px Inter, sans-serif';
+            ctx.fillText('€', textX + priceWidth / 2 - 6, bubbleY + 75);
             textY = bubbleY + 140;
           }
 

@@ -49,7 +49,8 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
         .Pricetag svg { position: absolute; left: 0; top: 0; z-index: 0; }
         .Pricetag-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding-top: 12px; }
         .HammasTarkast { width: 130px; text-align: center; color: #0046AD; font-size: 18px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 18px; word-wrap: break-word; }
-        .Price { width: 117px; height: 64px; text-align: center; justify-content: center; display: flex; flex-direction: column; color: #0046AD; font-size: 56px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price { width: 117px; height: 64px; text-align: center; justify-content: center; display: flex; flex-direction: row; align-items: baseline; color: #0046AD; font-size: 56px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price-currency { font-size: 21px; margin-left: 2px; }
         .VaraaViimeist { width: 121px; text-align: center; color: #0046AD; font-size: 13px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 15px; word-wrap: break-word; }
         .SujuvampaaSuunt { width: 95%; height: 75px; left: 2.5%; top: 150px; position: absolute; text-align: center; justify-content: center; display: flex; flex-direction: column; color: white; font-size: 32px; font-weight: 400; line-height: 38px; }
         .Gradient-overlay { position: absolute; left: 0; top: 0; width: 620px; height: 891px; z-index: 0; background: linear-gradient(to bottom, #07051B 0%, transparent 30%, transparent 70%, #07051B 100%); }
@@ -74,7 +75,7 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
                 </svg>
                 <div class="Pricetag-content">
                     <div class="HammasTarkast">{{offer_title}}</div>
-                    <div class="Price">{{price}}€</div>
+                    <div class="Price">{{price}}<span class="Price-currency">€</span></div>
                     <div class="VaraaViimeist">{{offer_date}}</div>
                 </div>
             </div>
@@ -83,7 +84,7 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
         </div>
     </div>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko","required":true,"maxLength":80},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":100},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.|Olet hyvissä käsissä.","logo_url":"https://placehold.co/332x45","image_url":"https://placehold.co/620x891","offer_date":"Varaa viimeistään| 28.10.","artwork_url":"https://placehold.co/688x304","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1, Lahti"}', null, null, ARRAY["display","portrait","large"], 'true', '4', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('495b21df-15b4-4a12-8e9c-0dec2f9f55df', 'Suun Terveystalo 300x300', 'Small square display banner - Perfect for sidebar placements and small ad units', 'display', '300x300', '300', '300', '<!DOCTYPE html>
+</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko","required":true,"maxLength":80},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":100},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.|Olet hyvissä käsissä.","logo_url":"https://placehold.co/332x45","image_url":"https://placehold.co/620x891","offer_date":"Varaa viimeistään| 28.10.","artwork_url":"https://placehold.co/688x304","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1, Lahti"}', null, null, ARRAY['display','portrait','large'], 'true', '4', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('495b21df-15b4-4a12-8e9c-0dec2f9f55df', 'Suun Terveystalo 300x300', 'Small square display banner - Perfect for sidebar placements and small ad units', 'display', '300x300', '300', '300', '<!DOCTYPE html>
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
@@ -135,7 +136,8 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
         .Pricetag svg { position: absolute; left: 0; top: 0; z-index: 0; }
         .Pricetag-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding-top: 8px; }
         .HammasTarkastu { width: 70px; text-align: center; color: #0046AD; font-size: 10px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 10.34px; word-wrap: break-word; }
-        .Price { width: 65px; height: 34px; text-align: center; justify-content: center; display: flex; flex-direction: column; color: #0046AD; font-size: 32px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price { width: 65px; height: 34px; text-align: center; justify-content: center; display: flex; flex-direction: row; align-items: baseline; color: #0046AD; font-size: 32px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price-currency { font-size: 12px; margin-left: 1px; }
         .VarssViimeistN { width: 63px; text-align: center; color: #0046AD; font-size: 8px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 9.38px; word-wrap: break-word; }
     </style>
 </head>
@@ -157,13 +159,13 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
             </svg>
             <div class="Pricetag-content">
                 <div class="HammasTarkastu">{{offer_title}}</div>
-                <div class="Price">{{price}}€</div>
+                <div class="Price">{{price}}<span class="Price-currency">€</span></div>
                 <div class="VarssViimeistN">{{offer_date}}</div>
             </div>
         </div>
     </div>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko","required":true,"maxLength":50},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":80},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.|Olet hyvissä käsissä.","logo_url":"https://placehold.co/122x16","image_url":"https://placehold.co/300x300","offer_date":"Varaa viimeistään|28.10.","artwork_url":"https://placehold.co/315x139","offer_title":"Hammas-|tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa","branch_address":"Torikatu 1, Lahti"}', null, null, ARRAY["display","square","small","sidebar"], 'true', '1', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('56c7b471-2012-48a1-84ae-06c59e69d4cd', 'Suun Terveystalo 980x400', 'Large horizontal leaderboard banner - Premium placement for high visibility', 'display', '980x400', '980', '400', '<!DOCTYPE html>
+</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko","required":true,"maxLength":50},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":80},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.|Olet hyvissä käsissä.","logo_url":"https://placehold.co/122x16","image_url":"https://placehold.co/300x300","offer_date":"Varaa viimeistään|28.10.","artwork_url":"https://placehold.co/315x139","offer_title":"Hammas-|tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa","branch_address":"Torikatu 1, Lahti"}', null, null, ARRAY['display','square','small','sidebar'], 'true', '1', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('56c7b471-2012-48a1-84ae-06c59e69d4cd', 'Suun Terveystalo 980x400', 'Large horizontal leaderboard banner - Premium placement for high visibility', 'display', '980x400', '980', '400', '<!DOCTYPE html>
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
@@ -214,7 +216,8 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
         .Pricetag svg { position: absolute; left: 0; top: 0; z-index: 0; }
         .Pricetag-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding-top: 12px; }
         .HammasTarkastu { width: 130px; text-align: center; color: #0046AD; font-size: 18px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 18px; word-wrap: break-word; }
-        .Price { width: 115px; height: 63px; text-align: center; justify-content: center; display: flex; flex-direction: column; color: #0046AD; font-size: 57px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price { width: 115px; height: 63px; text-align: center; justify-content: center; display: flex; flex-direction: row; align-items: baseline; color: #0046AD; font-size: 57px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price-currency { font-size: 22px; margin-left: 2px; }
         .VaraaViimeist { width: 119px; text-align: center; color: #0046AD; font-size: 13px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 15px; word-wrap: break-word; }
         .HymyileOletHy { width: 365px; height: 96px; left: 38px; top: 42px; position: absolute; justify-content: center; display: flex; flex-direction: column; color: white; font-size: 35px; font-weight: 700; line-height: 45.50px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; }
     </style>
@@ -236,14 +239,14 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
             </svg>
             <div class="Pricetag-content">
                 <div class="HammasTarkastu">{{offer_title}}</div>
-                <div class="Price">{{price}}€</div>
+                <div class="Price">{{price}}<span class="Price-currency">€</span></div>
                 <div class="VaraaViimeist">{{offer_date}}</div>
             </div>
         </div>
         <div class="HymyileOletHy">{{headline}}</div>
     </div>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko","required":true,"maxLength":80},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":100},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.|Olet hyvissä käsissä.","logo_url":"https://placehold.co/285x38","image_url":"https://placehold.co/980x400","offer_date":"Varaa viimeistään|28.10.","artwork_url":"https://placehold.co/666x294","offer_title":"Hammas-|tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa","branch_address":"Torikatu 1, Lahti"}', null, null, ARRAY["display","leaderboard","horizontal"], 'true', '5', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('6e5cdd11-28f4-43e3-b49c-cfe541835160', 'Suun Terveystalo 300x600', 'Half page skyscraper - High impact vertical display ad', 'display', '300x600', '300', '600', '<!DOCTYPE html>
+</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko","required":true,"maxLength":80},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":100},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.|Olet hyvissä käsissä.","logo_url":"https://placehold.co/285x38","image_url":"https://placehold.co/980x400","offer_date":"Varaa viimeistään|28.10.","artwork_url":"https://placehold.co/666x294","offer_title":"Hammas-|tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa","branch_address":"Torikatu 1, Lahti"}', null, null, ARRAY['display','leaderboard','horizontal'], 'true', '5', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('6e5cdd11-28f4-43e3-b49c-cfe541835160', 'Suun Terveystalo 300x600', 'Half page skyscraper - High impact vertical display ad', 'display', '300x600', '300', '600', '<!DOCTYPE html>
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
@@ -294,7 +297,8 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
         .Pricetag svg { position: absolute; left: 0; top: 0; z-index: 0; }
         .Pricetag-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding-top: 8px; }
         .HammasTarkast { width: 80px; text-align: center; color: #0046AD; font-size: 11px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 10.34px; word-wrap: break-word; }
-        .Price { width: 74px; height: 42px; text-align: center; justify-content: center; display: flex; flex-direction: column; color: #0046AD; font-size: 37px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price { width: 74px; height: 42px; text-align: center; justify-content: center; display: flex; flex-direction: row; align-items: baseline; color: #0046AD; font-size: 37px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price-currency { font-size: 14px; margin-left: 1px; }
         .VaraaViimeist { width: 74px; text-align: center; color: #0046AD; font-size: 8px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 9.38px; word-wrap: break-word; }
         .SujuvampaaSuunt { width: 85%; height: 50px; left: 8%; top: 96px; position: absolute; text-align: center; justify-content: center; display: flex; flex-direction: column; color: white; font-size: 19px; font-weight: 400; line-height: 23px; }
         .Gradient-overlay { position: absolute; left: 0; top: 0; width: 300px; height: 600px; z-index: 0; background: linear-gradient(to bottom, #07051B 0%, transparent 30%, transparent 70%, #07051B 100%); }
@@ -320,7 +324,7 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
                 </svg>
                 <div class="Pricetag-content">
                     <div class="HammasTarkast">{{offer_title}}</div>
-                    <div class="Price">{{price}}€</div>
+                    <div class="Price">{{price}}<span class="Price-currency">€</span></div>
                     <div class="VaraaViimeist">{{offer_date}}</div>
                 </div>
             </div>
@@ -330,7 +334,7 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
         </div>
     </div>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko (yläosa)","required":true,"maxLength":30},{"key":"headline_line2","type":"text","label":"Otsikko (alaosa)","required":true,"maxLength":50},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":80},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.","logo_url":"https://placehold.co/182x25","image_url":"https://placehold.co/300x600","offer_date":"Varaa viimeistään| 28.10.","artwork_url":"https://placehold.co/331x146","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1,Lahti","headline_line2":"Olet hyvissä käsissä."}', null, null, ARRAY["display","skyscraper","half-page"], 'true', '3', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('9f3f4122-cd2a-4910-8da7-c84e1103ea9c', 'Suun Terveystalo 1080x1920 Meta (Stories/Reels Portrait)', null, 'meta', '1080x1920', '1080', '1920', '<!DOCTYPE html>
+</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko (yläosa)","required":true,"maxLength":30},{"key":"headline_line2","type":"text","label":"Otsikko (alaosa)","required":true,"maxLength":50},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":80},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.","logo_url":"https://placehold.co/182x25","image_url":"https://placehold.co/300x600","offer_date":"Varaa viimeistään| 28.10.","artwork_url":"https://placehold.co/331x146","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1,Lahti","headline_line2":"Olet hyvissä käsissä."}', null, null, ARRAY['display','skyscraper','half-page'], 'true', '3', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('9f3f4122-cd2a-4910-8da7-c84e1103ea9c', 'Suun Terveystalo 1080x1920 Meta (Stories/Reels Portrait)', null, 'meta', '1080x1920', '1080', '1920', '<!DOCTYPE html>
 <html lang="fi">
 <head>
 <meta charset="UTF-8">
@@ -422,12 +426,12 @@ INSERT INTO "public"."creative_templates" ("id", "name", "description", "type", 
   .badge-content .badge-price {
     font-size: 146px; font-weight: 900;
     color: #0a3d91; line-height: 0.85;
-    display: flex; align-items: flex-start;
+    display: flex; align-items: flex-end;
   }
   .badge-content .badge-price .euro {
-    font-size: 92px; font-weight: 700;
+    font-size: 55px; font-weight: 700;
     margin-left: 4px;
-    align-self: flex-end; margin-bottom: 6px;
+    align-self: flex-end;
   }
 
   /* ===== "{{headline}}" ===== */
@@ -699,7 +703,7 @@ setTimeout(function() {
 })();
 </script>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Headline","required":true},{"key":"subheadline","type":"text","label":"Subheadline","required":false},{"key":"offer_text","type":"text","label":"Offer Text","required":true},{"key":"cta_text","type":"text","label":"CTA Text","required":true},{"key":"background_image","type":"image","label":"Background Image","required":false},{"key":"branch_address","type":"text","label":"Branch Address","required":false}]', '{"price":"49","headline":"Hymyile.","logo_url":"https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png","audio_track":"/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav","offer_title":"Hammastarkastus","subheadline":"Olet hyvissä käsissä.","scene3_line1":"Sujuvampaa","scene3_line2":"terveyttä","scene3_line3":"{{city_name}}","scene3_line4":"Suun Terveystalossa.","branch_address":"{{branch_address}}","offer_subtitle":"uusille asiakkaille","background_video":"/meta/vids/nainen.mp4"}', null, null, ARRAY["meta","social","portrait","stories","reels","1080x1920"], 'true', '2', '2026-03-03 11:35:50.994438+00', '2026-03-03 11:35:50.994438+00', 'social', null, 'false', null, null), ('d71f1c92-5596-43aa-b0e2-496fa594f219', 'Suun Terveystalo 1080x1080 Meta (Square)', null, 'meta', '1080x1080', '1080', '1080', '<!DOCTYPE html>
+</html>', null, null, '[{"key":"headline","type":"text","label":"Headline","required":true},{"key":"subheadline","type":"text","label":"Subheadline","required":false},{"key":"offer_text","type":"text","label":"Offer Text","required":true},{"key":"cta_text","type":"text","label":"CTA Text","required":true},{"key":"background_image","type":"image","label":"Background Image","required":false},{"key":"branch_address","type":"text","label":"Branch Address","required":false}]', '{"price":"49","headline":"Hymyile.","logo_url":"https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png","audio_track":"/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav","offer_title":"Hammastarkastus","subheadline":"Olet hyvissä käsissä.","scene3_line1":"Sujuvampaa","scene3_line2":"terveyttä","scene3_line3":"{{city_name}}","scene3_line4":"Suun Terveystalossa.","branch_address":"{{branch_address}}","offer_subtitle":"uusille asiakkaille","background_video":"/meta/vids/nainen.mp4"}', null, null, ARRAY['meta','social','portrait','stories','reels','1080x1920'], 'true', '2', '2026-03-03 11:35:50.994438+00', '2026-03-03 11:35:50.994438+00', 'social', null, 'false', null, null), ('d71f1c92-5596-43aa-b0e2-496fa594f219', 'Suun Terveystalo 1080x1080 Meta (Square)', null, 'meta', '1080x1080', '1080', '1080', '<!DOCTYPE html>
 <html lang="fi">
 <head>
 <meta charset="UTF-8">
@@ -791,12 +795,12 @@ setTimeout(function() {
   .badge-content .badge-price {
     font-size: 82px; font-weight: 900;
     color: #0a3d91; line-height: 0.85;
-    display: flex; align-items: flex-start;
+    display: flex; align-items: flex-end;
   }
   .badge-content .badge-price .euro {
-    font-size: 52px; font-weight: 700;
+    font-size: 32px; font-weight: 700;
     margin-left: 2px;
-    align-self: flex-end; margin-bottom: 4px;
+    align-self: flex-end;
   }
 
   /* ===== "{{headline}}" ===== */
@@ -1068,7 +1072,7 @@ setTimeout(function() {
 })();
 </script>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Headline","required":true},{"key":"subheadline","type":"text","label":"Subheadline","required":false},{"key":"offer_text","type":"text","label":"Offer Text","required":true},{"key":"cta_text","type":"text","label":"CTA Text","required":true},{"key":"background_image","type":"image","label":"Background Image","required":false},{"key":"branch_address","type":"text","label":"Branch Address","required":false}]', '{"price":"49","headline":"Hymyile.","logo_url":"https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png","audio_track":"/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav","offer_title":"Hammastarkastus","subheadline":"Olet hyvissä käsissä.","scene3_line1":"Sujuvampaa","scene3_line2":"terveyttä","scene3_line3":"{{city_name}}","scene3_line4":"Suun Terveystalossa.","branch_address":"{{branch_address}}","offer_subtitle":"uusille asiakkaille","background_video":"/meta/vids/nainen.mp4"}', null, null, ARRAY["meta","social","square","1080x1080"], 'true', '1', '2026-03-03 11:35:50.994438+00', '2026-03-03 11:35:50.994438+00', 'social', null, 'false', null, null), ('d7f6fb8d-b0ea-4027-9edd-30af07ddf669', 'Suun Terveystalo 1080x1920 PDOOH', 'Digital Out of Home - Full vertical screen format for DOOH displays', 'pdooh', '1080x1920', '1080', '1920', '<!DOCTYPE html>
+</html>', null, null, '[{"key":"headline","type":"text","label":"Headline","required":true},{"key":"subheadline","type":"text","label":"Subheadline","required":false},{"key":"offer_text","type":"text","label":"Offer Text","required":true},{"key":"cta_text","type":"text","label":"CTA Text","required":true},{"key":"background_image","type":"image","label":"Background Image","required":false},{"key":"branch_address","type":"text","label":"Branch Address","required":false}]', '{"price":"49","headline":"Hymyile.","logo_url":"https://qhvzpxkfboqkrnxxrzuj.supabase.co/storage/v1/object/public/media/brand-assets/1770090175519-ecxz8g.png","audio_track":"/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav","offer_title":"Hammastarkastus","subheadline":"Olet hyvissä käsissä.","scene3_line1":"Sujuvampaa","scene3_line2":"terveyttä","scene3_line3":"{{city_name}}","scene3_line4":"Suun Terveystalossa.","branch_address":"{{branch_address}}","offer_subtitle":"uusille asiakkaille","background_video":"/meta/vids/nainen.mp4"}', null, null, ARRAY['meta','social','square','1080x1080'], 'true', '1', '2026-03-03 11:35:50.994438+00', '2026-03-03 11:35:50.994438+00', 'social', null, 'false', null, null), ('d7f6fb8d-b0ea-4027-9edd-30af07ddf669', 'Suun Terveystalo 1080x1920 PDOOH', 'Digital Out of Home - Full vertical screen format for DOOH displays', 'pdooh', '1080x1920', '1080', '1920', '<!DOCTYPE html>
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
@@ -1121,7 +1125,8 @@ setTimeout(function() {
         .Pricetag svg { position: absolute; left: -0.01px; top: 0px; z-index: 0; }
         .Pricetag-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding-top: 20px; }
         .HammasTarkast { width: 280px; text-align: center; color: #0046AD; font-size: 39.54px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 40px; word-wrap: break-word; }
-        .Price { width: 266px; height: 150.97px; text-align: center; justify-content: center; display: flex; flex-direction: column; color: #0046AD; font-size: 133px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price { width: 266px; height: 150.97px; text-align: center; justify-content: center; display: flex; flex-direction: row; align-items: baseline; color: #0046AD; font-size: 133px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price-currency { font-size: 50px; margin-left: 4px; }
         .VaraaViimeist { width: 266px; text-align: center; color: #0046AD; font-size: 28.76px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 32px; word-wrap: break-word; }
         .SujuvampaaSuunt { width: 95%; height: 180px; left: 2.5%; top: 345.08px; position: absolute; text-align: center; justify-content: center; display: flex; flex-direction: column; color: white; font-size: 64px; font-weight: 400; line-height: 76px; }
         .Gradient-overlay { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; z-index: 0; background: linear-gradient(to bottom, #07051B 0%, transparent 30%, transparent 70%, #07051B 100%); }
@@ -1145,7 +1150,7 @@ setTimeout(function() {
                     </svg>
                     <div class="Pricetag-content">
                         <div class="HammasTarkast">{{offer_title}}</div>
-                        <div class="Price">{{price}}€</div>
+                        <div class="Price">{{price}}<span class="Price-currency">€</span></div>
                         <div class="VaraaViimeist">{{offer_date}}</div>
                     </div>
                 </div>
@@ -1156,7 +1161,7 @@ setTimeout(function() {
         </div>
     </div>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko (yläosa)","required":true,"maxLength":50},{"key":"headline_line2","type":"text","label":"Otsikko (alaosa)","required":true,"maxLength":80},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":150},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":50},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":30},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":100},{"key":"legal_text","type":"text","label":"Legal teksti","required":false,"maxLength":500},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.","logo_url":"https://placehold.co/661x89","image_url":"https://placehold.co/1078x2157","legal_text":"Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.","offer_date":"Varaa viimeistään| 28.10.","artwork_url":"https://placehold.co/1189x525","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1,Lahti","headline_line2":"Olet hyvissä käsissä."}', null, null, ARRAY["pdooh","dooh","digital-signage"], 'true', '6', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('fe1fff31-9fc3-458e-b60a-65abffdb9d92', 'Suun Terveystalo 300x431', 'Portrait medium display banner - Popular for interstitial and sidebar placements', 'display', '300x431', '300', '431', '<!DOCTYPE html>
+</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko (yläosa)","required":true,"maxLength":50},{"key":"headline_line2","type":"text","label":"Otsikko (alaosa)","required":true,"maxLength":80},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":150},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":50},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":30},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":100},{"key":"legal_text","type":"text","label":"Legal teksti","required":false,"maxLength":500},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.","logo_url":"https://placehold.co/661x89","image_url":"https://placehold.co/1078x2157","legal_text":"Tarjous voimassa uusille asiakkaille tai jos edellisestä käynnistäsi on kulunut 3 vuotta. Tarjous koskee arkiaikoja, aika on varattava 22.2.2026 mennessä ja vastaanotolla on käytävä 31.3.2026 mennessä. Hinta sisältää Kela-korvauksen, käyntimaksun ja kanta-maksun. Kampanjan tarkat ehdot ja ohjeet kampanjasivulla terveystalo.com/suunterveystalo.","offer_date":"Varaa viimeistään| 28.10.","artwork_url":"https://placehold.co/1189x525","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1,Lahti","headline_line2":"Olet hyvissä käsissä."}', null, null, ARRAY['pdooh','dooh','digital-signage'], 'true', '6', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null), ('fe1fff31-9fc3-458e-b60a-65abffdb9d92', 'Suun Terveystalo 300x431', 'Portrait medium display banner - Popular for interstitial and sidebar placements', 'display', '300x431', '300', '431', '<!DOCTYPE html>
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
@@ -1208,7 +1213,8 @@ setTimeout(function() {
         .Pricetag svg { position: absolute; left: 0; top: 0; z-index: 0; }
         .Pricetag-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding-top: 8px; }
         .HammasTarkast { width: 75px; text-align: center; color: #0046AD; font-size: 10px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 10.34px; word-wrap: break-word; }
-        .Price { width: 66px; height: 37px; text-align: center; justify-content: center; display: flex; flex-direction: column; color: #0046AD; font-size: 32px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price { width: 66px; height: 37px; text-align: center; justify-content: center; display: flex; flex-direction: row; align-items: flex-end; color: #0046AD; font-size: 32px; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; font-weight: 700; word-wrap: break-word; }
+        .Price-currency { font-size: 12px; align-self: flex-end; margin-left: 1px; }
         .VaronViimcist { width: 67px; text-align: center; color: #0046AD; font-size: 8px; font-family: "Terveystalo Sans", sans-serif; font-weight: 700; line-height: 9.38px; word-wrap: break-word; }
         .SujuvampaaSuunt { width: 95%; height: 45px; left: 2.5%; top: 90px; position: absolute; text-align: center; justify-content: center; display: flex; flex-direction: column; color: white; font-size: 17px; font-weight: 400; line-height: 20px; }
         .OletHyvissKS { width: 95%; height: 32px; left: 2.5%; top: 55px; position: absolute; text-align: center; justify-content: center; display: flex; flex-direction: column; color: white; font-size: 28px; font-weight: 700; font-family: "Terveystalo Sans Display", "Terveystalo Sans", sans-serif; }
@@ -1233,7 +1239,7 @@ setTimeout(function() {
                 </svg>
                 <div class="Pricetag-content">
                     <div class="HammasTarkast">{{offer_title}}</div>
-                    <div class="Price">{{price}}€</div>
+                    <div class="Price">{{price}}<span class="Price-currency">€</span></div>
                     <div class="VaronViimcist">{{offer_date}}</div>
                 </div>
             </div>
@@ -1243,4 +1249,27 @@ setTimeout(function() {
         </div>
     </div>
 </body>
-</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko (yläosa)","required":true,"maxLength":30},{"key":"headline_line2","type":"text","label":"Otsikko (alaosa)","required":true,"maxLength":50},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":80},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.","logo_url":"https://placehold.co/164x22","image_url":"https://placehold.co/300x431","offer_date":"Varon viimeistään| 28.10.","artwork_url":"https://placehold.co/326x144","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1, Lahti","headline_line2":"Olet hyvissä käsissä."}', null, null, ARRAY["display","portrait","medium"], 'true', '2', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null);
+</html>', null, null, '[{"key":"headline","type":"text","label":"Otsikko (yläosa)","required":true,"maxLength":30},{"key":"headline_line2","type":"text","label":"Otsikko (alaosa)","required":true,"maxLength":50},{"key":"subheadline","type":"text","label":"Alaotsikko","required":false,"maxLength":80},{"key":"offer_title","type":"text","label":"Tarjouksen otsikko","required":true,"maxLength":30},{"key":"price","type":"text","label":"Hinta","required":true,"maxLength":5},{"key":"offer_date","type":"text","label":"Tarjouspäivä","required":false,"maxLength":50},{"key":"cta_text","type":"text","label":"CTA teksti","required":true,"maxLength":20},{"key":"branch_address","type":"text","label":"Toimipisteen osoite","required":false,"maxLength":50},{"key":"image_url","type":"image","label":"Taustakuva URL","required":true},{"key":"artwork_url","type":"image","label":"Artwork URL","required":false},{"key":"logo_url","type":"image","label":"Logo URL","required":true}]', '{"price":"49","cta_text":"Varaa aika","headline":"Hymyile.","logo_url":"https://placehold.co/164x22","image_url":"https://placehold.co/300x431","offer_date":"Varon viimeistään| 28.10.","artwork_url":"https://placehold.co/326x144","offer_title":"Hammas-| tarkastus","subheadline":"Sujuvampaa suunterveyttä|Lahden Suun Terveystalossa.","branch_address":"Torikatu 1, Lahti","headline_line2":"Olet hyvissä käsissä."}', null, null, ARRAY['display','portrait','medium'], 'true', '2', '2026-03-12 16:53:16.995269+00', '2026-03-12 16:53:16.995269+00', null, null, 'false', null, null)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  type = EXCLUDED.type,
+  size = EXCLUDED.size,
+  width = EXCLUDED.width,
+  height = EXCLUDED.height,
+  html_template = EXCLUDED.html_template,
+  css_styles = EXCLUDED.css_styles,
+  js_scripts = EXCLUDED.js_scripts,
+  placeholders = EXCLUDED.placeholders,
+  default_values = EXCLUDED.default_values,
+  preview_url = EXCLUDED.preview_url,
+  thumbnail_url = EXCLUDED.thumbnail_url,
+  tags = EXCLUDED.tags,
+  active = EXCLUDED.active,
+  sort_order = EXCLUDED.sort_order,
+  updated_at = NOW(),
+  category = EXCLUDED.category,
+  editor_state = EXCLUDED.editor_state,
+  is_visual_editor = EXCLUDED.is_visual_editor,
+  canvas_width = EXCLUDED.canvas_width,
+  canvas_height = EXCLUDED.canvas_height;

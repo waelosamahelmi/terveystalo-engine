@@ -120,11 +120,13 @@ const AppRoutes = () => {
             <Login />
           } 
         />
+
+        {/* Reset password - public (user arrives here from email link) */}
+        <Route path="/reset-password" element={<ResetPassword />} />
         
         {/* Protected routes - Layout renders ONCE with Outlet */}
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/branches" element={<Branches />} />
           <Route path="/campaigns" element={<Campaigns />} />
           <Route path="/campaigns/create" element={<CampaignCreate />} />
