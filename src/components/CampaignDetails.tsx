@@ -534,7 +534,91 @@ const CampaignDetails = () => {
 
         <h1 className="text-3xl font-bold text-gray-800 mb-2">{campaign?.name || `Campaign Details: ${campaignId}`}</h1>
         {campaign?.creator?.name && (
-          <p className="text-sm text-gray-500 mb-6">Luonut: {campaign.creator.name}</p>
+          <p className="text-sm text-gray-500 mb-2">Luonut: {campaign.creator.name}</p>
+        )}
+
+        {/* Campaign Information */}
+        {campaign && (
+          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 mb-6">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Kampanjan tiedot</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Status</p>
+                <span className={`inline-block mt-1 px-2 py-0.5 text-xs font-semibold rounded-full ${
+                  campaign.status === 'active' ? 'bg-green-100 text-green-800' :
+                  campaign.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
+                  campaign.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                  'bg-red-100 text-red-800'
+                }`}>{campaign.status}</span>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Palvelu</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.service?.name || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Toimipiste</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.branch?.name || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Kaupunki</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.campaign_city || campaign.branch?.city || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Alkaa</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.campaign_start_date || campaign.start_date || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Päättyy</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.is_ongoing ? 'Jatkuva' : (campaign.campaign_end_date || campaign.end_date || '-')}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Kokonaisbudjetti</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">€{Number(campaign.total_budget || 0).toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Säde</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.campaign_radius || 10} km</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Kanavat</p>
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {campaign.channel_meta && <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">Meta</span>}
+                  {campaign.channel_display && <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">Display</span>}
+                  {campaign.channel_pdooh && <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">PDOOH</span>}
+                  {campaign.channel_audio && <span className="px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 rounded-full">Audio</span>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Budjettijako</p>
+                <div className="text-xs text-gray-700 mt-1 space-y-0.5">
+                  {campaign.channel_meta && <p>Meta: €{Number(campaign.budget_meta || 0).toFixed(0)}</p>}
+                  {campaign.channel_display && <p>Display: €{Number(campaign.budget_display || 0).toFixed(0)}</p>}
+                  {campaign.channel_pdooh && <p>PDOOH: €{Number(campaign.budget_pdooh || 0).toFixed(0)}</p>}
+                  {campaign.channel_audio && <p>Audio: €{Number(campaign.budget_audio || 0).toFixed(0)}</p>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Kohderyhmä</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.target_age_min || 18}–{campaign.target_age_max || 65} v.</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Osoite</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.campaign_address || '-'}</p>
+              </div>
+            </div>
+            {campaign.headline && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Otsikko</p>
+                <p className="text-sm text-gray-900 mt-1">{campaign.headline.replace(/\|/g, ' ')}</p>
+              </div>
+            )}
+            {campaign.landing_url && (
+              <div className="mt-2">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Landing URL</p>
+                <a href={campaign.landing_url} target="_blank" rel="noopener noreferrer" className="text-sm text-purple-600 hover:underline mt-1 block truncate">{campaign.landing_url}</a>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Summary Cards */}
