@@ -256,7 +256,8 @@ async function updateBtCampaign(
   const totalChannelBudget = channelType === 'DISPLAY'
     ? (campaign.budget_display || 0)
     : (campaign.budget_pdooh || 0);
-  const branchIds: string[] = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  const rawIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  const branchIds: string[] = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
   const budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
 
   const startDate = formatDateForBT(campaign.campaign_start_date || campaign.start_date);

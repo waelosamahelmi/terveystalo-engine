@@ -634,8 +634,17 @@ export async function addDentalCampaignToSheet(
       return true;
     }
 
+    // Helper to parse IDs that may be JSON strings or actual arrays
+    const parseIds = (val: unknown): string[] => {
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'string') {
+        try { const parsed = JSON.parse(val); if (Array.isArray(parsed)) return parsed; } catch {}
+      }
+      return [];
+    };
+
     // Fetch excluded branches data for the exclusion column
-    const excludedBranchIds = (campaign as any).excluded_branch_ids || [];
+    const excludedBranchIds = parseIds((campaign as any).excluded_branch_ids);
     let excludedBranchesData: Array<{ address: string; city: string }> = [];
     if (excludedBranchIds.length > 0) {
       const excludedBranches = await fetchBranchesByIds(excludedBranchIds);
@@ -643,8 +652,8 @@ export async function addDentalCampaignToSheet(
     }
 
     // Fetch all branches and services for this campaign
-    const branchIds: string[] = (campaign as any).branch_ids || [];
-    const serviceIds: string[] = (campaign as any).service_ids || [];
+    const branchIds: string[] = parseIds((campaign as any).branch_ids);
+    const serviceIds: string[] = parseIds((campaign as any).service_ids);
     const allBranches = branchIds.length > 0 ? await fetchBranchesByIds(branchIds) : [];
     const allServices = serviceIds.length > 0 ? await fetchServicesByIds(serviceIds) : [];
 

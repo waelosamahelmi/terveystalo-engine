@@ -524,7 +524,8 @@ async function createBtCampaignForBranch(
   const totalChannelBudget = channelType === 'DISPLAY'
     ? (campaign.budget_display || 0)
     : (campaign.budget_pdooh || 0);
-  const branchIds: string[] = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  const rawIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  const branchIds: string[] = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
   const budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
 
   if (budgetPerBranch <= 0) {
@@ -680,7 +681,8 @@ async function createBtCampaignForBranch(
   const lng = branch.coordinates?.lng || branch.longitude || campaign.campaign_coordinates?.lng || 0;
 
   // Per-branch radius: from branch_radius_settings (km), fall back to campaign_radius (already in km)
-  const branchRadiusSettings = campaign.branch_radius_settings || {};
+  const rawRadiusSettings = campaign.branch_radius_settings || {};
+  const branchRadiusSettings = typeof rawRadiusSettings === 'string' ? JSON.parse(rawRadiusSettings) : rawRadiusSettings;
   const branchRadiusSetting = branchRadiusSettings[branch.id];
   const radiusKm = branchRadiusSetting?.radius
     || campaign.campaign_radius
@@ -791,8 +793,9 @@ async function createBidTheatreCampaign(campaign: any) {
     return { success: true, message: 'No BidTheatre channels selected' };
   }
 
-  // Fetch branches for this campaign
-  const branchIds: string[] = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  // Fetch branches for this campaign (branch_ids may be a JSON string from DB)
+  const rawBranchIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+  const branchIds: string[] = typeof rawBranchIds === 'string' ? JSON.parse(rawBranchIds) : rawBranchIds;
   if (branchIds.length === 0) {
     return { success: false, error: 'No branches specified for campaign' };
   }

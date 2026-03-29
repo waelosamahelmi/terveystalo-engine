@@ -2376,8 +2376,17 @@ const CampaignCreate = () => {
       }
 
       // Create or update campaign in Supabase
+      // Strip non-DB fields from formData before spreading
+      const {
+        creative_weight_nationwide, creative_weight_local,
+        daily_budget_meta, daily_budget_display, daily_budget_pdooh, daily_budget_audio,
+        target_screens_count, service, branch, excluded_branch_ids,
+        spent_budget, total_impressions, total_clicks, ctr, channels,
+        creator, creatives,
+        ...dbFormData
+      } = formData;
       const campaignPayload = {
-        ...formData,
+        ...dbFormData,
         name: campaignName,
         headline: creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.',
         subheadline: creativeConfig.subheadline || '',
