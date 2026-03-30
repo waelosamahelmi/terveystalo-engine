@@ -3,7 +3,7 @@ import { Campaign, CampaignApartment, Apartment, DentalCampaign, CampaignStatus,
 import { parseISO, format } from 'date-fns';
 import { supabase } from './supabase';
 import type { AdVersionUrls } from './campaignService';
-import { getConjugatedCity, findMatchingBundle } from './metaTemplateVariables';
+import { getConjugatedCity, findMatchingBundle, getBundleForBranch } from './metaTemplateVariables';
 
 // Google Sheets API endpoint
 const SHEETS_API_ENDPOINT = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -342,12 +342,13 @@ function appendUtm(baseUrl: string, utmParams: string): string {
 function formatDentalCampaignRow(
   campaign: DentalCampaign,
   options?: {
-    branchOverride?: { name: string; address: string; postal_code: string; city: string; region?: string; phone?: string };
+    branchOverride?: { name: string; short_name?: string; address: string; postal_code: string; city: string; region?: string; phone?: string };
     serviceOverride?: { name: string; name_fi?: string; code: string; default_price?: string; default_offer_fi?: string };
     budgetOverride?: { total: number; meta: number; display: number; pdooh: number; audio: number };
     excludedBranchesData?: Array<{ address: string; city: string }>;
     creativeUrls?: AdVersionUrls;
     allBranches?: Array<{ name: string; short_name?: string; city: string }>;
+    nationwideAddressMode?: 'with_address' | 'without_address';
   }
 ): string[] {
   const startDate = safeFormatDate(campaign.campaign_start_date || campaign.start_date);
@@ -394,18 +395,29 @@ function formatDentalCampaignRow(
   // Smartly address format: "Streetname X, City, Finland /radius/kilometer"
   const smartlyAddress = formatSmartlyAddress(br?.address, br?.city, radius);
 
-  // Creative address format: "Streetname X, City" or grouped location names for multi-branch
+  // Creative address format depends on nationwide_address_mode
   let creativeAddr = formatCreativeAddress(br?.address, br?.city);
-
-  // Location grouping: if campaign has multiple branches, check for bundle match
   const allBranches = options?.allBranches || [];
-  if (allBranches.length > 1) {
+
+  if (options?.nationwideAddressMode === 'without_address') {
+    // Nationwide without address: no address in creative
+    creativeAddr = '';
+  } else if (options?.nationwideAddressMode === 'with_address' && br) {
+    // Nationwide with address: use bundle address for bundled branches, own address for unbundled
+    const branchLabel = (br as any).short_name || br.name || '';
+    const bundle = getBundleForBranch(branchLabel);
+    if (bundle) {
+      creativeAddr = bundle.bundleAddress;
+    } else {
+      creativeAddr = formatCreativeAddress(br.address, br.city);
+    }
+  } else if (allBranches.length > 1) {
+    // Non-nationwide multi-branch: original bundle matching logic
     const branchNames = allBranches.map(b => b.short_name || b.name || b.city);
     const matchingBundle = findMatchingBundle(branchNames);
     if (matchingBundle) {
       creativeAddr = matchingBundle.bundleAddress;
     } else {
-      // Use short names joined with bullet separator
       const uniqueCities = [...new Set(allBranches.map(b => b.short_name || b.name || b.city))];
       creativeAddr = uniqueCities.join(' \u2022 ');
     }
@@ -694,6 +706,7 @@ export async function addDentalCampaignToSheet(
           rows.push(formatDentalCampaignRow(campaign, {
             branchOverride: {
               name: branch.name,
+              short_name: (branch as any).short_name,
               address: branch.address,
               postal_code: branch.postal_code,
               city: branch.city,
@@ -711,6 +724,7 @@ export async function addDentalCampaignToSheet(
             excludedBranchesData,
             creativeUrls: urls,
             allBranches: branchList.map(b => ({ name: b.name, short_name: (b as any).short_name, city: b.city })),
+            nationwideAddressMode: (campaign as any).nationwide_address_mode || undefined,
           }));
         }
       }

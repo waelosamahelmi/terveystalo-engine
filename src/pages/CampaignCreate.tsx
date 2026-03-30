@@ -10,7 +10,8 @@ import { getCreativeTemplates, renderTemplateHtml } from '../lib/creativeService
 import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore, store } from '../lib/store';
 import { loader } from '../lib/googleMapsLoader';
-import type { Service, Branch, CampaignFormData, CreativeType, AdType, PricingOption, CreativeTemplate } from '../types';
+import type { Service, Branch, CampaignFormData, CreativeType, AdType, PricingOption, NationwideAddressMode, CreativeTemplate } from '../types';
+import { getConjugatedCity, findMatchingBundle, LOCATION_BUNDLES } from '../lib/metaTemplateVariables';
 import { format, addDays, addWeeks, differenceInDays } from 'date-fns';
 import { fi } from 'date-fns/locale';
 import {
@@ -106,97 +107,6 @@ const ToothIcon = ({ size = 24, className = '' }: { size?: number; className?: s
     <path d="M12 2C9.5 2 7.5 3.5 7 5.5C6.5 7.5 6 8.5 5.5 10C4.5 13 5 14.5 5.5 16C6 17.5 6.5 22 8.5 22C10 22 10 19 10.5 17C11 15 11.5 14 12 14C12.5 14 13 15 13.5 17C14 19 14 22 15.5 22C17.5 22 18 17.5 18.5 16C19 14.5 19.5 13 18.5 10C18 8.5 17.5 7.5 17 5.5C16.5 3.5 14.5 2 12 2Z" />
   </svg>
 );
-
-// ============================================================================
-// FINNISH CITY CONJUGATION MAP (genitive/inessive forms)
-// Used for localized ad copy: "Sujuvampaa suunterveyttä [City genitive] Suun Terveystalossa"
-// ============================================================================
-
-const CITY_CONJUGATION: Record<string, string> = {
-  'Lahti': 'Lahden',
-  'Kotka': 'Kotkan',
-  'Loviisa': 'Loviisan',
-  'Iisalmi': 'Iisalmen',
-  'Kuopio': 'Kuopion',
-  'Jyväskylä': 'Jyväskylän',
-  'Jämsä': 'Jämsän',
-  'Mikkeli': 'Mikkelin',
-  'Savonlinna': 'Savonlinnan',
-  'Oulu': 'Oulun',
-  'Sodankylä': 'Sodankylän',
-  'Rovaniemi': 'Rovaniemen',
-  'Pietarsaari': 'Pietarsaaren',
-  'Seinäjoki': 'Seinäjoen',
-  'Pori': 'Porin',
-  'Tampere': 'Tampereen',
-  'Hämeenlinna': 'Hämeenlinnan',
-  'Forssa': 'Forssan',
-  'Loimaa': 'Loimaan',
-  'Turku': 'Turun',
-  'Tikkurila': 'Tikkurilan',
-  'Myyrmäki': 'Myyrmäen',
-  'Leppävaara': 'Leppävaaran',
-  'Iso Omena': 'Iso Omenan',
-  'Lippulaiva': 'Lippulaivan',
-  'Ogeli': 'Ogelin',
-  'Itäkeskus': 'Itäkeskuksen',
-  'Redi': 'Redin',
-  'Kamppi': 'Kampin',
-  'Kirkkonummi': 'Kirkkonummen',
-  'Masala': 'Masalan',
-  'Veikkola': 'Veikkolan',
-  'Lohja': 'Lohjan',
-  'Helsinki': 'Helsingin',
-  'Espoo': 'Espoon',
-  'Vantaa': 'Vantaan',
-  'Oulunkylä': 'Oulunkylän',
-};
-
-// Bundle groups: when all (and only) these locations are selected, use the bundle text
-const LOCATION_BUNDLES: Array<{
-  locations: string[];       // Branch names/short names to match
-  bundleCopy: string;        // Localized copy text
-  bundleAddress: string;     // Location text for creative
-}> = [
-  {
-    locations: ['Masala', 'Veikkola', 'Lohja'],
-    bundleCopy: 'Sujuvampaa suunterveyttä Kirkkonummen Suun Terveystaloissa',
-    bundleAddress: 'Masala \u2022 Veikkola \u2022 Lohja',
-  },
-  {
-    locations: ['Itäkeskus', 'Ogeli', 'Kamppi', 'Redi'],
-    bundleCopy: 'Sujuvampaa suunterveyttä Helsingin Suun Terveystaloissa',
-    bundleAddress: 'Kamppi \u2022 Itäkeskus \u2022 Ogeli \u2022 Redi',
-  },
-  {
-    locations: ['Leppävaara', 'Iso Omena', 'Lippulaiva'],
-    bundleCopy: 'Sujuvampaa suunterveyttä Espoon Suun Terveystaloissa',
-    bundleAddress: 'Leppävaara \u2022 Iso Omena \u2022 Lippulaiva',
-  },
-  {
-    locations: ['Tikkurila', 'Myyrmäki'],
-    bundleCopy: 'Sujuvampaa suunterveyttä Vantaan Suun Terveystaloissa',
-    bundleAddress: 'Tikkurila \u2022 Myyrmäki',
-  },
-];
-
-// Helper: get conjugated city name (genitive form)
-function getConjugatedCity(city: string): string {
-  return CITY_CONJUGATION[city] || `${city}n`; // Fallback: append 'n'
-}
-
-// Helper: check if selected branches match a location bundle
-function findMatchingBundle(branchNames: string[]): typeof LOCATION_BUNDLES[number] | null {
-  const normalizedNames = branchNames.map(n => n.replace('Suun Terveystalo ', '').replace('Terveystalo ', '').trim()).sort();
-  for (const bundle of LOCATION_BUNDLES) {
-    const bundleSorted = [...bundle.locations].sort();
-    if (normalizedNames.length === bundleSorted.length &&
-        normalizedNames.every((n, i) => n === bundleSorted[i])) {
-      return bundle;
-    }
-  }
-  return null;
-}
 
 // ============================================================================
 // TYPES
@@ -988,6 +898,7 @@ const CampaignCreate = () => {
     campaign_radius: 10,
     campaign_coordinates: { lat: 60.1699, lng: 24.9384 },
     creative_type: 'both',
+    nationwide_address_mode: 'with_address',
     creative_weight_nationwide: 50,
     creative_weight_local: 50,
     start_date: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
@@ -2559,9 +2470,9 @@ const CampaignCreate = () => {
                               radiusSettings[b.id] = { radius: 10, enabled: true };
                             });
                             setBranchRadiusSettings(prev => ({ ...prev, ...radiusSettings }));
-                            setFormData({ ...formData, ad_type: type.id, creative_type: type.id, branch_ids: allBranchIds, branch_id: allBranchIds[0] || '' });
+                            setFormData({ ...formData, ad_type: type.id, creative_type: type.id, nationwide_address_mode: 'with_address', branch_ids: allBranchIds, branch_id: allBranchIds[0] || '' });
                           } else {
-                            setFormData({ ...formData, ad_type: type.id, creative_type: type.id, branch_ids: [], branch_id: '' });
+                            setFormData({ ...formData, ad_type: type.id, creative_type: type.id, nationwide_address_mode: undefined, branch_ids: [], branch_id: '' });
                           }
                         }}
                         className={`w-full p-4 rounded-lg border-2 text-left transition-all flex items-center gap-4 ${
@@ -2576,6 +2487,36 @@ const CampaignCreate = () => {
                     );
                   })}
                 </div>
+
+                {/* Nationwide address mode sub-option */}
+                {formData.ad_type === 'nationwide' && (
+                  <div className="mt-4 ml-1">
+                    <p className="text-sm font-medium text-gray-700 mb-2">Osoitteen näyttäminen</p>
+                    <div className="flex gap-2">
+                      {([
+                        { id: 'with_address' as const, label: 'Osoitteella', desc: 'Toimipisteen osoite näkyy mainoksissa' },
+                        { id: 'without_address' as const, label: 'Ilman osoitetta', desc: 'Osoitetta ei näytetä mainoksissa' },
+                      ] as const).map((opt) => {
+                        const isActive = formData.nationwide_address_mode === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, nationwide_address_mode: opt.id }))}
+                            className={`flex-1 p-3 rounded-lg border-2 text-left transition-all ${
+                              isActive
+                                ? 'border-[#00A5B5] bg-[#00A5B5]/10'
+                                : 'border-gray-200 hover:border-[#00A5B5]/50'
+                            }`}
+                          >
+                            <div className={`text-sm font-semibold ${isActive ? 'text-[#00A5B5]' : 'text-gray-700'}`}>{opt.label}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -119,6 +119,7 @@ export type CampaignStatus = 'draft' | 'pending' | 'active' | 'paused' | 'comple
 export type CreativeType = 'nationwide' | 'local' | 'both';
 export type AdType = 'nationwide' | 'local' | 'both';
 export type PricingOption = 'yes' | 'no' | 'both';
+export type NationwideAddressMode = 'with_address' | 'without_address';
 export type Channel = 'meta' | 'display' | 'pdooh' | 'digital_audio';
 export type GenderOption = 'all' | 'male' | 'female' | 'other';
 
@@ -177,6 +178,7 @@ export interface DentalCampaign {
 
   // Ad type and pricing options
   ad_type?: AdType;
+  nationwide_address_mode?: NationwideAddressMode;
   include_pricing?: PricingOption;
 
   // Creative content
@@ -243,6 +245,7 @@ export interface CampaignFormData {
   service_id: string;
   service_ids: string[];
   ad_type?: AdType;
+  nationwide_address_mode?: NationwideAddressMode;
   include_pricing?: PricingOption;
 
   // Step 2: Branch

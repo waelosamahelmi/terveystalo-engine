@@ -14,7 +14,8 @@ import {
 } from './googleSheets';
 
 import { getCreativeTemplates, renderTemplateHtml, fixFontUrls } from './creativeService';
-import { buildMetaTemplateVariables, getConjugatedCity, findMatchingBundle } from './metaTemplateVariables';
+import { buildMetaTemplateVariables, getConjugatedCity, findMatchingBundle, getBundleForBranch, groupBranchesByBundle } from './metaTemplateVariables';
+import type { BranchGroup } from './metaTemplateVariables';
 
 /**
  * BidTheatre creative size limits (IAB standards)
@@ -260,7 +261,9 @@ export async function createCampaignCreatives(
     const serviceMap = new Map(services.map(s => [s.id, s]));
 
     const baseUrl = window.location.origin;
-    const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
+    const isNationwideWithAddress = formData.ad_type === 'nationwide' && formData.nationwide_address_mode === 'with_address';
+    const isNationwideWithoutAddress = formData.ad_type === 'nationwide' && formData.nationwide_address_mode === 'without_address';
+    const showAddress = isNationwideWithAddress || formData.creative_type === 'local' || formData.creative_type === 'both';
 
     // Determine which channel types and sizes to create
     type ChannelSize = { type: 'meta' | 'display' | 'pdooh'; width: number; height: number; folder: string };
@@ -313,12 +316,107 @@ export async function createCampaignCreatives(
       channelHeight: number;
     }> = [];
 
-    // For each branch × service × channel/size — render + upload HTML
-    for (const branchId of branchIds) {
-      const branch = branchMap.get(branchId);
-      if (!branch) continue;
+    // Build creative units: determines how branches are grouped for creative generation
+    // - Nationwide with address: group by bundle (Helsinki/Espoo/Vantaa/Kirkkonummi) + individual unbundled branches
+    // - Nationwide without address: one shared creative for all branches
+    // - Local/other: one creative per branch (original behavior)
+    interface CreativeUnit {
+      unitKey: string;           // unique key for this unit (groupKey or branchId or "shared")
+      unitLabel: string;         // label for folder naming and creative name
+      locationText: string;      // address text shown in creative
+      messageCopy: string;       // subheadline copy
+      representativeBranch: typeof branches[0]; // branch used for city/coords
+      allUnitBranches: typeof branches; // all branches in this unit (for meta variable building)
+      branchIdsToMap: string[];  // all branch IDs whose urlsByAdVersion keys should point to this unit's URLs
+      isMultiLocation: boolean;
+      showAddr: boolean;
+    }
 
-      // urlsByAdVersion is initialized per branch::service below
+    const creativeUnits: CreativeUnit[] = [];
+    const sanitize = (s: string) => s
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+
+    if (isNationwideWithAddress) {
+      // Group branches by bundle membership
+      const groups = groupBranchesByBundle(branches);
+      for (const group of groups) {
+        const repBranch = group.branches[0];
+        creativeUnits.push({
+          unitKey: group.groupKey,
+          unitLabel: group.groupLabel,
+          locationText: group.bundleAddress,
+          messageCopy: group.bundleCopy,
+          representativeBranch: repBranch,
+          allUnitBranches: group.branches,
+          branchIdsToMap: group.branchIds,
+          isMultiLocation: group.isBundle,
+          showAddr: true,
+        });
+      }
+    } else if (isNationwideWithoutAddress) {
+      // One shared creative for all branches (no address)
+      const repBranch = branches[0];
+      creativeUnits.push({
+        unitKey: 'shared',
+        unitLabel: 'Valtakunnallinen',
+        locationText: '',
+        messageCopy: 'Sujuvampaa suunterveyttä Suun Terveystaloissa.',
+        representativeBranch: repBranch,
+        allUnitBranches: branches,
+        branchIdsToMap: branchIds,
+        isMultiLocation: true,
+        showAddr: false,
+      });
+    } else {
+      // Local/per-branch: one creative per branch (original behavior)
+      for (const branchId of branchIds) {
+        const branch = branchMap.get(branchId);
+        if (!branch) continue;
+        const isMultiLocation = branches.length > 1;
+        const branchNamesForBundle = branches.map(b => (b as any).short_name || b.name || b.city);
+        const matchingBundle = isMultiLocation ? findMatchingBundle(branchNamesForBundle) : null;
+        const city = branch.city || '';
+        const address = branch.address || '';
+        let locText: string;
+        if (matchingBundle) {
+          locText = matchingBundle.bundleAddress;
+        } else if (isMultiLocation) {
+          const uniqueCities = [...new Set(branches.map(b => (b as any).short_name || b.city))].sort();
+          locText = uniqueCities.join(' \u2022 ');
+        } else {
+          locText = address ? `${address}, ${city}` : city;
+        }
+        let msgText = '';
+        if (matchingBundle) {
+          msgText = matchingBundle.bundleCopy;
+        } else if (isMultiLocation) {
+          msgText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+        } else {
+          const cityConj = city ? getConjugatedCity(city) : '';
+          msgText = cityConj
+            ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
+            : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+        }
+        creativeUnits.push({
+          unitKey: branchId,
+          unitLabel: branch.city || branch.short_name || branch.name,
+          locationText: locText,
+          messageCopy: msgText,
+          representativeBranch: branch,
+          allUnitBranches: branches,
+          branchIdsToMap: [branchId],
+          isMultiLocation,
+          showAddr: showAddress,
+        });
+      }
+    }
+
+    // For each creative unit × service × channel/size — render + collect upload items
+    for (const unit of creativeUnits) {
+      const branch = unit.representativeBranch;
 
       for (const serviceId of serviceIds) {
         const service = serviceMap.get(serviceId);
@@ -326,14 +424,7 @@ export async function createCampaignCreatives(
 
         const serviceName = service.name_fi || service.name;
         const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
-        const branchLabel = branch.city || branch.short_name || branch.name;
-        // Sanitize for storage path (ASCII-safe)
-        const sanitize = (s: string) => s
-          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-zA-Z0-9-]/g, '_')
-          .replace(/_+/g, '_')
-          .replace(/^_|_$/g, '');
-        const adFolder = `${sanitize(branchLabel)} - ${sanitize(serviceName)}`;
+        const adFolder = `${sanitize(unit.unitLabel)} - ${sanitize(serviceName)}`;
 
         for (const cs of channelSizes) {
           const sizeStr = `${cs.width}x${cs.height}`;
@@ -358,7 +449,7 @@ export async function createCampaignCreatives(
             vars = buildMetaTemplateVariables({
               branch,
               service,
-              allBranches: branches,
+              allBranches: unit.allUnitBranches,
               allServices: services,
               formData: {
                 headline: formData.headline,
@@ -366,7 +457,7 @@ export async function createCampaignCreatives(
                 offer_text: formData.service_prices?.[serviceId] || formData.offer_text,
                 cta_text: formData.cta_text,
                 general_brand_message: formData.general_brand_message,
-                creative_type: formData.creative_type,
+                creative_type: unit.showAddr ? 'local' : formData.creative_type,
                 campaign_address: formData.campaign_address,
                 background_image_url: formData.background_image_url,
                 landing_url: formData.landing_url,
@@ -378,15 +469,9 @@ export async function createCampaignCreatives(
               isSplitTemplate,
             });
           } else {
-            // Build per-branch/per-service variables for display/pdooh
-            // This must match the preview in CampaignCreate.tsx buildTemplateVariables
-            const serviceName = service.name_fi || service.name;
+            // Build per-unit variables for display/pdooh
             const servicePrice = (formData.service_prices?.[serviceId] || (service.default_price || '').replace(/€/g, '').trim());
-
-            // Headline — preserve | separator for <br> conversion in renderTemplateHtml
             const headlineText = formData.headline || 'Hymyile.|Olet hyvissä käsissä.';
-
-            // Check if template uses split structure
             const isSplitTemplate = template.html_template.includes('{{headline_line2}}');
             let headlineValue: string;
             let headlineLine2Value: string | undefined;
@@ -399,34 +484,14 @@ export async function createCampaignCreatives(
               headlineLine2Value = undefined;
             }
 
-            // Subheadline / message text — must use conjugated city like preview
-            // Check for location bundle match (e.g., Helsinki group, Espoo group)
-            const isMultiLocation = branches.length > 1;
-            const branchNamesForBundle = branches.map(b => (b as any).short_name || b.name || b.city);
-            const matchingBundle = isMultiLocation ? findMatchingBundle(branchNamesForBundle) : null;
-
             let messageText = formData.subheadline;
             if (!messageText) {
-              if (matchingBundle) {
-                messageText = matchingBundle.bundleCopy;
-              } else if (isGeneralBrandMessage) {
-                if (isMultiLocation) {
-                  messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
-                } else {
-                  const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-                  messageText = cityConj
-                    ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
-                    : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
-                }
+              if (isGeneralBrandMessage) {
+                messageText = unit.isMultiLocation
+                  ? 'Sujuvampaa suunterveyttä Suun Terveystaloissa.'
+                  : unit.messageCopy;
               } else {
-                if (isMultiLocation) {
-                  messageText = 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
-                } else {
-                  const cityConj = branch.city ? getConjugatedCity(branch.city) : '';
-                  messageText = cityConj
-                    ? `Sujuvampaa suunterveyttä ${cityConj} Suun Terveystalossa.`
-                    : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
-                }
+                messageText = unit.messageCopy;
               }
             }
 
@@ -448,27 +513,17 @@ export async function createCampaignCreatives(
 
             const priceValue = isGeneralBrandMessage ? '' : (servicePrice || formData.offer_text || '49');
             const city = branch.city || '';
-            const address = branch.address || '';
-            let locationText: string;
-            if (matchingBundle) {
-              locationText = matchingBundle.bundleAddress;
-            } else if (isMultiLocation) {
-              const uniqueCities = [...new Set(branches.map(b => (b as any).short_name || b.city))].sort();
-              locationText = uniqueCities.join(' \u2022 ');
-            } else {
-              locationText = address ? `${address}, ${city}` : city;
-            }
 
-            // Scene 3 text lines (for PDOOH and Meta-style templates)
-            const bundleCityConj = matchingBundle
-              ? matchingBundle.bundleCopy.match(/suunterveyttä\s+(\S+)/)?.[1] || (city ? getConjugatedCity(city) : 'Oulun')
+            // Scene 3 text lines
+            const bundleCityConj = unit.isMultiLocation
+              ? (unit.messageCopy.match(/suunterveyttä\s+(\S+)/)?.[1] || (city ? getConjugatedCity(city) : 'Oulun'))
               : (city ? getConjugatedCity(city) : 'Oulun');
             const scene3Vars: Record<string, string> = {
               scene3_line1: 'Sujuvampaa',
               scene3_line2: 'suun',
               scene3_line3: 'terveyttä',
               scene3_line4: bundleCityConj,
-              scene3_line5: matchingBundle ? 'Suun Terveystaloissa.' : 'Suun Terveystalossa.',
+              scene3_line5: unit.isMultiLocation ? 'Suun Terveystaloissa.' : 'Suun Terveystalossa.',
             };
 
             vars = {
@@ -481,7 +536,7 @@ export async function createCampaignCreatives(
               price: priceValue,
               currency: '€',
               cta_text: cs.type === 'pdooh' ? '' : (formData.cta_text || 'Varaa aika'),
-              branch_address: showAddress ? locationText : '',
+              branch_address: unit.showAddr ? unit.locationText : '',
               city_name: city || 'Helsinki',
               ...scene3Vars,
               logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
@@ -519,7 +574,7 @@ export async function createCampaignCreatives(
             html = html.replace('</head>',
               '<style>.Pricetag, .Price, .HammasTarkast, .HammasTarkastu, .VaronViimcist, .pricetag, .price-bubble, .price-badge-wrap, .disclaimer { display: none !important; }</style></head>');
           }
-          if (!showAddress) {
+          if (!unit.showAddr) {
             html = html.replace('</head>',
               '<style>.address, .Torikatu1Laht, .Torikatu1Lahti, .branch_address, .scene-4-address { display: none !important; }</style></head>');
           }
@@ -537,12 +592,15 @@ export async function createCampaignCreatives(
 
           // Collect upload item for batch upload via Netlify function
           const storagePath = `campaigns/${campaignId}/${adFolder}/${cs.folder}/${sizeStr}.html`;
-          const creativeName = `${branchLabel} - ${serviceName} - ${sizeStr}`;
+          const creativeName = `${unit.unitLabel} - ${serviceName} - ${sizeStr}`;
 
-          // Ensure ad version entry exists
-          const adVersionKey = `${branchId}::${serviceId}`;
-          if (!urlsByAdVersion[adVersionKey]) {
-            urlsByAdVersion[adVersionKey] = {};
+          // Use the first branch ID in the unit as the primary key for upload tracking
+          const primaryBranchId = unit.branchIdsToMap[0];
+
+          // Ensure ad version entry exists for the unit key
+          const unitAdKey = `${unit.unitKey}::${serviceId}`;
+          if (!urlsByAdVersion[unitAdKey]) {
+            urlsByAdVersion[unitAdKey] = {};
           }
 
           uploadItems.push({
@@ -557,7 +615,7 @@ export async function createCampaignCreatives(
               width: cs.width,
               height: cs.height,
             },
-            branchId,
+            branchId: primaryBranchId,
             serviceId,
             channelType: cs.type,
             channelWidth: cs.width,
@@ -596,8 +654,10 @@ export async function createCampaignCreatives(
             const result = results[j];
             const item = batch[j];
             if (result.success && result.publicUrl) {
-              // Track URLs per ad version (branch × service)
-              const avKey = `${item.branchId}::${item.serviceId}`;
+              // Find the creative unit this item belongs to
+              const matchingUnit = creativeUnits.find(u => u.branchIdsToMap.includes(item.branchId));
+              const unitKey = matchingUnit ? matchingUnit.unitKey : item.branchId;
+              const avKey = `${unitKey}::${item.serviceId}`;
               if (!urlsByAdVersion[avKey]) urlsByAdVersion[avKey] = {};
               const av = urlsByAdVersion[avKey];
 
@@ -625,6 +685,21 @@ export async function createCampaignCreatives(
         }
       }
     }
+
+    // Map unit-keyed URLs to individual branchId::serviceId keys for downstream consumers (sheets, BT)
+    for (const unit of creativeUnits) {
+      for (const serviceId of serviceIds) {
+        const unitUrls = urlsByAdVersion[`${unit.unitKey}::${serviceId}`];
+        if (!unitUrls) continue;
+        for (const branchId of unit.branchIdsToMap) {
+          const branchKey = `${branchId}::${serviceId}`;
+          if (!urlsByAdVersion[branchKey]) {
+            urlsByAdVersion[branchKey] = { ...unitUrls };
+          }
+        }
+      }
+    }
+
     // Update campaign record with first available meta URLs (non-blocking — columns may not exist yet)
     const firstAdVersion = Object.values(urlsByAdVersion)[0];
     if (firstAdVersion) {
@@ -716,6 +791,7 @@ export async function createCampaign(
 
     // New fields for campaign redesign
     ad_type: formData.ad_type,
+    nationwide_address_mode: formData.nationwide_address_mode || null,
     include_pricing: formData.include_pricing,
     target_age_min: formData.target_age_min,
     target_age_max: formData.target_age_max,

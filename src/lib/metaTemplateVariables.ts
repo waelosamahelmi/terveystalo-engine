@@ -7,18 +7,27 @@
 // Finnish city name conjugation (genitive form)
 const CITY_CONJUGATION: Record<string, string> = {
   'Lahti': 'Lahden',
-  'Oulu': 'Oulun',
-  'Turku': 'Turun',
-  'Tampere': 'Tampereen',
-  'Jyväskylä': 'Jyväskylän',
-  'Kuopio': 'Kuopion',
-  'Joensuu': 'Joensuun',
-  'Lappeenranta': 'Lappeenrannan',
-  'Rovaniemi': 'Rovaniemen',
-  'Hämeenlinna': 'Hämeenlinnan',
-  'Seinäjoki': 'Seinäjoen',
-  'Kokkola': 'Kokkolan',
+  'Kotka': 'Kotkan',
+  'Loviisa': 'Loviisan',
   'Iisalmi': 'Iisalmen',
+  'Kuopio': 'Kuopion',
+  'Jyväskylä': 'Jyväskylän',
+  'Jämsä': 'Jämsän',
+  'Mikkeli': 'Mikkelin',
+  'Savonlinna': 'Savonlinnan',
+  'Oulu': 'Oulun',
+  'Sodankylä': 'Sodankylän',
+  'Rovaniemi': 'Rovaniemen',
+  'Pietarsaari': 'Pietarsaaren',
+  'Seinäjoki': 'Seinäjoen',
+  'Pori': 'Porin',
+  'Tampere': 'Tampereen',
+  'Hämeenlinna': 'Hämeenlinnan',
+  'Forssa': 'Forssan',
+  'Loimaa': 'Loimaan',
+  'Turku': 'Turun',
+  'Tikkurila': 'Tikkurilan',
+  'Myyrmäki': 'Myyrmäen',
   'Leppävaara': 'Leppävaaran',
   'Iso Omena': 'Iso Omenan',
   'Lippulaiva': 'Lippulaivan',
@@ -33,6 +42,9 @@ const CITY_CONJUGATION: Record<string, string> = {
   'Helsinki': 'Helsingin',
   'Espoo': 'Espoon',
   'Vantaa': 'Vantaan',
+  'Joensuu': 'Joensuun',
+  'Lappeenranta': 'Lappeenrannan',
+  'Kokkola': 'Kokkolan',
   'Oulunkylä': 'Oulunkylän',
 };
 
@@ -41,27 +53,33 @@ export function getConjugatedCity(city: string): string {
 }
 
 // Bundle groups: when all (and only) these locations are selected, use the bundle text
-const LOCATION_BUNDLES: Array<{
+// bundleName is used as the creative folder label and for BidTheatre creative matching
+export const LOCATION_BUNDLES: Array<{
+  bundleName: string;
   locations: string[];
   bundleCopy: string;
   bundleAddress: string;
 }> = [
   {
+    bundleName: 'Kirkkonummi',
     locations: ['Masala', 'Veikkola', 'Lohja'],
     bundleCopy: 'Sujuvampaa suunterveyttä Kirkkonummen Suun Terveystaloissa',
     bundleAddress: 'Masala \u2022 Veikkola \u2022 Lohja',
   },
   {
+    bundleName: 'Helsinki',
     locations: ['Itäkeskus', 'Ogeli', 'Kamppi', 'Redi'],
     bundleCopy: 'Sujuvampaa suunterveyttä Helsingin Suun Terveystaloissa',
     bundleAddress: 'Kamppi \u2022 Itäkeskus \u2022 Ogeli \u2022 Redi',
   },
   {
+    bundleName: 'Espoo',
     locations: ['Leppävaara', 'Iso Omena', 'Lippulaiva'],
     bundleCopy: 'Sujuvampaa suunterveyttä Espoon Suun Terveystaloissa',
     bundleAddress: 'Leppävaara \u2022 Iso Omena \u2022 Lippulaiva',
   },
   {
+    bundleName: 'Vantaa',
     locations: ['Tikkurila', 'Myyrmäki'],
     bundleCopy: 'Sujuvampaa suunterveyttä Vantaan Suun Terveystaloissa',
     bundleAddress: 'Tikkurila \u2022 Myyrmäki',
@@ -78,6 +96,86 @@ export function findMatchingBundle(branchNames: string[]): typeof LOCATION_BUNDL
     }
   }
   return null;
+}
+
+/** Find which bundle a single branch belongs to (by short_name or name). */
+export function getBundleForBranch(branchName: string): typeof LOCATION_BUNDLES[number] | null {
+  const normalized = branchName
+    .replace('Suun Terveystalo ', '')
+    .replace('Terveystalo ', '')
+    .trim();
+  for (const bundle of LOCATION_BUNDLES) {
+    if (bundle.locations.includes(normalized)) {
+      return bundle;
+    }
+  }
+  return null;
+}
+
+/** A group of branches that share a creative (either a bundle group or a single unbundled branch). */
+export interface BranchGroup {
+  groupKey: string;
+  groupLabel: string;
+  bundleAddress: string;
+  bundleCopy: string;
+  branchIds: string[];
+  branches: Array<{ id: string; name: string; short_name?: string; address: string; city: string }>;
+  isBundle: boolean;
+}
+
+/** Group branches by bundle membership. Bundled branches are grouped together; unbundled branches each form their own group. */
+export function groupBranchesByBundle(
+  branches: Array<{ id: string; name: string; short_name?: string; address: string; city: string }>
+): BranchGroup[] {
+  const bundleMap = new Map<string, { bundle: typeof LOCATION_BUNDLES[number]; branches: typeof branches }>();
+  const unbundled: typeof branches = [];
+
+  for (const branch of branches) {
+    const label = branch.short_name || branch.name;
+    const bundle = getBundleForBranch(label);
+    if (bundle) {
+      const existing = bundleMap.get(bundle.bundleName);
+      if (existing) {
+        existing.branches.push(branch);
+      } else {
+        bundleMap.set(bundle.bundleName, { bundle, branches: [branch] });
+      }
+    } else {
+      unbundled.push(branch);
+    }
+  }
+
+  const groups: BranchGroup[] = [];
+
+  for (const [bundleName, { bundle, branches: bundleBranches }] of bundleMap) {
+    groups.push({
+      groupKey: `bundle-${bundleName}`,
+      groupLabel: bundleName,
+      bundleAddress: bundle.bundleAddress,
+      bundleCopy: bundle.bundleCopy,
+      branchIds: bundleBranches.map(b => b.id),
+      branches: bundleBranches,
+      isBundle: true,
+    });
+  }
+
+  for (const branch of unbundled) {
+    const city = branch.city || '';
+    const address = branch.address || '';
+    groups.push({
+      groupKey: branch.id,
+      groupLabel: branch.short_name || branch.city || branch.name,
+      bundleAddress: address ? `${address}, ${city}` : city,
+      bundleCopy: city
+        ? `Sujuvampaa suunterveyttä ${getConjugatedCity(city)} Suun Terveystalossa.`
+        : 'Sujuvampaa suunterveyttä Suun Terveystalossa.',
+      branchIds: [branch.id],
+      branches: [branch],
+      isBundle: false,
+    });
+  }
+
+  return groups;
 }
 
 export interface MetaVariableBuildParams {

@@ -56,6 +56,28 @@ const PDOOH_AD_GROUPS = [
 ];
 
 // ============================================================================
+// LOCATION BUNDLES (mirrored from src/lib/metaTemplateVariables.ts)
+// ============================================================================
+
+const LOCATION_BUNDLES = [
+  { bundleName: 'Kirkkonummi', locations: ['Masala', 'Veikkola', 'Lohja'] },
+  { bundleName: 'Helsinki', locations: ['Itäkeskus', 'Ogeli', 'Kamppi', 'Redi'] },
+  { bundleName: 'Espoo', locations: ['Leppävaara', 'Iso Omena', 'Lippulaiva'] },
+  { bundleName: 'Vantaa', locations: ['Tikkurila', 'Myyrmäki'] },
+];
+
+function getBundleForBranch(branchName: string): typeof LOCATION_BUNDLES[number] | null {
+  const normalized = branchName
+    .replace('Suun Terveystalo ', '')
+    .replace('Terveystalo ', '')
+    .trim();
+  for (const bundle of LOCATION_BUNDLES) {
+    if (bundle.locations.includes(normalized)) return bundle;
+  }
+  return null;
+}
+
+// ============================================================================
 // UTM & NAMING HELPERS
 // ============================================================================
 
@@ -315,7 +337,8 @@ async function getOrCreateGeoTarget(
 async function fetchCreativesForBranch(
   campaignId: string,
   channel: 'display' | 'pdooh',
-  branchLabel: string
+  branchLabel: string,
+  nationwideAddressMode?: string
 ) {
   const { data, error } = await supabase
     .from('creatives')
@@ -331,15 +354,25 @@ async function fetchCreativesForBranch(
 
   if (!data || data.length === 0) return [];
 
-  // Filter creatives belonging to this branch by name pattern
-  const branchLower = branchLabel.toLowerCase();
-  const branchCreatives = data.filter(c => {
-    const name = (c.name || '').toLowerCase();
-    return name.includes(branchLower);
-  });
+  // Nationwide without address: all branches share the same "Valtakunnallinen" creatives
+  if (nationwideAddressMode === 'without_address') {
+    return data;
+  }
 
-  // If no branch-specific creatives found, return all (fallback for nationwide)
-  return branchCreatives.length > 0 ? branchCreatives : data;
+  // Nationwide with address: match by bundle name (e.g., "Helsinki") or branch label
+  let searchLabel = branchLabel;
+  if (nationwideAddressMode === 'with_address') {
+    const bundle = getBundleForBranch(branchLabel);
+    if (bundle) {
+      searchLabel = bundle.bundleName;
+    }
+  }
+
+  const searchLower = searchLabel.toLowerCase();
+  const filtered = data.filter(c => (c.name || '').toLowerCase().includes(searchLower));
+
+  // If no match found, return all (fallback)
+  return filtered.length > 0 ? filtered : data;
 }
 
 /**
@@ -575,7 +608,8 @@ async function createBtCampaignForBranch(
   const creatives = await fetchCreativesForBranch(
     campaign.id,
     channelType.toLowerCase() as 'display' | 'pdooh',
-    branchName
+    branchName,
+    campaign.nationwide_address_mode
   );
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
