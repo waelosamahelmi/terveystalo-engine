@@ -3870,18 +3870,6 @@ const CampaignCreate = () => {
                               </div>
                               <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                                  Alateksti (hintalapussa)
-                                </label>
-                                <textarea
-                                  rows={2}
-                                  value={creativeConfig.offerSubtitle.replace(/\|/g, '\n')}
-                                  onChange={(e) => setCreativeConfig({ ...creativeConfig, offerSubtitle: e.target.value.replace(/\n/g, '|') })}
-                                  placeholder="uusille asiakkaille"
-                                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-[#00A5B5] focus:ring-2 focus:ring-[#00A5B5]/20 outline-none transition-all resize-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1.5">
                                   Voimassaoloaika
                                 </label>
                                 <textarea
@@ -4086,6 +4074,7 @@ const CampaignCreate = () => {
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                               Pääviesti (Primary Text) <span className="text-red-500">*</span>
+                              <span className="text-xs font-normal text-gray-400 ml-2">50–150 merkkiä ({creativeConfig.metaPrimaryText.length})</span>
                             </label>
                             <AutoExpandTextarea
                               value={creativeConfig.metaPrimaryText}
@@ -4102,12 +4091,14 @@ const CampaignCreate = () => {
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                               Otsikko (Headline) <span className="text-red-500">*</span>
+                              <span className="text-xs font-normal text-gray-400 ml-2">max 27 merkkiä ({creativeConfig.metaHeadline.length})</span>
                             </label>
                             <input
                               type="text"
                               value={creativeConfig.metaHeadline}
                               onChange={(e) => setCreativeConfig({ ...creativeConfig, metaHeadline: e.target.value })}
                               placeholder="Hammastarkastus alk. 49€"
+                              maxLength={27}
                               className={`w-full px-4 py-3 text-sm rounded-xl border outline-none transition-all ${
                                 !creativeConfig.metaHeadline
                                   ? 'border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-200'
@@ -4121,12 +4112,14 @@ const CampaignCreate = () => {
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                               Kuvaus (Description) <span className="text-red-500">*</span>
+                              <span className="text-xs font-normal text-gray-400 ml-2">max 30 merkkiä ({creativeConfig.metaDescription.length})</span>
                             </label>
                             <input
                               type="text"
                               value={creativeConfig.metaDescription}
                               onChange={(e) => setCreativeConfig({ ...creativeConfig, metaDescription: e.target.value })}
                               placeholder="Varaa aika helposti verkossa"
+                              maxLength={30}
                               className={`w-full px-4 py-3 text-sm rounded-xl border outline-none transition-all ${
                                 !creativeConfig.metaDescription
                                   ? 'border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-200'
