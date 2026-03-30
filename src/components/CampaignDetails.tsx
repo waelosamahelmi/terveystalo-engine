@@ -122,11 +122,44 @@ const CampaignDetails = () => {
   const { campaignId } = useParams<{ campaignId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { campaigns } = useStore();
+  const { campaigns, branches: allBranches, services: allServices } = useStore();
   const campaign = campaigns.find(c => c.id === campaignId);
+
+  // Resolve branch_ids and service_ids to full objects
+  const campaignBranchIds: string[] = useMemo(() => {
+    const raw = (campaign as any)?.branch_ids;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') { try { const p = JSON.parse(raw); if (Array.isArray(p)) return p; } catch {} }
+    return campaign?.branch?.id ? [campaign.branch.id] : [];
+  }, [campaign]);
+
+  const campaignServiceIds: string[] = useMemo(() => {
+    const raw = (campaign as any)?.service_ids;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') { try { const p = JSON.parse(raw); if (Array.isArray(p)) return p; } catch {} }
+    return campaign?.service?.id ? [campaign.service.id] : [];
+  }, [campaign]);
+
+  const campaignBranches = useMemo(() =>
+    allBranches.filter(b => campaignBranchIds.includes(b.id)),
+    [allBranches, campaignBranchIds]
+  );
+
+  const campaignServices = useMemo(() =>
+    allServices.filter(s => campaignServiceIds.includes(s.id)),
+    [allServices, campaignServiceIds]
+  );
+
+  const branchRadiusSettings: Record<string, { radius: number; enabled: boolean }> = useMemo(() => {
+    const raw = (campaign as any)?.branch_radius_settings;
+    if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
+    return raw || {};
+  }, [campaign]);
   const { spendData } = location.state || {};
   const [tabIndex, setTabIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [creatives, setCreatives] = useState<any[]>([]);
+  const [creativesLoading, setCreativesLoading] = useState(false);
   const [displayStats, setDisplayStats] = useState<CampaignStats[]>([]);
   const [pdoohStats, setPdoohStats] = useState<CampaignStats[]>([]);
   const [displayDevices, setDisplayDevices] = useState<DeviceStats[]>([]);
@@ -316,6 +349,21 @@ const CampaignDetails = () => {
     console.log('useEffect: Fetching campaign stats', { campaignId, selectedMonth });
     fetchCampaignStats();
   }, [fetchCampaignStats, campaignId, selectedMonth]);
+
+  // Fetch creatives for this campaign
+  useEffect(() => {
+    if (!campaignId) return;
+    setCreativesLoading(true);
+    supabase
+      .from('creatives')
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .order('name')
+      .then(({ data }) => {
+        setCreatives(data || []);
+        setCreativesLoading(false);
+      });
+  }, [campaignId]);
 
   const deviceChartData = useMemo(() => (devices: DeviceStats[], channel: string) => {
     const deviceNames: { [key: number]: string } = {
@@ -552,12 +600,18 @@ const CampaignDetails = () => {
                 }`}>{campaign.status}</span>
               </div>
               <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Palvelu</p>
-                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.service?.name || '-'}</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Palvelut ({campaignServices.length})</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">
+                  {campaignServices.map(s => s.name).join(', ') || campaign.service?.name || '-'}
+                </p>
               </div>
               <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Toimipiste</p>
-                <p className="text-sm font-medium text-gray-900 mt-1">{campaign.branch?.name || '-'}</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Toimipisteet ({campaignBranches.length})</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">
+                  {campaignBranches.length <= 3
+                    ? campaignBranches.map(b => b.name).join(', ') || campaign.branch?.name || '-'
+                    : `${campaignBranches.length} toimipistettä`}
+                </p>
               </div>
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Kaupunki</p>
@@ -616,6 +670,64 @@ const CampaignDetails = () => {
               <div className="mt-2">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Landing URL</p>
                 <a href={campaign.landing_url} target="_blank" rel="noopener noreferrer" className="text-sm text-purple-600 hover:underline mt-1 block truncate">{campaign.landing_url}</a>
+              </div>
+            )}
+
+            {/* Per-branch breakdown */}
+            {campaignBranches.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Toimipisteet — säde & budjetti</p>
+                <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Toimipiste</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Kaupunki</th>
+                        <th className="text-right px-3 py-2 font-medium text-gray-500">Säde (km)</th>
+                        {campaign.channel_meta && <th className="text-right px-3 py-2 font-medium text-gray-500">Meta</th>}
+                        {campaign.channel_display && <th className="text-right px-3 py-2 font-medium text-gray-500">Display</th>}
+                        {campaign.channel_pdooh && <th className="text-right px-3 py-2 font-medium text-gray-500">PDOOH</th>}
+                        {campaign.channel_audio && <th className="text-right px-3 py-2 font-medium text-gray-500">Audio</th>}
+                        <th className="text-right px-3 py-2 font-medium text-gray-500">Yhteensä</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {campaignBranches.map(b => {
+                        const settings = branchRadiusSettings[b.id];
+                        const radius = settings?.radius || campaign.campaign_radius || 10;
+                        const enabled = settings?.enabled !== false;
+                        const branchCount = campaignBranches.length;
+                        const metaPerBranch = Number(campaign.budget_meta || 0) / branchCount;
+                        const displayPerBranch = Number(campaign.budget_display || 0) / branchCount;
+                        const pdoohPerBranch = Number(campaign.budget_pdooh || 0) / branchCount;
+                        const audioPerBranch = Number(campaign.budget_audio || 0) / branchCount;
+                        const totalPerBranch = metaPerBranch + displayPerBranch + pdoohPerBranch + audioPerBranch;
+                        return (
+                          <tr key={b.id} className={!enabled ? 'opacity-40' : 'hover:bg-gray-50'}>
+                            <td className="px-3 py-1.5 font-medium text-gray-900">{b.name}{!enabled && ' (pois)'}</td>
+                            <td className="px-3 py-1.5 text-gray-600">{b.city}</td>
+                            <td className="px-3 py-1.5 text-right text-gray-700">{radius}</td>
+                            {campaign.channel_meta && <td className="px-3 py-1.5 text-right text-gray-700">€{metaPerBranch.toFixed(0)}</td>}
+                            {campaign.channel_display && <td className="px-3 py-1.5 text-right text-gray-700">€{displayPerBranch.toFixed(0)}</td>}
+                            {campaign.channel_pdooh && <td className="px-3 py-1.5 text-right text-gray-700">€{pdoohPerBranch.toFixed(0)}</td>}
+                            {campaign.channel_audio && <td className="px-3 py-1.5 text-right text-gray-700">€{audioPerBranch.toFixed(0)}</td>}
+                            <td className="px-3 py-1.5 text-right font-medium text-gray-900">€{totalPerBranch.toFixed(0)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-medium">
+                      <tr>
+                        <td className="px-3 py-2 text-gray-900" colSpan={3}>Yhteensä</td>
+                        {campaign.channel_meta && <td className="px-3 py-2 text-right text-gray-900">€{Number(campaign.budget_meta || 0).toFixed(0)}</td>}
+                        {campaign.channel_display && <td className="px-3 py-2 text-right text-gray-900">€{Number(campaign.budget_display || 0).toFixed(0)}</td>}
+                        {campaign.channel_pdooh && <td className="px-3 py-2 text-right text-gray-900">€{Number(campaign.budget_pdooh || 0).toFixed(0)}</td>}
+                        {campaign.channel_audio && <td className="px-3 py-2 text-right text-gray-900">€{Number(campaign.budget_audio || 0).toFixed(0)}</td>}
+                        <td className="px-3 py-2 text-right text-gray-900">€{Number(campaign.total_budget || 0).toFixed(0)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -679,6 +791,9 @@ const CampaignDetails = () => {
             </Tab>
             <Tab className={`px-4 py-2 text-sm font-medium cursor-pointer ${tabIndex === 5 ? 'border-b-2 border-purple-600 text-purple-600' : 'text-gray-500 hover:text-purple-600'}`}>
               Hotspots
+            </Tab>
+            <Tab className={`px-4 py-2 text-sm font-medium cursor-pointer ${tabIndex === 6 ? 'border-b-2 border-purple-600 text-purple-600' : 'text-gray-500 hover:text-purple-600'}`}>
+              Creatives ({creatives.length})
             </Tab>
           </TabList>
 
@@ -1100,6 +1215,81 @@ const CampaignDetails = () => {
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
                   <h2 className="text-lg font-semibold text-gray-800 mb-4">PDOOH Hourly Impressions</h2>
                   <p className="text-sm text-gray-500">No hourly data available for PDOOH channel.</p>
+                </div>
+              )}
+            </div>
+          </TabPanel>
+
+          {/* Creatives Tab */}
+          <TabPanel>
+            <div className="mt-4">
+              {creativesLoading ? (
+                <div className="flex justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-900"></div>
+                </div>
+              ) : creatives.length === 0 ? (
+                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+                  <p className="text-sm text-gray-500">Ei luovia tälle kampanjalle.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Group creatives by type/channel */}
+                  {['display', 'pdooh', 'meta'].filter(ch => creatives.some(c => (c.type || c.channel) === ch)).map(channel => (
+                    <div key={channel} className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+                      <h2 className="text-lg font-semibold text-gray-800 mb-4">
+                        {channel.toUpperCase()} ({creatives.filter(c => (c.type || c.channel) === channel).length})
+                      </h2>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                        {creatives.filter(c => (c.type || c.channel) === channel).map(creative => {
+                          const rawUrl = creative.image_url || creative.preview_url;
+                          const proxyUrl = rawUrl ? `/.netlify/functions/serve-creative?url=${encodeURIComponent(rawUrl)}` : '';
+                          const w = creative.width || 300;
+                          const h = creative.height || 300;
+                          const thumbW = 200;
+                          const scale = thumbW / w;
+                          const thumbH = h * scale;
+                          return (
+                            <div key={creative.id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                              {proxyUrl ? (
+                                <a href={proxyUrl} target="_blank" rel="noopener noreferrer" className="block">
+                                  <div className="bg-gray-50 overflow-hidden" style={{ width: thumbW, height: Math.min(thumbH, 250) }}>
+                                    <iframe
+                                      src={proxyUrl}
+                                      title={creative.name}
+                                      className="pointer-events-none"
+                                      sandbox="allow-same-origin"
+                                      style={{
+                                        width: w,
+                                        height: h,
+                                        transform: `scale(${scale})`,
+                                        transformOrigin: 'top left',
+                                        border: 'none',
+                                      }}
+                                    />
+                                  </div>
+                                </a>
+                              ) : (
+                                <div className="bg-gray-100 flex items-center justify-center h-28">
+                                  <span className="text-xs text-gray-400">Ei esikatselua</span>
+                                </div>
+                              )}
+                              <div className="p-2">
+                                <p className="text-xs font-medium text-gray-900 truncate" title={creative.name}>{creative.name}</p>
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text-xs text-gray-500">{creative.size || `${w}x${h}`}</span>
+                                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                                    creative.status === 'ready' ? 'bg-green-100 text-green-700' :
+                                    creative.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-gray-100 text-gray-600'
+                                  }`}>{creative.status}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
