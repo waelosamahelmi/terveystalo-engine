@@ -206,9 +206,16 @@ async function getBidTheatreToken() {
     password: credentials.password,
   });
 
-  const token = response.data?.auth?.token;
+  const authData = response.data?.auth;
+  const token = authData?.token;
   if (!token) throw new Error('Invalid BidTheatre authentication response');
-  console.log('BidTheatre authenticated successfully');
+  console.log('BidTheatre authenticated successfully. Auth data:', JSON.stringify({
+    userId: authData?.userId,
+    networkId: authData?.networkId,
+    networks: authData?.networks,
+    role: authData?.role,
+    permissions: authData?.permissions,
+  }));
   return token;
 }
 
@@ -814,6 +821,7 @@ async function createBidTheatreCampaign(campaign: any) {
   const credentials = await getBidTheatreCredentials();
   const networkId = credentials.network_id;
   const advertiserId = credentials.advertiser_id || 24674; // Suun Terveystalo
+  console.log(`BT config: networkId=${networkId}, advertiserId=${advertiserId}, hasAdvertiserIdInDB=${!!credentials.advertiser_id}`);
 
   // Determine active channels
   const channels: ChannelDef[] = [];
@@ -867,8 +875,11 @@ async function createBidTheatreCampaign(campaign: any) {
         console.log(`✓ ${branch.name} / ${channelDef.channel} → BT #${result.btCampaignId}`);
       } catch (err: any) {
         overallSuccess = false;
-        overallErrors += `${branch.name} / ${channelDef.channel}: ${err.message}\n`;
-        console.error(`✗ ${branch.name} / ${channelDef.channel}: ${err.message}`);
+        const btErrorData = err.response?.data ? JSON.stringify(err.response.data) : 'no response data';
+        const btStatus = err.response?.status || 'no status';
+        const errorDetail = `${err.message} | HTTP ${btStatus} | BT response: ${btErrorData}`;
+        overallErrors += `${branch.name} / ${channelDef.channel}: ${errorDetail}\n`;
+        console.error(`✗ ${branch.name} / ${channelDef.channel}: ${errorDetail}`);
       }
     }
   }
