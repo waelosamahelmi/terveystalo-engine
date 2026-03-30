@@ -125,8 +125,8 @@ function getServiceSlug(codeOrName: string): string {
 function buildUtmParams(channel: 'display' | 'pdooh', serviceSlug: string): string {
   const year = new Date().getFullYear();
   const funnel = serviceSlug === 'yleinen' ? 'tietoisuus' : 'harkinta';
-  const campaignName = `B2C_taktinen_kampanja_${funnel}_dental_kr2_prospektoiva_marketing-engine_${year}`;
-  const content = `banneri_${serviceSlug}`;
+  const campaignName = encodeURIComponent(`B2C_taktinen_kampanja_${funnel}_dental_kr2_prospektoiva_marketing-engine_${year}`);
+  const content = encodeURIComponent(`banneri_${serviceSlug}`);
 
   return [
     `pk_campaign=${campaignName}`,
