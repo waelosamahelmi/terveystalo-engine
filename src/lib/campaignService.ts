@@ -798,6 +798,7 @@ export async function createCampaign(
     target_genders: formData.target_genders,
     campaign_objective: formData.campaign_objective || 'traffic',
     branch_radius_settings: formData.branch_radius_settings || null,
+    branch_channel_budgets: formData.branch_channel_budgets || null,
 
     status: 'draft' as CampaignStatus,
     created_by: userId

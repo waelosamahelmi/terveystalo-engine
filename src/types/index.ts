@@ -225,11 +225,14 @@ export interface DentalCampaign {
   bt_last_sync?: string;
   bt_sync_error?: string;
   
+  // Per-branch channel budgets (branchId -> channel amounts)
+  branch_channel_budgets?: Record<string, { meta: number; display: number; pdooh: number; audio: number }>;
+
   // Bidding
   bidding_strategy?: string;
   max_cpm_display?: number;
   max_cpm_pdooh?: number;
-  
+
   // Metadata
   created_by: string;
   created_at: string;
@@ -286,6 +289,9 @@ export interface CampaignFormData {
   budget_display: number;
   budget_pdooh: number;
   budget_audio: number;
+
+  // Per-branch channel budgets (branchId -> channel amounts)
+  branch_channel_budgets?: Record<string, { meta: number; display: number; pdooh: number; audio: number }>;
 
   // Step 6: Creative customization
   headline?: string;

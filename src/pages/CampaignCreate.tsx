@@ -2317,6 +2317,75 @@ const CampaignCreate = () => {
         meta_video_file: creativeConfig.videoFile || undefined,
         meta_audio_url: creativeConfig.selectedAudio || undefined,
         branch_radius_settings: branchRadiusSettings,
+        branch_channel_budgets: (() => {
+          if (selectedBranches.length <= 1) return undefined;
+          const channelTotal =
+            (formData.channel_meta ? formData.budget_meta : 0) +
+            (formData.channel_display ? formData.budget_display : 0) +
+            (formData.channel_pdooh ? formData.budget_pdooh : 0) +
+            (formData.channel_audio ? formData.budget_audio : 0);
+          // Use current allocations or default to equal split
+          const allocs: Record<string, number> = {};
+          const selectedIds = new Set(selectedBranches.map(b => b.id));
+          let needsInit = false;
+          for (const b of selectedBranches) {
+            if (branchBudgetAllocations[b.id] === undefined) { needsInit = true; break; }
+          }
+          if (needsInit) {
+            selectedBranches.forEach((b, i) => {
+              allocs[b.id] = i === selectedBranches.length - 1
+                ? 100 - Math.floor(100 / selectedBranches.length) * (selectedBranches.length - 1)
+                : Math.floor(100 / selectedBranches.length);
+            });
+          } else {
+            for (const [id, pct] of Object.entries(branchBudgetAllocations)) {
+              if (selectedIds.has(id)) allocs[id] = pct;
+            }
+          }
+          const result: Record<string, { meta: number; display: number; pdooh: number; audio: number }> = {};
+          for (const b of selectedBranches) {
+            const overrides = branchChannelOverrides[b.id];
+            if (overrides) {
+              result[b.id] = {
+                meta: overrides.meta ?? 0,
+                display: overrides.display ?? 0,
+                pdooh: overrides.pdooh ?? 0,
+                audio: overrides.audio ?? 0,
+              };
+            } else {
+              const branchPct = allocs[b.id] || 0;
+              const branchTotal = Math.round(channelTotal * branchPct / 100);
+              const screens = branchScreenCounts[b.id] ?? 0;
+              const hasPdooh = screens > 0;
+              let pdoohShare = 0;
+              if (hasPdooh && formData.channel_pdooh && channelTotal > 0) {
+                const basePdoohRatio = formData.budget_pdooh / Math.max(channelTotal, 1);
+                let sf: number;
+                if (screens <= 3) sf = 0.3 + (screens / 3) * 0.2;
+                else if (screens <= 10) sf = 0.5 + ((screens - 3) / 7) * 0.3;
+                else sf = 0.8 + Math.min((screens - 10) / 20, 0.2);
+                pdoohShare = basePdoohRatio * sf;
+              }
+              const pdoohAmount = hasPdooh && formData.channel_pdooh ? Math.round(branchTotal * pdoohShare) : 0;
+              const remaining = branchTotal - pdoohAmount;
+              const otherTotal =
+                (formData.channel_meta ? formData.budget_meta : 0) +
+                (formData.channel_display ? formData.budget_display : 0) +
+                (formData.channel_audio ? formData.budget_audio : 0);
+              let meta = 0, display = 0, audio = 0;
+              if (otherTotal > 0) {
+                meta = formData.channel_meta ? Math.round(remaining * (formData.budget_meta / otherTotal)) : 0;
+                display = formData.channel_display ? Math.round(remaining * (formData.budget_display / otherTotal)) : 0;
+                audio = formData.channel_audio ? Math.round(remaining * (formData.budget_audio / otherTotal)) : 0;
+              } else if (remaining > 0) {
+                meta = Math.round(remaining / 2);
+                display = remaining - meta;
+              }
+              result[b.id] = { meta, display, pdooh: pdoohAmount, audio };
+            }
+          }
+          return result;
+        })(),
       };
 
       if (isEditMode && editCampaignId) {

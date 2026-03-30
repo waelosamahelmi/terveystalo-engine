@@ -548,15 +548,22 @@ async function createBtCampaignForBranch(
     })
   );
 
-  // 3. Calculate budget per branch (split total channel budget equally across branches)
-  const totalChannelBudget = channelType === 'DISPLAY'
-    ? (campaign.budget_display || 0)
-    : (campaign.budget_pdooh || 0);
-  const branchIds: string[] = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
-  const budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
+  // 3. Calculate budget per branch — use per-branch allocations if available, else equal split
+  const branchChannelBudgets = campaign.branch_channel_budgets as Record<string, { meta: number; display: number; pdooh: number; audio: number }> | null;
+  let budgetPerBranch: number;
+  if (branchChannelBudgets && branchChannelBudgets[branch.id]) {
+    const bb = branchChannelBudgets[branch.id];
+    budgetPerBranch = channelType === 'DISPLAY' ? (bb.display || 0) : (bb.pdooh || 0);
+  } else {
+    const totalChannelBudget = channelType === 'DISPLAY'
+      ? (campaign.budget_display || 0)
+      : (campaign.budget_pdooh || 0);
+    const branchIds: string[] = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+    budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
+  }
 
   if (budgetPerBranch <= 0) {
-    throw new Error(`Invalid budget for ${channelType}: ${budgetPerBranch} (total: ${totalChannelBudget}, branches: ${branchIds.length})`);
+    throw new Error(`Invalid budget for ${channelType}: ${budgetPerBranch} (branch: ${branch.id})`);
   }
 
   // 4. Set cycle (budget + dates)

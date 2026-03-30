@@ -674,9 +674,11 @@ export async function addDentalCampaignToSheet(
     const serviceList = allServices.length > 0 ? allServices : (campaign.service ? [campaign.service] : []);
 
     const adVersionCount = branchList.length * serviceList.length || 1;
+    const branchChannelBudgets: Record<string, { meta: number; display: number; pdooh: number; audio: number }> | null =
+      (campaign as any).branch_channel_budgets || null;
 
-    // Split budget evenly across ad versions
-    const splitBudget = {
+    // Split budget evenly across ad versions (fallback when no per-branch budgets)
+    const equalSplitBudget = {
       total: (campaign.total_budget || 0) / adVersionCount,
       meta: (campaign.budget_meta || 0) / adVersionCount,
       display: (campaign.budget_display || 0) / adVersionCount,
@@ -703,6 +705,20 @@ export async function addDentalCampaignToSheet(
             });
           }
 
+          // Use per-branch budgets if available, split by number of services
+          let branchBudgetOverride: typeof equalSplitBudget | undefined;
+          if (branchChannelBudgets && branchChannelBudgets[branch.id]) {
+            const bb = branchChannelBudgets[branch.id];
+            const svcCount = serviceList.length || 1;
+            branchBudgetOverride = {
+              total: (bb.meta + bb.display + bb.pdooh + bb.audio) / svcCount,
+              meta: bb.meta / svcCount,
+              display: bb.display / svcCount,
+              pdooh: bb.pdooh / svcCount,
+              audio: bb.audio / svcCount,
+            };
+          }
+
           rows.push(formatDentalCampaignRow(campaign, {
             branchOverride: {
               name: branch.name,
@@ -720,7 +736,7 @@ export async function addDentalCampaignToSheet(
               default_price: service.default_price,
               default_offer_fi: service.default_offer_fi,
             },
-            budgetOverride: adVersionCount > 1 ? splitBudget : undefined,
+            budgetOverride: branchBudgetOverride || (adVersionCount > 1 ? equalSplitBudget : undefined),
             excludedBranchesData,
             creativeUrls: urls,
             allBranches: branchList.map(b => ({ name: b.name, short_name: (b as any).short_name, city: b.city })),
