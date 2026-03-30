@@ -823,6 +823,27 @@ async function createBidTheatreCampaign(campaign: any) {
   const advertiserId = credentials.advertiser_id || 24674; // Suun Terveystalo
   console.log(`BT config: networkId=${networkId}, advertiserId=${advertiserId}, hasAdvertiserIdInDB=${!!credentials.advertiser_id}`);
 
+  // Diagnostic: verify network access, advertiser access, and list line items
+  try {
+    const [advertiserResp, campaignsResp, lineItemsResp] = await Promise.allSettled([
+      bidTheatreApi.get(`/${networkId}/advertiser/${advertiserId}`, {
+        headers: { Authorization: `Bearer ${btToken}` },
+      }),
+      bidTheatreApi.get(`/${networkId}/campaign`, {
+        headers: { Authorization: `Bearer ${btToken}` },
+        params: { limit: 1 },
+      }),
+      bidTheatreApi.get(`/${networkId}/lineitem`, {
+        headers: { Authorization: `Bearer ${btToken}` },
+      }),
+    ]);
+    console.log(`BT diagnostic - advertiser GET: ${advertiserResp.status === 'fulfilled' ? `OK (${JSON.stringify(advertiserResp.value.data?.advertiser?.name || advertiserResp.value.data)})` : `FAILED: ${(advertiserResp as any).reason?.response?.status} ${JSON.stringify((advertiserResp as any).reason?.response?.data)}`}`);
+    console.log(`BT diagnostic - campaigns GET: ${campaignsResp.status === 'fulfilled' ? `OK (${campaignsResp.value.data?.campaigns?.length ?? 0} campaigns)` : `FAILED: ${(campaignsResp as any).reason?.response?.status} ${JSON.stringify((campaignsResp as any).reason?.response?.data)}`}`);
+    console.log(`BT diagnostic - line items GET: ${lineItemsResp.status === 'fulfilled' ? `OK (${JSON.stringify(lineItemsResp.value.data?.lineitems?.map((li: any) => ({ id: li.id, name: li.name })) || lineItemsResp.value.data)})` : `FAILED: ${(lineItemsResp as any).reason?.response?.status} ${JSON.stringify((lineItemsResp as any).reason?.response?.data)}`}`);
+  } catch (diagErr: any) {
+    console.error('BT diagnostic error:', diagErr.message);
+  }
+
   // Determine active channels
   const channels: ChannelDef[] = [];
   if (campaign.channel_display) channels.push({ channel: 'DISPLAY' });
