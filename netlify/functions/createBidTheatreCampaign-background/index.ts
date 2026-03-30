@@ -56,6 +56,28 @@ const PDOOH_AD_GROUPS = [
 ];
 
 // ============================================================================
+// LOCATION BUNDLES (mirrored from src/lib/metaTemplateVariables.ts)
+// ============================================================================
+
+const LOCATION_BUNDLES = [
+  { bundleName: 'Kirkkonummi', locations: ['Masala', 'Veikkola', 'Lohja'] },
+  { bundleName: 'Helsinki', locations: ['Itäkeskus', 'Ogeli', 'Kamppi', 'Redi'] },
+  { bundleName: 'Espoo', locations: ['Leppävaara', 'Iso Omena', 'Lippulaiva'] },
+  { bundleName: 'Vantaa', locations: ['Tikkurila', 'Myyrmäki'] },
+];
+
+function getBundleForBranch(branchName: string): typeof LOCATION_BUNDLES[number] | null {
+  const normalized = branchName
+    .replace('Suun Terveystalo ', '')
+    .replace('Terveystalo ', '')
+    .trim();
+  for (const bundle of LOCATION_BUNDLES) {
+    if (bundle.locations.includes(normalized)) return bundle;
+  }
+  return null;
+}
+
+// ============================================================================
 // UTM & NAMING HELPERS
 // ============================================================================
 
@@ -322,7 +344,8 @@ async function getOrCreateGeoTarget(
 async function fetchCreativesForBranch(
   campaignId: string,
   channel: 'display' | 'pdooh',
-  branchLabel: string
+  branchLabel: string,
+  nationwideAddressMode?: string
 ) {
   const { data, error } = await supabase
     .from('creatives')
@@ -338,11 +361,24 @@ async function fetchCreativesForBranch(
 
   if (!data || data.length === 0) return [];
 
-  // Filter creatives belonging to this branch by name pattern
-  const branchLower = branchLabel.toLowerCase();
+  // Nationwide without address: all branches share the same creatives
+  if (nationwideAddressMode === 'without_address') {
+    return data;
+  }
+
+  // Nationwide with address: match by bundle name (e.g., "Helsinki") or branch label
+  let searchLabel = branchLabel;
+  if (nationwideAddressMode === 'with_address') {
+    const bundle = getBundleForBranch(branchLabel);
+    if (bundle) {
+      searchLabel = bundle.bundleName;
+    }
+  }
+
+  const searchLower = searchLabel.toLowerCase();
   const branchCreatives = data.filter(c => {
     const name = (c.name || '').toLowerCase();
-    return name.includes(branchLower);
+    return name.includes(searchLower);
   });
 
   // If no branch-specific creatives found, return all (fallback for nationwide)
@@ -530,16 +566,25 @@ async function createBtCampaignForBranch(
     throw new Error(`Step 2 (category) failed for campaign ${btCampaignId}: ${catErr.message}${body ? ` | ${body}` : ''}`);
   }
 
-  // 3. Calculate budget per branch (split total channel budget equally across branches)
-  const totalChannelBudget = channelType === 'DISPLAY'
-    ? (campaign.budget_display || 0)
-    : (campaign.budget_pdooh || 0);
-  const rawIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
-  const branchIds: string[] = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
-  const budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
+  // 3. Calculate budget per branch — use per-branch allocations if available, else equal split
+  const rawBcb = campaign.branch_channel_budgets;
+  const branchChannelBudgets: Record<string, { meta: number; display: number; pdooh: number; audio: number }> | null =
+    typeof rawBcb === 'string' ? JSON.parse(rawBcb) : rawBcb || null;
+  let budgetPerBranch: number;
+  if (branchChannelBudgets && branchChannelBudgets[branch.id]) {
+    const bb = branchChannelBudgets[branch.id];
+    budgetPerBranch = channelType === 'DISPLAY' ? (bb.display || 0) : (bb.pdooh || 0);
+  } else {
+    const totalChannelBudget = channelType === 'DISPLAY'
+      ? (campaign.budget_display || 0)
+      : (campaign.budget_pdooh || 0);
+    const rawIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+    const branchIds: string[] = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
+    budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
+  }
 
   if (budgetPerBranch <= 0) {
-    throw new Error(`Invalid budget for ${channelType}: ${budgetPerBranch} (total: ${totalChannelBudget}, branches: ${branchIds.length})`);
+    throw new Error(`Invalid budget for ${channelType}: ${budgetPerBranch} (branch: ${branch.id})`);
   }
 
   // 4. Set cycle (budget + dates)
@@ -597,7 +642,8 @@ async function createBtCampaignForBranch(
   const creatives = await fetchCreativesForBranch(
     campaign.id,
     channelType.toLowerCase() as 'display' | 'pdooh',
-    branchName
+    branchName,
+    campaign.nationwide_address_mode
   );
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
