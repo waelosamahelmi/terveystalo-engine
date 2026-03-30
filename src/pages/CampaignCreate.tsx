@@ -1239,13 +1239,6 @@ const CampaignCreate = () => {
   // Preview branch state - for switching between branches when multiple are selected
   const [previewBranchId, setPreviewBranchId] = useState<string | null>(null);
 
-  // Auto-select first branch for preview when branches change
-  useEffect(() => {
-    if (selectedBranches.length > 0 && (!previewBranchId || !selectedBranches.find(b => b.id === previewBranchId))) {
-      setPreviewBranchId(selectedBranches[0].id);
-    }
-  }, [selectedBranches, previewBranchId]);
-
   // Update available sizes when templates are loaded
   useEffect(() => {
     if (dbTemplates.length > 0) {
@@ -1339,6 +1332,13 @@ const CampaignCreate = () => {
   const selectedService = selectedServices[0] || services.find(s => s.id === formData.service_id);
   const selectedBranches = useMemo(() => branches.filter(b => formData.branch_ids.includes(b.id)), [branches, formData.branch_ids]);
   const selectedBranch = selectedBranches[0] || branches.find(b => b.id === formData.branch_id);
+
+  // Auto-select first branch for preview when branches change
+  useEffect(() => {
+    if (selectedBranches.length > 0 && (!previewBranchId || !selectedBranches.find(b => b.id === previewBranchId))) {
+      setPreviewBranchId(selectedBranches[0].id);
+    }
+  }, [selectedBranches, previewBranchId]);
 
   // Preview service - allows switching between services when multiple are selected
   const previewService = selectedServices.find(s => s.id === previewServiceId) || selectedService;
