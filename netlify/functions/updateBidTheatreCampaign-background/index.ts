@@ -30,15 +30,49 @@ const bidTheatreApi = axios.create({
   timeout: 60000,
 });
 
-// Ad dimensions (same as create function)
+// Ad dimensions (must match create function exactly)
 const AD_DIMENSIONS: Record<string, { width: number; height: number; dimension: number }> = {
-  '300x300': { width: 300, height: 300, dimension: 10 },
-  '300x431': { width: 300, height: 431, dimension: 1888 },
+  '300x300': { width: 300, height: 300, dimension: 22 },
+  '300x431': { width: 300, height: 431, dimension: 697 },
   '300x600': { width: 300, height: 600, dimension: 11 },
   '620x891': { width: 620, height: 891, dimension: 1888 },
   '980x400': { width: 980, height: 400, dimension: 15 },
   '1080x1920': { width: 1080, height: 1920, dimension: 385 },
+  '2160x3840': { width: 2160, height: 3840, dimension: 6286 },
 };
+
+// Ad group definitions per channel (must match create function)
+const DISPLAY_AD_GROUPS = [
+  { name: 'Desktop sizes', sizes: ['300x600', '620x891', '980x400'] },
+  { name: 'Mobile sizes', sizes: ['300x300', '300x600', '300x431'] },
+];
+
+const PDOOH_AD_GROUPS = [
+  { name: 'Default campaign', sizes: ['1080x1920'] },
+  { name: '2160x3840', sizes: ['2160x3840'] },
+];
+
+// ============================================================================
+// LOCATION BUNDLES (mirrored from src/lib/metaTemplateVariables.ts)
+// ============================================================================
+
+const LOCATION_BUNDLES = [
+  { bundleName: 'Kirkkonummi', locations: ['Masala', 'Veikkola', 'Lohja'] },
+  { bundleName: 'Helsinki', locations: ['Itäkeskus', 'Ogeli', 'Kamppi', 'Redi'] },
+  { bundleName: 'Espoo', locations: ['Leppävaara', 'Iso Omena', 'Lippulaiva'] },
+  { bundleName: 'Vantaa', locations: ['Tikkurila', 'Myyrmäki'] },
+];
+
+function getBundleForBranch(branchName: string): typeof LOCATION_BUNDLES[number] | null {
+  const normalized = branchName
+    .replace('Suun Terveystalo ', '')
+    .replace('Terveystalo ', '')
+    .trim();
+  for (const bundle of LOCATION_BUNDLES) {
+    if (bundle.locations.includes(normalized)) return bundle;
+  }
+  return null;
+}
 
 // ============================================================================
 // UTM & NAMING HELPERS
@@ -74,8 +108,8 @@ function getServiceSlug(codeOrName: string): string {
 function buildUtmParams(channel: 'display' | 'pdooh', serviceSlug: string): string {
   const year = new Date().getFullYear();
   const funnel = serviceSlug === 'yleinen' ? 'tietoisuus' : 'harkinta';
-  const campaignName = `B2C_taktinen_kampanja_${funnel}_dental_kr2_prospektoiva_marketing-engine_${year}`;
-  const content = `banneri_${serviceSlug}`;
+  const campaignName = encodeURIComponent(`B2C_taktinen_kampanja_${funnel}_dental_kr2_prospektoiva_marketing-engine_${year}`);
+  const content = encodeURIComponent(`banneri_${serviceSlug}`);
 
   return [
     `pk_campaign=${campaignName}`,
@@ -165,21 +199,7 @@ function formatDateForBT(dateStr: string): string {
   throw new Error(`Invalid date format: ${dateStr}`);
 }
 
-function metersToKm(meters: number): number {
-  return Math.max(1, Math.ceil(meters / 1000));
-}
-
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-async function fetchCreativeHtml(publicUrl: string): Promise<string | null> {
-  try {
-    const response = await axios.get(publicUrl, { timeout: 15000, responseType: 'text' });
-    return response.data;
-  } catch (error: any) {
-    console.error(`Failed to fetch creative HTML from ${publicUrl}:`, error.message);
-    return null;
-  }
-}
 
 /**
  * Build a lightweight iframe wrapper HTML for BidTheatre.
@@ -214,6 +234,53 @@ a.style.cssText='position:absolute;top:0;left:0;width:${width}px;height:${height
 document.body.appendChild(a);
 </script>
 </body></html>`;
+}
+
+// ============================================================================
+// FETCH CREATIVES (matches create function logic)
+// ============================================================================
+
+async function fetchCreativesForBranch(
+  campaignId: string,
+  channel: 'display' | 'pdooh',
+  branchLabel: string,
+  nationwideAddressMode?: string
+) {
+  const { data, error } = await supabase
+    .from('creatives')
+    .select('*')
+    .eq('campaign_id', campaignId)
+    .eq('type', channel)
+    .eq('status', 'ready');
+
+  if (error) {
+    console.error(`Failed to fetch creatives: ${error.message}`);
+    return [];
+  }
+  if (!data || data.length === 0) return [];
+
+  // Nationwide without address: all branches share the same creatives
+  if (nationwideAddressMode === 'without_address') {
+    return data;
+  }
+
+  // Nationwide with address: match by bundle name or branch label
+  let searchLabel = branchLabel;
+  if (nationwideAddressMode === 'with_address') {
+    const bundle = getBundleForBranch(branchLabel);
+    if (bundle) {
+      searchLabel = bundle.bundleName;
+    }
+  }
+
+  const searchLower = searchLabel.toLowerCase();
+  const branchCreatives = data.filter(c => {
+    const name = (c.name || '').toLowerCase();
+    return name.includes(searchLower);
+  });
+
+  // Fallback to all creatives if no branch-specific match found
+  return branchCreatives.length > 0 ? branchCreatives : data;
 }
 
 // ============================================================================
@@ -253,12 +320,22 @@ async function updateBtCampaign(
   }
 
   // 2. Update cycle (budget + dates)
-  const totalChannelBudget = channelType === 'DISPLAY'
-    ? (campaign.budget_display || 0)
-    : (campaign.budget_pdooh || 0);
-  const rawIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
-  const branchIds: string[] = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
-  const budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
+  // Use per-branch budget allocations if available, else equal split (matches create function)
+  const rawBcb = campaign.branch_channel_budgets;
+  const branchChannelBudgets: Record<string, { meta: number; display: number; pdooh: number; audio: number }> | null =
+    typeof rawBcb === 'string' ? JSON.parse(rawBcb) : rawBcb || null;
+  let budgetPerBranch: number;
+  if (branchChannelBudgets && branchChannelBudgets[btRecord.branch_id]) {
+    const bb = branchChannelBudgets[btRecord.branch_id];
+    budgetPerBranch = channelType === 'DISPLAY' ? (bb.display || 0) : (bb.pdooh || 0);
+  } else {
+    const totalChannelBudget = channelType === 'DISPLAY'
+      ? (campaign.budget_display || 0)
+      : (campaign.budget_pdooh || 0);
+    const rawIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+    const branchIds: string[] = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
+    budgetPerBranch = totalChannelBudget / Math.max(branchIds.length, 1);
+  }
 
   const startDate = formatDateForBT(campaign.campaign_start_date || campaign.start_date);
   const isOngoing = !campaign.campaign_end_date
@@ -315,21 +392,32 @@ async function updateBtCampaign(
     throw err;
   }
 
-  // 3. Update geo-targeting if coordinates changed
-  const lat = campaign.campaign_coordinates?.lat || 0;
-  const lng = campaign.campaign_coordinates?.lng || 0;
-  const radius = campaign.campaign_radius || 1500;
+  // 3. Update geo-targeting using per-branch radius and branch coordinates
+  const { data: branchData } = await supabase
+    .from('branches')
+    .select('name, short_name, city, coordinates, latitude, longitude')
+    .eq('id', btRecord.branch_id)
+    .single();
+
+  const lat = branchData?.coordinates?.lat || branchData?.latitude || campaign.campaign_coordinates?.lat || 0;
+  const lng = branchData?.coordinates?.lng || branchData?.longitude || campaign.campaign_coordinates?.lng || 0;
+
+  // Per-branch radius from branch_radius_settings (in km), matching create function
+  const rawBrs = campaign.branch_radius_settings;
+  const branchRadiusSettings: Record<string, { radius: number }> | null =
+    typeof rawBrs === 'string' ? JSON.parse(rawBrs) : rawBrs || null;
+  const radiusKm = branchRadiusSettings?.[btRecord.branch_id]?.radius || campaign.campaign_radius || 10;
 
   if (btRecord.geo_target_id && btRecord.geo_target_coordinates_id && lat && lng) {
     try {
       await retryWithBackoff(() =>
         bidTheatreApi.put(
           `/${networkId}/geo-target/${btRecord.geo_target_id}/geo-target-coordinate/${btRecord.geo_target_coordinates_id}`,
-          { latitude: lat, longitude: lng, radius: metersToKm(radius) },
+          { latitude: lat, longitude: lng, radius: radiusKm },
           { headers: { Authorization: `Bearer ${btToken}` } }
         )
       );
-      console.log(`Updated geo-target coordinates`);
+      console.log(`Updated geo-target coordinates: ${lat},${lng} r=${radiusKm}km`);
     } catch (err: any) {
       console.warn(`Geo-target update failed: ${err.message}`);
     }
@@ -340,7 +428,7 @@ async function updateBtCampaign(
   const existingAdIds = btRecord.ad_ids || {};
 
   // Delete old ads first
-  for (const [groupName, ids] of Object.entries(existingAdIds)) {
+  for (const [, ids] of Object.entries(existingAdIds)) {
     for (const adId of (ids as number[])) {
       try {
         await retryWithBackoff(() =>
@@ -354,13 +442,17 @@ async function updateBtCampaign(
     }
   }
 
-  // Fetch fresh creatives
-  const { data: creatives } = await supabase
-    .from('creatives')
-    .select('*')
-    .eq('campaign_id', campaign.id)
-    .eq('type', channelType.toLowerCase())
-    .eq('status', 'ready');
+  // Fetch fresh creatives using the same logic as create function
+  const branchLabel = branchData?.short_name || branchData?.name || '';
+  const creatives = await fetchCreativesForBranch(
+    campaign.id,
+    channelType.toLowerCase() as 'display' | 'pdooh',
+    branchLabel,
+    campaign.nationwide_address_mode
+  );
+
+  // Use the same ad group definitions as the create function
+  const adGroups = channelType === 'DISPLAY' ? DISPLAY_AD_GROUPS : PDOOH_AD_GROUPS;
 
   const newAdIds: Record<string, number[]> = {};
   for (const groupName of Object.keys(adGroupIds)) {
@@ -368,20 +460,17 @@ async function updateBtCampaign(
   }
 
   if (creatives && creatives.length > 0) {
-    // Determine which sizes belong to which group
-    const groupSizeMap: Record<string, string[]> = channelType === 'DISPLAY' ? {
-      'Mobile sizes': ['300x600', '300x431'],
-      'Small desktop': ['300x600', '300x300'],
-      'Large desktop sizes': ['620x891', '980x400'],
-    } : {
-      'Default campaign': ['1080x1920'],
-    };
+    const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+    const createdAdsByCreativeSize: Record<string, number> = {}; // dedup across groups sharing sizes
 
-    for (const [groupName, sizes] of Object.entries(groupSizeMap)) {
-      const groupId = adGroupIds[groupName];
-      if (!groupId) continue;
+    for (const group of adGroups) {
+      const groupId = adGroupIds[group.name];
+      if (!groupId) {
+        console.warn(`No ad group ID for "${group.name}", skipping`);
+        continue;
+      }
 
-      for (const size of sizes) {
+      for (const size of group.sizes) {
         const config = AD_DIMENSIONS[size];
         if (!config) continue;
 
@@ -389,34 +478,26 @@ async function updateBtCampaign(
           c.size === size || (c.width === config.width && c.height === config.height)
         );
 
-        // Filter for branch-specific creatives
-        const { data: branch } = await supabase
-          .from('branches')
-          .select('name, short_name')
-          .eq('id', btRecord.branch_id)
-          .single();
+        for (const creative of sizeCreatives) {
+          // Dedup: reuse ad if same creative+size already created for another group
+          const dedupKey = `${creative.id}::${size}`;
+          if (createdAdsByCreativeSize[dedupKey]) {
+            if (!newAdIds[group.name]) newAdIds[group.name] = [];
+            newAdIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
+            continue;
+          }
 
-        const branchLabel = (branch?.short_name || branch?.name || '').toLowerCase();
-        const branchCreatives = branchLabel
-          ? sizeCreatives.filter(c => (c.name || '').toLowerCase().includes(branchLabel))
-          : sizeCreatives;
-        const creativesToUse = branchCreatives.length > 0 ? branchCreatives : sizeCreatives;
-
-        for (const creative of creativesToUse) {
           const creativeUrl = creative.image_url || creative.preview_url;
           if (!creativeUrl) {
             console.warn(`No public URL for creative ${creative.id}, skipping`);
             continue;
           }
 
-          // Build lightweight iframe wrapper with service-specific UTM landing URL
-          const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
           const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
           const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
           const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
           console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
 
-          // --- HTML banner ad ---
           try {
             const adResp = await retryWithBackoff(() =>
               bidTheatreApi.post(`/${networkId}/ad`, {
@@ -436,28 +517,27 @@ async function updateBtCampaign(
               })
             );
             const adId = adResp.data.ad.id;
-            if (!newAdIds[groupName]) newAdIds[groupName] = [];
-            newAdIds[groupName].push(adId);
+            createdAdsByCreativeSize[dedupKey] = adId;
+            if (!newAdIds[group.name]) newAdIds[group.name] = [];
+            newAdIds[group.name].push(adId);
             console.log(`Created updated HTML ad ${adId} for ${size}`);
             await sleep(300);
           } catch (adErr: any) {
             console.error(`HTML ad creation failed for ${size}: ${adErr.message}`);
           }
-
-
         }
       }
 
       // Re-assign ads to group
-      if (newAdIds[groupName]?.length > 0) {
+      if (newAdIds[group.name]?.length > 0) {
         try {
           await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${networkId}/adgroup/${groupId}/ad`, { ad: newAdIds[groupName] }, {
+            bidTheatreApi.post(`/${networkId}/adgroup/${groupId}/ad`, { ad: newAdIds[group.name] }, {
               headers: { Authorization: `Bearer ${btToken}` },
             })
           );
         } catch (err: any) {
-          console.error(`Ad re-assignment failed for "${groupName}": ${err.message}`);
+          console.error(`Ad re-assignment failed for "${group.name}": ${err.message}`);
         }
       }
     }
