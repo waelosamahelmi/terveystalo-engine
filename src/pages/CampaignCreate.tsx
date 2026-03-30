@@ -4548,36 +4548,52 @@ const CampaignCreate = () => {
 
                           return (
                             <div className={numColumns > 1 ? 'grid grid-cols-2 gap-2' : ''}>
-                              {(formData.creative_type === 'local' || formData.creative_type === 'both') && (
-                                <div>
-                                  {formData.creative_type === 'both' && (
-                                    <p className="text-[8px] text-gray-500 text-center mb-1">Paikallinen</p>
-                                  )}
-                                  <div className="flex items-center justify-center" style={{ height: `${previewSize.height * previewScaleFactor}px` }}>
-                                    <div
-                                      className="origin-top-center"
-                                      style={{ transform: `scale(${previewScaleFactor})` }}
-                                    >
-                                      {renderPreviewTemplate(true)}
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                              {(formData.creative_type === 'nationwide' || formData.creative_type === 'both') && (
-                                <div>
-                                  {formData.creative_type === 'both' && (
-                                    <p className="text-[8px] text-gray-500 text-center mb-1">Valtakunnallinen</p>
-                                  )}
-                                  <div className="flex items-center justify-center" style={{ height: `${previewSize.height * previewScaleFactor}px` }}>
-                                    <div
-                                      className="origin-top-center"
-                                      style={{ transform: `scale(${previewScaleFactor})` }}
-                                    >
-                                      {renderPreviewTemplate(false)}
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
+                              {(() => {
+                                // Determine which preview(s) to show
+                                // For nationwide: use nationwide_address_mode to decide
+                                const isNationwide = formData.ad_type === 'nationwide';
+                                const showWithAddress = isNationwide
+                                  ? formData.nationwide_address_mode === 'with_address'
+                                  : (formData.creative_type === 'local' || formData.creative_type === 'both');
+                                const showWithoutAddress = isNationwide
+                                  ? formData.nationwide_address_mode === 'without_address'
+                                  : (formData.creative_type === 'nationwide' || formData.creative_type === 'both');
+
+                                return (
+                                  <>
+                                    {showWithAddress && (
+                                      <div>
+                                        {formData.creative_type === 'both' && (
+                                          <p className="text-[8px] text-gray-500 text-center mb-1">Paikallinen</p>
+                                        )}
+                                        <div className="flex items-center justify-center" style={{ height: `${previewSize.height * previewScaleFactor}px` }}>
+                                          <div
+                                            className="origin-top-center"
+                                            style={{ transform: `scale(${previewScaleFactor})` }}
+                                          >
+                                            {renderPreviewTemplate(true)}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {showWithoutAddress && (
+                                      <div>
+                                        {formData.creative_type === 'both' && (
+                                          <p className="text-[8px] text-gray-500 text-center mb-1">Valtakunnallinen</p>
+                                        )}
+                                        <div className="flex items-center justify-center" style={{ height: `${previewSize.height * previewScaleFactor}px` }}>
+                                          <div
+                                            className="origin-top-center"
+                                            style={{ transform: `scale(${previewScaleFactor})` }}
+                                          >
+                                            {renderPreviewTemplate(false)}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
                           );
                         })()}
