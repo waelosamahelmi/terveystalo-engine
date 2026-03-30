@@ -184,9 +184,16 @@ async function getBidTheatreToken() {
     password: credentials.password,
   });
 
-  const token = response.data?.auth?.token;
+  const authData = response.data?.auth;
+  const token = authData?.token;
   if (!token) throw new Error('Invalid BidTheatre authentication response');
-  console.log('BidTheatre authenticated successfully');
+  console.log('BidTheatre authenticated successfully. Auth:', JSON.stringify({
+    role: authData?.role,
+    defaultNetwork: authData?.defaultNetwork,
+    fullName: authData?.fullName,
+    email: authData?.email,
+    tokenPrefix: token?.substring(0, 8),
+  }));
   return token;
 }
 
@@ -500,6 +507,9 @@ async function createBtCampaignForBranch(
     campaignPayload.defaultAudience = audienceId;
   }
 
+  console.log(`BT campaign POST /${networkId}/campaign payload:`, JSON.stringify(campaignPayload));
+  console.log(`BT token prefix: ${btToken?.substring(0, 8)}, networkId: ${networkId}`);
+
   const campaignResp = await retryWithBackoff(() =>
     bidTheatreApi.post(`/${networkId}/campaign`, campaignPayload, {
       headers: { Authorization: `Bearer ${btToken}` },
@@ -783,6 +793,17 @@ async function createBidTheatreCampaign(campaign: any) {
   const credentials = await getBidTheatreCredentials();
   const networkId = credentials.network_id;
   const advertiserId = credentials.advertiser_id || 24674; // Suun Terveystalo
+  console.log(`BT config: networkId=${networkId}, advertiserId=${advertiserId}, hasAdvertiserIdInDB=${!!credentials.advertiser_id}, tokenPrefix=${btToken?.substring(0, 8)}`);
+
+  // Quick diagnostic: try a simple GET to verify token works for this network
+  try {
+    const diagResp = await bidTheatreApi.get(`/${networkId}/advertiser/${advertiserId}`, {
+      headers: { Authorization: `Bearer ${btToken}` },
+    });
+    console.log(`BT diagnostic: GET advertiser ${advertiserId} OK - name: ${diagResp.data?.advertiser?.name}`);
+  } catch (diagErr: any) {
+    console.error(`BT diagnostic: GET advertiser FAILED - ${diagErr.response?.status} ${JSON.stringify(diagErr.response?.data)}`);
+  }
 
   // Determine active channels
   const channels: ChannelDef[] = [];
