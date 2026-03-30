@@ -11,7 +11,7 @@ import { countScreensInRadius, MediaScreen } from '../lib/mediaScreensService';
 import { useStore, store } from '../lib/store';
 import { loader } from '../lib/googleMapsLoader';
 import type { Service, Branch, CampaignFormData, CreativeType, AdType, PricingOption, NationwideAddressMode, CreativeTemplate } from '../types';
-import { getConjugatedCity, findMatchingBundle, LOCATION_BUNDLES } from '../lib/metaTemplateVariables';
+import { getConjugatedCity, getBundleForBranch, LOCATION_BUNDLES } from '../lib/metaTemplateVariables';
 import { format, addDays, addWeeks, differenceInDays } from 'date-fns';
 import { fi } from 'date-fns/locale';
 import {
@@ -1239,6 +1239,13 @@ const CampaignCreate = () => {
   // Preview branch state - for switching between branches when multiple are selected
   const [previewBranchId, setPreviewBranchId] = useState<string | null>(null);
 
+  // Auto-select first branch for preview when branches change
+  useEffect(() => {
+    if (selectedBranches.length > 0 && (!previewBranchId || !selectedBranches.find(b => b.id === previewBranchId))) {
+      setPreviewBranchId(selectedBranches[0].id);
+    }
+  }, [selectedBranches, previewBranchId]);
+
   // Update available sizes when templates are loaded
   useEffect(() => {
     if (dbTemplates.length > 0) {
@@ -1809,15 +1816,22 @@ const CampaignCreate = () => {
     // Use preview branch or fall back to first selected branch
     const activeBranch = previewBranch || selectedBranch;
 
-    // Check for location bundle match (e.g., Helsinki group, Espoo group)
-    const branchNames = branchesForPreview.map(b => b.short_name || b.name || b.city);
-    const matchingBundle = isMultiLocation ? findMatchingBundle(branchNames) : null;
+    // Check if the preview branch belongs to a bundle whose locations are ALL selected
+    // E.g., if previewing "Iso Omena" and all Espoo branches (Leppävaara, Iso Omena, Lippulaiva) are selected,
+    // show the bundle address "Leppävaara • Iso Omena • Lippulaiva" instead of just "Iso Omena"
+    const activeBranchName = (activeBranch?.short_name || activeBranch?.name || activeBranch?.city || '');
+    const branchBundle = getBundleForBranch(activeBranchName);
+    const allSelectedNames = selectedBranches.map(b => (b.short_name || b.name || b.city).replace('Suun Terveystalo ', '').replace('Terveystalo ', '').trim());
+    const bundleFullySelected = branchBundle
+      ? branchBundle.locations.every(loc => allSelectedNames.includes(loc))
+      : false;
+    const matchingBundle = bundleFullySelected ? branchBundle : null;
 
     // Build location text for address position
     // This goes in the {{branch_address}} placeholder
     let locationText = '';
     if (matchingBundle) {
-      // Bundle match: use predefined address text
+      // Bundle match: use predefined address text (e.g., "Leppävaara • Iso Omena • Lippulaiva")
       locationText = matchingBundle.bundleAddress;
     } else if (isMultiLocation) {
       // Multi-location: "Kamppi • Itäkeskus • Ogeli • Redi" style
@@ -4526,16 +4540,6 @@ const CampaignCreate = () => {
                             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Toimipiste ({selectedBranches.length} valittu)</p>
                           </div>
                           <div className="flex flex-wrap gap-1">
-                            <button
-                              onClick={() => setPreviewBranchId(null)}
-                              className={`px-2 py-1 text-xs rounded transition-all ${
-                                !previewBranchId
-                                  ? 'bg-[#00A5B5] text-white'
-                                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-                              }`}
-                            >
-                              Kaikki
-                            </button>
                             {selectedBranches.map((branch) => {
                               const isSelected = previewBranchId === branch.id;
                               return (
