@@ -185,6 +185,7 @@ export interface DentalCampaign {
   headline?: string;
   subheadline?: string;
   offer_text?: string;
+  offer_title?: string;
   cta_text?: string;
   landing_url?: string;
   background_image_url?: string;
@@ -297,6 +298,7 @@ export interface CampaignFormData {
   headline?: string;
   subheadline?: string;
   offer_text?: string;
+  offer_title?: string;
   service_prices?: Record<string, string>;
   cta_text?: string;
   background_image_url?: string;

@@ -91,6 +91,57 @@ interface BranchRadiusSettings {
   }
 }
 
+// Recommended default radius (km) per location
+const DEFAULT_RADIUS_BY_LOCATION: Record<string, number> = {
+  // Helsinki metro
+  'Kamppi': 5,
+  'Redi': 5,
+  'Itäkeskus': 5,
+  'Ogeli': 5,
+  // Vantaa
+  'Tikkurila': 5,
+  'Myyrmäki': 5,
+  // Espoo
+  'Leppävaara': 5,
+  'Iso Omena': 5,
+  'Lippulaiva': 5,
+  // Kirkkonummi
+  'Veikkola': 10,
+  'Masala': 10,
+  // Cities
+  'Lahti': 10,
+  'Kotka': 10,
+  'Loviisa': 10,
+  'Iisalmi': 10,
+  'Kuopio': 10,
+  'Jyväskylä': 10,
+  'Jämsä': 10,
+  'Mikkeli': 10,
+  'Savonlinna': 10,
+  'Oulu': 10,
+  'Pietarsaari': 10,
+  'Seinäjoki': 10,
+  'Pori': 10,
+  'Tampere': 10,
+  'Hämeenlinna': 10,
+  'Forssa': 10,
+  'Loimaa': 10,
+  'Turku': 10,
+  'Lohja': 10,
+  // Remote — large catchment
+  'Sodankylä': 50,
+  'Rovaniemi': 50,
+};
+
+/** Get recommended default radius for a branch based on its name, short_name, or city */
+function getDefaultRadius(branch: { name?: string; short_name?: string; city?: string }): number {
+  const keys = [branch.short_name, branch.name, branch.city].filter(Boolean) as string[];
+  for (const key of keys) {
+    if (DEFAULT_RADIUS_BY_LOCATION[key] !== undefined) return DEFAULT_RADIUS_BY_LOCATION[key];
+  }
+  return 10; // fallback
+}
+
 // Custom Tooth Icon Component
 const ToothIcon = ({ size = 24, className = '' }: { size?: number; className?: string }) => (
   <svg
@@ -1790,6 +1841,12 @@ const CampaignCreate = () => {
     const serviceForPreview = previewService || selectedService;
     const isGeneralBrandMessage = serviceForPreview?.code === 'yleinen-brandiviesti';
 
+    // Determine background image/video gender based on service type
+    const svcNameLower = (serviceForPreview?.name_fi || serviceForPreview?.name || '').toLowerCase();
+    const autoGender = (isGeneralBrandMessage || svcNameLower.includes('suuhygieni') || svcNameLower.includes('hammaskiven poisto'))
+      ? 'nainen'
+      : svcNameLower.includes('hammastarkastus') ? 'mies' : 'nainen';
+
     // When a specific preview branch is selected, use it as the single branch for preview
     const previewBranch = previewBranchId ? selectedBranches.find(b => b.id === previewBranchId) : null;
     const branchesForPreview = previewBranch ? [previewBranch] : selectedBranches;
@@ -1984,7 +2041,7 @@ const CampaignCreate = () => {
 
       // Audio & video
       audio_track: encodeURI(creativeConfig.selectedAudio || '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav'),
-      background_video: encodeURI(creativeConfig.selectedVideo || '/meta/vids/nainen.mp4'),
+      background_video: encodeURI(creativeConfig.selectedVideo || `/meta/vids/${autoGender}.mp4`),
 
       // Images (for Meta templates - two scene images)
       scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
@@ -1993,9 +2050,9 @@ const CampaignCreate = () => {
       // Images (for PDOOH templates - single image + logo)
       logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
       artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork-700w.png`,
-      image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/nainen-980w.jpg`,
+      image_url: creativeConfig.backgroundImage || `${baseUrl}/refs/assets/${autoGender}-980w.jpg`,
       // Pricetag position: lower for mies image to avoid covering face
-      pricetag_top: (creativeConfig.backgroundImage || '').includes('mies') ? '920px' : '720.62px',
+      pricetag_top: (creativeConfig.backgroundImage || autoGender).includes('mies') ? '920px' : '720.62px',
       image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
       image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
 
@@ -2089,89 +2146,93 @@ const CampaignCreate = () => {
       scene4_addr_show: '89',
       scene4_addr_pop: '94',
 
-      // Sizes - 1080x1080 default values
-      logo_bottom: '65',
-      logo_height: '52',
-      badge_top: '20',
-      badge_left: '15',
-      badge_size: '290',
-      badge_pad_bottom: '5',
-      badge_pad_right: '10',
-      badge_label_size: '26',
-      badge_label_weight: '700',
-      badge_price_size: badgePriceSize,
-      badge_price_weight: '900',
-      badge_price_lineheight: '0.85',
-      badge_euro_size: badgeEuroSize,
-      badge_euro_weight: '700',
-      badge_euro_top: '6',
-      badge_euro_left: '2',
-      headline_top: '50',
-      headline_size: '70',
-      headline_weight: '800',
-      headline_start_y: '30',
-      headline_end_y: '90',
-      subline_top: '50',
-      subline_size: '70',
-      subline_weight: '800',
-      subline_start_y: '10',
-      subline_end_y: '10',
-      subline_lineheight: '1.15',
-      text_shadow: '2',
+      // Sizes - only override for meta/pdooh (1080px); display templates use their own defaults
+      ...(template?.type !== 'display' ? {
+        logo_bottom: '65',
+        logo_height: '52',
+        badge_top: '20',
+        badge_left: '15',
+        badge_size: '290',
+        badge_pad_bottom: '5',
+        badge_pad_right: '10',
+        badge_label_size: '26',
+        badge_label_weight: '700',
+        badge_price_size: badgePriceSize,
+        badge_price_weight: '900',
+        badge_price_lineheight: '0.85',
+        badge_euro_size: badgeEuroSize,
+        badge_euro_weight: '700',
+        badge_euro_top: '6',
+        badge_euro_left: '2',
+        headline_top: '50',
+        headline_size: '70',
+        headline_weight: '800',
+        headline_start_y: '30',
+        headline_end_y: '90',
+      } : {}),
+      ...(template?.type !== 'display' ? {
+        subline_top: '50',
+        subline_size: '70',
+        subline_weight: '800',
+        subline_start_y: '10',
+        subline_end_y: '10',
+        subline_lineheight: '1.15',
+        text_shadow: '2',
 
-      // Circle wipe sizes and positions
-      cw1_size: '140',
-      cw1_bottom: '-20',
-      cw1_left: '-30',
-      cw1_scale: '15',
-      cw2_size: '100',
-      cw2_bottom: '90',
-      cw2_left: '60',
-      cw2_scale: '15',
-      cw3_size: '70',
-      cw3_bottom: '50',
-      cw3_left: '150',
-      cw3_scale: '18',
-      cw4_size: '55',
-      cw4_bottom: '160',
-      cw4_left: '20',
-      cw4_scale: '22',
-      cw5_size: '90',
-      cw5_bottom: '130',
-      cw5_left: '130',
-      cw5_scale: '15',
-      cw6_size: '120',
-      cw6_bottom: '30',
-      cw6_left: '200',
-      cw6_scale: '12',
-      cw7_size: '45',
-      cw7_bottom: '190',
-      cw7_left: '100',
-      cw7_scale: '28',
-      cw_big_size: '400',
-      cw_big_bottom: '-200',
-      cw_big_left: '-200',
-      cw_big_scale: '8',
+        // Circle wipe sizes and positions
+        cw1_size: '140',
+        cw1_bottom: '-20',
+        cw1_left: '-30',
+        cw1_scale: '15',
+        cw2_size: '100',
+        cw2_bottom: '90',
+        cw2_left: '60',
+        cw2_scale: '15',
+        cw3_size: '70',
+        cw3_bottom: '50',
+        cw3_left: '150',
+        cw3_scale: '18',
+        cw4_size: '55',
+        cw4_bottom: '160',
+        cw4_left: '20',
+        cw4_scale: '22',
+        cw5_size: '90',
+        cw5_bottom: '130',
+        cw5_left: '130',
+        cw5_scale: '15',
+        cw6_size: '120',
+        cw6_bottom: '30',
+        cw6_left: '200',
+        cw6_scale: '12',
+        cw7_size: '45',
+        cw7_bottom: '190',
+        cw7_left: '100',
+        cw7_scale: '28',
+        cw_big_size: '400',
+        cw_big_bottom: '-200',
+        cw_big_left: '-200',
+        cw_big_scale: '8',
 
-      // Scene 3 styling
-      scene3_text_size: '78',
-      scene3_text_weight: '800',
-      scene3_text_lineheight: '1.15',
-      scene3_text_pad: '60',
-      scene3_text_style: 'italic',
-      scene3_arc_angle: '-18',
-      scene3_arc_scale: '0.82',
-      scene3_logo_bottom: '95',
-      scene3_logo_height: '46',
+        // Scene 3 styling
+        scene3_text_size: '78',
+        scene3_text_weight: '800',
+        scene3_text_lineheight: '1.15',
+        scene3_text_pad: '60',
+        scene3_text_style: 'italic',
+        scene3_arc_angle: '-18',
+        scene3_arc_scale: '0.82',
+        scene3_logo_bottom: '95',
+        scene3_logo_height: '46',
 
-      // Scene 4 styling
-      scene4_margin_top: '60',
-      scene4_logo_height: '54',
-      scene4_addr_top: '18',
-      scene4_addr_size: '40',
+        // Scene 4 styling
+        scene4_margin_top: '60',
+        scene4_logo_height: '54',
+        scene4_addr_top: '18',
+        scene4_addr_size: '40',
       scene4_addr_weight: '300',
-      scene4_addr_spacing: '0.5',
-      scene4_addr_slide: '8',
+        scene4_addr_spacing: '0.5',
+        scene4_addr_slide: '8',
+      } : {}),
 
       // Other variables
       offer_date: isGeneralBrandMessage ? '' : (creativeConfig.offerDate || 'Varaa viimeistään 28.10.'),
@@ -2316,6 +2377,7 @@ const CampaignCreate = () => {
         headline: creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.',
         subheadline: creativeConfig.subheadline || '',
         offer_text: creativeConfig.offer,
+        offer_title: creativeConfig.offerTitle || undefined,
         service_prices: creativeConfig.servicePrices,
         cta_text: creativeConfig.cta,
         background_image_url: creativeConfig.backgroundImage || undefined,
@@ -2550,7 +2612,7 @@ const CampaignCreate = () => {
                             // Initialize radius settings for all branches
                             const radiusSettings: Record<string, { radius: number; enabled: boolean }> = {};
                             activeBranches.forEach(b => {
-                              radiusSettings[b.id] = { radius: 10, enabled: true };
+                              radiusSettings[b.id] = { radius: getDefaultRadius(b), enabled: true };
                             });
                             setBranchRadiusSettings(prev => ({ ...prev, ...radiusSettings }));
                             setFormData({ ...formData, ad_type: type.id, creative_type: type.id, nationwide_address_mode: 'with_address', branch_ids: allBranchIds, branch_id: allBranchIds[0] || '' });
@@ -2752,7 +2814,7 @@ const CampaignCreate = () => {
                             if (!isSelected) {
                               setBranchRadiusSettings(prev => ({
                                 ...prev,
-                                [branch.id]: { radius: 10, enabled: true }
+                                [branch.id]: { radius: getDefaultRadius(branch), enabled: true }
                               }));
                             }
                           }}

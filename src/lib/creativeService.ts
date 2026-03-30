@@ -1316,6 +1316,12 @@ export async function generateAllMetaCreatives(
         .replace(/_+/g, '_')
         .replace(/^_|_$/g, '');
 
+      // Determine background gender based on service type
+      const svcNameLwr = (service.name_fi || service.name || '').toLowerCase();
+      const autoGender = (isGeneralBrandMessage || svcNameLwr.includes('suuhygieni') || svcNameLwr.includes('hammaskiven poisto'))
+        ? 'nainen'
+        : svcNameLwr.includes('hammastarkastus') ? 'mies' : 'nainen';
+
       const storagePath = `meta-creatives/${campaignId}/${adName}`;
 
       for (const size of metaSizes) {
@@ -1381,14 +1387,14 @@ export async function generateAllMetaCreatives(
 
               // Audio & video
               audio_track: encodeURI(audioTrack),
-              background_video: encodeURI(formData.meta_video_url || '/meta/vids/nainen.mp4'),
+              background_video: encodeURI(formData.meta_video_url || `/meta/vids/${autoGender}.mp4`),
 
               // Images
               scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
               scene2_image: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces',
               logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
               artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork-1200w.png`,
-              image_url: `${baseUrl}/refs/assets/nainen-1080w.jpg`,
+              image_url: `${baseUrl}/refs/assets/${autoGender}-1080w.jpg`,
               image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
               image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
 
@@ -1599,7 +1605,6 @@ export async function generateAllMetaCreatives(
           if (template.type === 'pdooh') {
             templateHtml = templateHtml.replace('</head>', '<style>.cta, .cta-button, .VaraaAika, .cta_text, [class*="cta"] { display: none !important; }</style></head>');
           }
-
           const result = await generateAndUploadMetaCreative(
             campaignId,
             `${campaignName} - ${adName}`,

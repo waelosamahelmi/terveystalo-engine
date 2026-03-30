@@ -212,6 +212,12 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
   const isMultiService = allServices.length > 1;
   const showAddress = formData.creative_type === 'local' || formData.creative_type === 'both';
 
+  // Determine background image/video gender based on service type
+  const svcNameLower = (service.name_fi || service.name || '').toLowerCase();
+  const autoGender = (isGeneralBrandMessage || svcNameLower.includes('suuhygieni') || svcNameLower.includes('hammaskiven poisto'))
+    ? 'nainen'
+    : svcNameLower.includes('hammastarkastus') ? 'mies' : 'nainen';
+
   // Service name and elative form
   const serviceName = service.name_fi || service.name;
   let serviceNameElative = serviceName.toLowerCase();
@@ -349,14 +355,14 @@ export function buildMetaTemplateVariables(params: MetaVariableBuildParams): Rec
 
     // Audio & video
     audio_track: encodeURI(formData.meta_audio_url || '/meta/audio/Terveystalo Suun TT TVC Brändillinen 15s 2025 09 23 Net Master -14LUFS.wav'),
-    background_video: encodeURI(formData.meta_video_url || '/meta/vids/nainen.mp4'),
+    background_video: encodeURI(formData.meta_video_url || `/meta/vids/${autoGender}.mp4`),
 
     // Images
     scene1_image: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop&crop=faces',
     scene2_image: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop&crop=faces',
     logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
     artwork_url: `${baseUrl}/refs/assets/terveystalo-artwork-1200w.png`,
-    image_url: formData.background_image_url || `${baseUrl}/refs/assets/nainen-1080w.jpg`,
+    image_url: formData.background_image_url || `${baseUrl}/refs/assets/${autoGender}-1080w.jpg`,
     image_url_1: 'https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=1080&h=1080&fit=crop',
     image_url_2: 'https://images.unsplash.com/photo-1606811971618-4486d14f3f99?w=1080&h=1080&fit=crop',
 

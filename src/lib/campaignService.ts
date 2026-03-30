@@ -424,6 +424,11 @@ export async function createCampaignCreatives(
 
         const serviceName = service.name_fi || service.name;
         const isGeneralBrandMessage = service.code === 'yleinen-brandiviesti';
+        // Determine background image gender based on service type
+        const svcNameLwr = serviceName.toLowerCase();
+        const autoGender = (isGeneralBrandMessage || svcNameLwr.includes('suuhygieni') || svcNameLwr.includes('hammaskiven poisto'))
+          ? 'nainen'
+          : svcNameLwr.includes('hammastarkastus') ? 'mies' : 'nainen';
         const adFolder = `${sanitize(unit.unitLabel)} - ${sanitize(serviceName)}`;
 
         for (const cs of channelSizes) {
@@ -542,11 +547,11 @@ export async function createCampaignCreatives(
               logo_url: `${baseUrl}/refs/assets/SuunTerveystalo_logo.png`,
               artwork_url: getOptimizedArtworkUrl(`${baseUrl}/refs/assets/terveystalo-artwork.png`, cs.width),
               image_url: getOptimizedBackgroundUrl(
-                formData.background_image_url || `${baseUrl}/refs/assets/nainen.jpg`,
+                formData.background_image_url || `${baseUrl}/refs/assets/${autoGender}.jpg`,
                 cs.width,
                 baseUrl
               ),
-              pricetag_top: (formData.background_image_url || '').includes('mies') ? '920px' : '720.62px',
+              pricetag_top: (formData.background_image_url || autoGender).includes('mies') ? '920px' : '720.62px',
               click_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
               offer_date: isGeneralBrandMessage ? '' : (formData.offer_date || 'Varaa viimeistään 28.10.'),
               disclaimer_text: (cs.type === 'pdooh' && !isGeneralBrandMessage) ? (formData.disclaimer_text || '') : '',
@@ -583,7 +588,6 @@ export async function createCampaignCreatives(
             html = html.replace('</head>',
               '<style>.cta, .cta-button, .cta-wrap, .scene-4-cta { display: none !important; }</style></head>');
           }
-
           // 2160x3840: upscale from 1080x1920 via CSS transform
           if (isUpscaled) {
             html = html.replace('</head>',
@@ -785,6 +789,7 @@ export async function createCampaign(
     headline: formData.headline || null,
     subheadline: formData.subheadline || null,
     offer_text: formData.offer_text || null,
+    offer_title: formData.offer_title || null,
     cta_text: formData.cta_text || null,
     landing_url: formData.landing_url || 'https://terveystalo.com/suunterveystalo',
     general_brand_message: formData.general_brand_message || null,

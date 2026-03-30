@@ -342,13 +342,14 @@ function appendUtm(baseUrl: string, utmParams: string): string {
 function formatDentalCampaignRow(
   campaign: DentalCampaign,
   options?: {
-    branchOverride?: { name: string; short_name?: string; address: string; postal_code: string; city: string; region?: string; phone?: string };
+    branchOverride?: { name: string; short_name?: string; address: string; postal_code: string; city: string; region?: string; phone?: string; lat?: number; lng?: number };
     serviceOverride?: { name: string; name_fi?: string; code: string; default_price?: string; default_offer_fi?: string };
     budgetOverride?: { total: number; meta: number; display: number; pdooh: number; audio: number };
     excludedBranchesData?: Array<{ address: string; city: string }>;
     creativeUrls?: AdVersionUrls;
     allBranches?: Array<{ name: string; short_name?: string; city: string }>;
     nationwideAddressMode?: 'with_address' | 'without_address';
+    radiusOverride?: number;
   }
 ): string[] {
   const startDate = safeFormatDate(campaign.campaign_start_date || campaign.start_date);
@@ -390,7 +391,7 @@ function formatDentalCampaignRow(
   const dailyPdooh = pdoohBudget / campaignDays;
   const dailyAudio = audioBudget / campaignDays;
 
-  const radius = campaign.campaign_radius || 10;
+  const radius = options?.radiusOverride ?? campaign.campaign_radius ?? 10;
 
   // Smartly address format: "Streetname X, City, Finland /radius/kilometer"
   const smartlyAddress = formatSmartlyAddress(br?.address, br?.city, radius);
@@ -423,11 +424,14 @@ function formatDentalCampaignRow(
     }
   }
 
-  // Background video gender (Nainen / Mies / custom)
-  const metaVideoUrl = (campaign as any).meta_video_url || '';
-  const videoGender = metaVideoUrl.includes('nainen') ? 'Nainen'
-    : metaVideoUrl.includes('mies') ? 'Mies'
-    : metaVideoUrl ? 'Custom' : '';
+  // Background video gender based on service type:
+  // suuhygienisti / hammaskiven poisto → Nainen, hammastarkastus → Mies, brand message → Nainen
+  const svcNameLower = (svc?.name_fi || svc?.name || '').toLowerCase();
+  const svcCodeLower = (svc?.code || '').toLowerCase();
+  const videoGender = svcCodeLower === 'yleinen-brandiviesti' ? 'Nainen'
+    : (svcNameLower.includes('suuhygieni') || svcNameLower.includes('hammaskiven poisto')) ? 'Nainen'
+    : svcNameLower.includes('hammastarkastus') ? 'Mies'
+    : 'Nainen';
 
   // Audio track type (Brändillinen / Geneerinen)
   const metaAudioUrl = (campaign as any).meta_audio_url || '';
@@ -469,7 +473,7 @@ function formatDentalCampaignRow(
     // ── Service (H-J) ──
     svc?.name || '',                                              // H: service_name
     svc?.code || '',                                              // I: service_code
-    svc?.default_price || '',                                     // J: service_price
+    campaign.offer_text || svc?.default_price || '',               // J: service_price (user-edited price takes priority)
 
     // ── Branch (K-P) ──
     br?.name || '',                                               // K: branch_name
@@ -479,13 +483,13 @@ function formatDentalCampaignRow(
     br?.region || '',                                             // O: branch_region
     sheetSafe(br?.phone || ''),                                  // P: branch_phone
 
-    // ── Location targeting (Q-V) ──
+    // ── Location targeting (Q-V) — use per-branch data when available ──
     smartlyAddress,                                               // Q: target_address (Smartly format: "Streetname X, City, Finland /radius/kilometer")
-    formatPostalCode(campaign.campaign_postal_code),              // R: target_postal_code (5-digit padded)
-    campaign.campaign_city || '',                                 // S: target_city
+    formatPostalCode(br?.postal_code || campaign.campaign_postal_code), // R: target_postal_code (5-digit padded)
+    br?.city || campaign.campaign_city || '',                     // S: target_city
     radius.toString(),                                            // T: target_radius
-    campaign.campaign_coordinates?.lat?.toString() || '',         // U: target_lat
-    campaign.campaign_coordinates?.lng?.toString() || '',         // V: target_lng
+    (br as any)?.lat?.toString() || campaign.campaign_coordinates?.lat?.toString() || '', // U: target_lat
+    (br as any)?.lng?.toString() || campaign.campaign_coordinates?.lng?.toString() || '', // V: target_lng
 
     // ── Schedule (W-Y) ──
     startDate,                                                    // W: start_date (DD-MM-YYYY)
@@ -515,7 +519,7 @@ function formatDentalCampaignRow(
     campaign.subheadline || '',                                   // AO: subheadline
     campaign.offer_text || '',                                    // AP: offer_text
     campaign.cta_text || '',                                      // AQ: cta_text
-    appendUtm(campaign.landing_url || '', buildDisplayUtmParams(svc?.code || '')), // AR: landing_url (with display UTMs)
+    appendUtm(campaign.landing_url || '', buildMetaUtmParams(svc?.code || '')), // AR: landing_url (with Meta UTMs)
     campaign.background_image_url || '',                          // AS: background_image_url
     (campaign.general_brand_message || '').replace(/<br\s*\/?>/gi, ' '), // AT: general_brand_message (<br> replaced with space)
     (campaign.target_screens_count || 0).toString(),              // AU: target_screens_count
@@ -583,7 +587,7 @@ function formatDentalCampaignRow(
     br?.city                                                      // BY: offer_message
       ? `Sujuvampaa suunterveyttä ${getConjugatedCity(br.city)} Suun Terveystalossa.`
       : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.',
-    svc?.default_offer_fi || svc?.name_fi || svc?.name || '', // BZ: offer_headline (Tarjouksen otsikko)
+    (campaign as any).offer_title || svc?.default_offer_fi || svc?.name_fi || svc?.name || '', // BZ: offer_headline (Tarjouksen otsikko)
     ((campaign as any).offer_date || (campaign as any).offer_subtitle || '').replace(/<br\s*\/?>/gi, ' ').replace(/\|/g, ' '), // CA: offer_subtitle (Voimassaoloaika)
 
     // ── Smartly creative ID (CB) ──
@@ -591,16 +595,19 @@ function formatDentalCampaignRow(
 
     // ── Video / Creative extras (CC-CG) ──
     videoGender,                                                  // CC: background_video_gender (Nainen / Mies / Custom)
-    ((campaign as any).offer_subtitle || '').replace(/\|/g, ' '), // CD: offer_bubble_subtitle (Alateksti hintalapussa)
+    '',                                                           // CD: offer_bubble_subtitle (removed – not displayed anywhere)
     (() => {                                                      // CE: service_price (price for this specific service)
+      // User-edited offer price takes priority over service defaults
+      if (campaign.offer_text) return campaign.offer_text;
       const servicePrices = (campaign as any).service_prices;
       if (servicePrices && svc?.id && servicePrices[svc.id]) {
         return String(servicePrices[svc.id]);
       }
-      return (svc?.default_price || '').replace(/€/g, '').trim() || campaign.offer_text || '';
+      return (svc?.default_price || '').replace(/€/g, '').trim() || '';
     })(),
     audioTrackType,                                               // CF: audio_track_type (Brändillinen / Geneerinen)
     metaVideoUrl,                                                 // CG: meta_video_url (raw URL for reference)
+    appendUtm(campaign.landing_url || '', buildMetaUtmParams(svc?.code || '')), // CH: meta_landing_url (with Meta UTMs)
   ];
 }
 
@@ -686,6 +693,15 @@ export async function addDentalCampaignToSheet(
       audio: (campaign.budget_audio || 0) / adVersionCount,
     };
 
+    // Parse per-branch radius settings
+    let branchRadiusSettings: Record<string, { radius: number; enabled: boolean }> | null = null;
+    const rawRadiusSettings = (campaign as any).branch_radius_settings;
+    if (rawRadiusSettings) {
+      branchRadiusSettings = typeof rawRadiusSettings === 'string'
+        ? JSON.parse(rawRadiusSettings)
+        : rawRadiusSettings;
+    }
+
     let rows: string[][] = [];
 
     if (branchList.length > 0 && serviceList.length > 0) {
@@ -719,6 +735,9 @@ export async function addDentalCampaignToSheet(
             };
           }
 
+          // Get per-branch radius from saved settings
+          const branchRadius = branchRadiusSettings?.[branch.id]?.radius;
+
           rows.push(formatDentalCampaignRow(campaign, {
             branchOverride: {
               name: branch.name,
@@ -728,7 +747,10 @@ export async function addDentalCampaignToSheet(
               city: branch.city,
               region: branch.region,
               phone: branch.phone,
+              lat: (branch as any).lat ?? (branch as any).latitude,
+              lng: (branch as any).lng ?? (branch as any).longitude,
             },
+            radiusOverride: branchRadius,
             serviceOverride: {
               name: service.name,
               name_fi: service.name_fi,
@@ -754,7 +776,7 @@ export async function addDentalCampaignToSheet(
 
     // Append smartly_id: sequential row number (1-based) within this campaign
     rows.forEach((row, index) => {
-      row.push(String(index + 1)); // CH: smartly_id
+      row.push(String(index + 1)); // CI: smartly_id
     });
 
     const response = await axios.post(
