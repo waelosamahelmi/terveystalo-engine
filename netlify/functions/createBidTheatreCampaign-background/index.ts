@@ -360,12 +360,7 @@ async function fetchCreativesForBranch(
 
   if (!data || data.length === 0) return [];
 
-  // Nationwide without address: all branches share the same creatives
-  if (nationwideAddressMode === 'without_address') {
-    return data;
-  }
-
-  // Nationwide with address: match by bundle name (e.g., "Helsinki") or branch label
+  // Always try to filter by branch name first (creatives are named "City - Service - Size")
   let searchLabel = branchLabel;
   if (nationwideAddressMode === 'with_address') {
     const bundle = getBundleForBranch(branchLabel);
@@ -380,7 +375,11 @@ async function fetchCreativesForBranch(
     return name.includes(searchLower);
   });
 
-  // Only return branch-specific creatives; do NOT fall back to all creatives
+  // For 'without_address' mode: if no branch match, creatives are shared (no city in name)
+  if (branchCreatives.length === 0 && nationwideAddressMode === 'without_address') {
+    return data;
+  }
+
   if (branchCreatives.length === 0) {
     console.warn(`No creatives matched branch "${searchLabel}" — skipping this branch`);
   }
