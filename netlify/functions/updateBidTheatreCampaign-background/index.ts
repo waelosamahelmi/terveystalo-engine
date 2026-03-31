@@ -170,7 +170,7 @@ async function getBidTheatreToken() {
   return token;
 }
 
-async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, retryDelay = 5000): Promise<T> {
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 6, retryDelay = 10000): Promise<T> {
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -178,8 +178,9 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, retryDe
     } catch (error: any) {
       lastError = error;
       if (axios.isAxiosError(error) && error.response?.status === 429 && attempt < maxRetries) {
-        console.log(`Rate limited (429), retry ${attempt}/${maxRetries} after ${retryDelay}ms`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        const waitMs = retryDelay * attempt; // 10s, 20s, 30s, 40s, 50s...
+        console.log(`Rate limited (429), retry ${attempt}/${maxRetries} after ${waitMs}ms`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
       } else {
         throw error;
       }
@@ -458,6 +459,7 @@ async function updateBtCampaign(
   const existingAdIds = btRecord.ad_ids || {};
 
   // Delete old ads first
+  console.log(`Deleting ${Object.values(existingAdIds).flat().length} existing ads...`);
   for (const [, ids] of Object.entries(existingAdIds)) {
     for (const adId of (ids as number[])) {
       try {
@@ -466,8 +468,15 @@ async function updateBtCampaign(
             headers: { Authorization: `Bearer ${btToken}` },
           })
         );
-      } catch {
-        // Ad may already be deleted; ignore
+        console.log(`Deleted ad ${adId}`);
+        await sleep(500);
+      } catch (delErr: any) {
+        const status = delErr.response?.status;
+        if (status === 404) {
+          console.log(`Ad ${adId} already deleted (404)`);
+        } else {
+          console.warn(`Failed to delete ad ${adId}: ${delErr.message}`);
+        }
       }
     }
   }
@@ -561,7 +570,7 @@ async function updateBtCampaign(
             if (!newAdIds[group.name]) newAdIds[group.name] = [];
             newAdIds[group.name].push(adId);
             console.log(`Created ad ${adId} for ${size}`);
-            await sleep(300);
+            await sleep(1000);
           } catch (adErr: any) {
             console.error(`Ad creation failed for ${size}: ${adErr.response?.data?.message || adErr.message}`);
           }
