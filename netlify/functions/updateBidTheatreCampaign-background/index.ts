@@ -461,23 +461,31 @@ async function updateBtCampaign(
   const adGroupIds = btRecord.ad_group_ids || {};
   const existingAdIds = btRecord.ad_ids || {};
 
-  // Deactivate old ads first (BT doesn't support DELETE, use PUT to set Inactive)
+  // Deactivate old ads first
   const allOldAdIds = Object.values(existingAdIds).flat() as number[];
   console.log(`Deactivating ${allOldAdIds.length} existing ads...`);
   for (const adId of allOldAdIds) {
     try {
-      // GET the ad first, then PUT back with Inactive status
+      // GET the ad, clean it for PUT (strip nulls, links, convert objects to IDs)
       const adResp = await retryWithBackoff(() =>
         bidTheatreApi.get(`/${networkId}/ad/${adId}`, {
           headers: { Authorization: `Bearer ${btToken}` },
         })
       );
-      const adData = adResp.data?.ad || adResp.data;
+      const raw = adResp.data?.ad || adResp.data;
+      const cleaned: Record<string, any> = {};
+      for (const [key, val] of Object.entries(raw)) {
+        if (val === null || val === undefined) continue; // strip nulls
+        if (key === 'links') continue; // not allowed by schema
+        if (typeof val === 'object' && !Array.isArray(val) && (val as any).id !== undefined) {
+          cleaned[key] = (val as any).id; // convert { id, href } → id
+        } else {
+          cleaned[key] = val;
+        }
+      }
+      cleaned.adStatus = 'Inactive';
       await retryWithBackoff(() =>
-        bidTheatreApi.put(`/${networkId}/ad/${adId}`, {
-          ...adData,
-          adStatus: 'Inactive',
-        }, {
+        bidTheatreApi.put(`/${networkId}/ad/${adId}`, cleaned, {
           headers: { Authorization: `Bearer ${btToken}` },
         })
       );
