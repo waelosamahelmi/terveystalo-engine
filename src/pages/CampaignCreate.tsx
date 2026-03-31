@@ -1294,6 +1294,42 @@ const CampaignCreate = () => {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [formData.branch_ids, formData.ad_type, branchRadiusSettings, branches]);
 
+  // Default budget allocation percentages by branch name
+  const defaultBranchAllocations: Record<string, number> = {
+    'Terveystalo Lahti': 4,
+    'Terveystalo Kotka': 4,
+    'Terveystalo Loviisa': 2,
+    'Terveystalo Iisalmi': 5,
+    'Terveystalo Kuopio': 2,
+    'Terveystalo Jyväskylä': 2,
+    'Terveystalo Jämsä': 2,
+    'Terveystalo Mikkeli': 2,
+    'Terveystalo Savonlinna': 2,
+    'Terveystalo Oulu': 4,
+    'Terveystalo Sodankylä': 0,
+    'Terveystalo Rovaniemi': 3,
+    'Terveystalo Pietarsaari': 2,
+    'Terveystalo Seinäjoki': 2,
+    'Terveystalo Pori': 4,
+    'Terveystalo Tampere': 4,
+    'Terveystalo Hämeenlinna': 2,
+    'Terveystalo Forssa': 2,
+    'Terveystalo Loimaa': 2,
+    'Terveystalo Turku': 6,
+    'Terveystalo Tikkurila': 2,
+    'Terveystalo Myyrmäki': 2,
+    'Terveystalo Leppävaara': 4,
+    'Terveystalo Iso Omena': 4,
+    'Terveystalo Lippulaiva': 4,
+    'Terveystalo Oulunkylä': 4,
+    'Terveystalo Itäkeskus': 4,
+    'Terveystalo Redi': 4,
+    'Terveystalo Kamppi': 4,
+    'Terveystalo Masala': 4,
+    'Terveystalo Veikkola': 4,
+    'Terveystalo Lohja': 4,
+  };
+
   // Auto-initialize branch budget allocations when selected branches change
   useEffect(() => {
     if (formData.branch_ids.length <= 1) {
@@ -1312,18 +1348,43 @@ const CampaignCreate = () => {
         }
         return cleaned;
       }
-      // Initialize evenly
-      const evenPct = Math.floor(100 / formData.branch_ids.length);
-      return Object.fromEntries(
-        formData.branch_ids.map((id, i) => [
-          id,
-          i === formData.branch_ids.length - 1
-            ? 100 - evenPct * (formData.branch_ids.length - 1)
-            : evenPct
-        ])
-      );
+      // Initialize using default allocations by branch name
+      const selectedBranchList = formData.branch_ids
+        .map(id => branches.find(b => b.id === id))
+        .filter(Boolean) as Branch[];
+      // Get default percentages for selected branches
+      const rawAllocations = selectedBranchList.map(b => {
+        const name = b.name || b.short_name || '';
+        return { id: b.id, pct: defaultBranchAllocations[name] ?? 3 };
+      });
+      // Normalize to sum to 100%
+      const rawTotal = rawAllocations.reduce((sum, a) => sum + a.pct, 0);
+      if (rawTotal === 0) {
+        // Fallback to equal split
+        const evenPct = Math.floor(100 / formData.branch_ids.length);
+        return Object.fromEntries(
+          formData.branch_ids.map((id, i) => [
+            id,
+            i === formData.branch_ids.length - 1
+              ? 100 - evenPct * (formData.branch_ids.length - 1)
+              : evenPct
+          ])
+        );
+      }
+      const allocations: Record<string, number> = {};
+      let assigned = 0;
+      rawAllocations.forEach((a, i) => {
+        if (i === rawAllocations.length - 1) {
+          allocations[a.id] = 100 - assigned;
+        } else {
+          const pct = Math.round((a.pct / rawTotal) * 100);
+          allocations[a.id] = pct;
+          assigned += pct;
+        }
+      });
+      return allocations;
     });
-  }, [formData.branch_ids]);
+  }, [formData.branch_ids, branches]);
 
   // Creative config - initialize with defaults, will update based on selections
   const [creativeConfig, setCreativeConfig] = useState<CreativeConfig>({
@@ -2492,7 +2553,7 @@ const CampaignCreate = () => {
             (formData.channel_display ? formData.budget_display : 0) +
             (formData.channel_pdooh ? formData.budget_pdooh : 0) +
             (formData.channel_audio ? formData.budget_audio : 0);
-          // Use current allocations or default to equal split
+          // Use current allocations or default to weighted split
           const allocs: Record<string, number> = {};
           const selectedIds = new Set(selectedBranches.map(b => b.id));
           let needsInit = false;
@@ -2500,10 +2561,20 @@ const CampaignCreate = () => {
             if (branchBudgetAllocations[b.id] === undefined) { needsInit = true; break; }
           }
           if (needsInit) {
-            selectedBranches.forEach((b, i) => {
-              allocs[b.id] = i === selectedBranches.length - 1
-                ? 100 - Math.floor(100 / selectedBranches.length) * (selectedBranches.length - 1)
-                : Math.floor(100 / selectedBranches.length);
+            const raw = selectedBranches.map(b => ({
+              id: b.id,
+              pct: defaultBranchAllocations[b.name || b.short_name || ''] ?? 3,
+            }));
+            const rawTotal = raw.reduce((s, a) => s + a.pct, 0) || 1;
+            let assigned = 0;
+            raw.forEach((a, i) => {
+              if (i === raw.length - 1) {
+                allocs[a.id] = 100 - assigned;
+              } else {
+                const pct = Math.round((a.pct / rawTotal) * 100);
+                allocs[a.id] = pct;
+                assigned += pct;
+              }
             });
           } else {
             for (const [id, pct] of Object.entries(branchBudgetAllocations)) {
@@ -3499,12 +3570,25 @@ const CampaignCreate = () => {
               }
 
               const allocations = needsInit
-                ? Object.fromEntries(selectedBranches.map((b, i) => [
-                    b.id,
-                    i === selectedBranches.length - 1
-                      ? 100 - Math.floor(100 / selectedBranches.length) * (selectedBranches.length - 1)
-                      : Math.floor(100 / selectedBranches.length)
-                  ]))
+                ? (() => {
+                    const raw = selectedBranches.map(b => ({
+                      id: b.id,
+                      pct: defaultBranchAllocations[b.name || b.short_name || ''] ?? 3,
+                    }));
+                    const rawTotal = raw.reduce((s, a) => s + a.pct, 0) || 1;
+                    const result: Record<string, number> = {};
+                    let assigned = 0;
+                    raw.forEach((a, i) => {
+                      if (i === raw.length - 1) {
+                        result[a.id] = 100 - assigned;
+                      } else {
+                        const pct = Math.round((a.pct / rawTotal) * 100);
+                        result[a.id] = pct;
+                        assigned += pct;
+                      }
+                    });
+                    return result;
+                  })()
                 : cleanedAllocations;
 
               const totalPct = Object.values(allocations).reduce((s, v) => s + v, 0);
