@@ -813,7 +813,10 @@ export async function addDentalCampaignToSheet(
 
 // Function to update a dental campaign in Google Sheet (delete existing rows + re-add)
 // For multi-location campaigns, this ensures row count changes are handled correctly
-export async function updateDentalCampaignInSheet(campaign: DentalCampaign): Promise<boolean> {
+export async function updateDentalCampaignInSheet(
+  campaign: DentalCampaign,
+  creativeUrlsByAdVersion?: Record<string, AdVersionUrls>
+): Promise<boolean> {
   try {
     const accessToken = await getAccessToken();
     if (!accessToken) {
@@ -828,7 +831,7 @@ export async function updateDentalCampaignInSheet(campaign: DentalCampaign): Pro
     }
 
     // Re-add with current data (handles multi-location automatically)
-    return await addDentalCampaignToSheet(campaign);
+    return await addDentalCampaignToSheet(campaign, creativeUrlsByAdVersion);
   } catch (error) {
     console.error('Error updating dental campaign in sheet:', error instanceof Error ? error.message : 'Unknown error');
     return false;

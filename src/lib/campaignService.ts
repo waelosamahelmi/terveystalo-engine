@@ -500,10 +500,10 @@ export async function createCampaignCreatives(
               }
             }
 
-            // Offer title — apply hyphenation for long Finnish service names
+            // Offer title — user-edited takes priority, then apply hyphenation for long Finnish service names
             let offerTitle = '';
             if (!isGeneralBrandMessage) {
-              offerTitle = service.default_offer_fi || serviceName;
+              offerTitle = formData.offer_title || service.default_offer_fi || serviceName;
               const hyphenationMap: Record<string, string> = {
                 'Suuhygienistikäynti': 'Suuhygienisti-|käynti',
                 'Hammastarkastus': 'Hammas-|tarkastus',
@@ -950,12 +950,30 @@ export async function updateCampaign(
     return null;
   }
 
-  // Sync updated data to Google Sheets (fire and forget)
   if (data) {
-    updateDentalCampaignInSheet(data)
+    // 1. Regenerate creative HTML files with updated content
+    let creativeUrlsByAdVersion: Record<string, AdVersionUrls> = {};
+    try {
+      creativeUrlsByAdVersion = await createCampaignCreatives(id, data as any);
+      console.log('Creatives regenerated for campaign update');
+    } catch (e) {
+      console.error('Creative regeneration failed (non-blocking):', e);
+    }
+
+    // 2. Sync updated data to Google Sheets (with fresh creative URLs)
+    const sheetData = {
+      ...data,
+      meta_primary_text: (updates as any).meta_primary_text || '',
+      meta_headline: (updates as any).meta_headline || '',
+      meta_description: (updates as any).meta_description || '',
+      excluded_branch_ids: (updates as any).excluded_branch_ids || [],
+      offer_date: (updates as any).offer_date || '',
+      offer_subtitle: (updates as any).offer_subtitle || '',
+    };
+    updateDentalCampaignInSheet(sheetData, creativeUrlsByAdVersion)
       .catch(e => console.error('Google Sheets update sync failed (non-blocking):', e));
 
-    // Trigger BidTheatre update if campaign has BT campaigns
+    // 3. Trigger BidTheatre update (will pick up regenerated creatives)
     if (data.channel_display || data.channel_pdooh) {
       fetch('/.netlify/functions/updateBidTheatreCampaign-background', {
         method: 'POST',
