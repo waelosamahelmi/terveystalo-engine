@@ -512,55 +512,31 @@ async function updateBtCampaign(
           const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
           const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
 
+          // Use static JPG image wrapper for PDOOH (if available), or iframe for HTML
+          const useJpg = creative.jpg_url && channelType === 'PDOOH';
+          const html = useJpg
+            ? buildImageWrapper(creative.jpg_url, config.width, config.height, landingUrl)
+            : buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+          console.log(`Built ${useJpg ? 'JPG image' : 'iframe'} wrapper for ${creative.name} (${html.length} bytes)`);
+
           try {
-            let adResp;
-
-            if (creative.jpg_url && channelType === 'PDOOH') {
-              // --- PDOOH: send pre-rendered JPG as Image banner ---
-              const jpgResponse = await axios.get(creative.jpg_url, { responseType: 'arraybuffer', timeout: 30000 });
-              const jpgBase64 = Buffer.from(jpgResponse.data).toString('base64');
-              console.log(`Sending Image banner for ${creative.name} (${jpgResponse.data.byteLength} bytes)`);
-
-              adResp = await retryWithBackoff(() =>
-                bidTheatreApi.post(`/${networkId}/ad`, {
-                  campaign: btCampaignId,
-                  name: creative.name || `${branchLabel} - ${size}`,
-                  adType: 'Image banner',
-                  adStatus: 'Active',
-                  imageData: jpgBase64,
-                  imageType: 'image/jpeg',
-                  targetURL: landingUrl,
-                  clickThroughURL: landingUrl,
-                  dimension: config.dimension,
-                  isSecure: true,
-                }, {
-                  headers: { Authorization: `Bearer ${btToken}` },
-                })
-              );
-            } else {
-              // --- HTML banner ad (uses lightweight iframe wrapper) ---
-              const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
-              console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
-
-              adResp = await retryWithBackoff(() =>
-                bidTheatreApi.post(`/${networkId}/ad`, {
-                  campaign: btCampaignId,
-                  name: creative.name || `${branchLabel} - ${size}`,
-                  adType: 'HTML banner',
-                  adStatus: 'Active',
-                  html,
-                  targetURL: landingUrl,
-                  clickThroughURL: landingUrl,
-                  dimension: config.dimension,
-                  isExpandable: false,
-                  isInSync: true,
-                  isSecure: true,
-                }, {
-                  headers: { Authorization: `Bearer ${btToken}` },
-                })
-              );
-            }
-
+            const adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchLabel} - ${size}`,
+                adType: 'HTML banner',
+                adStatus: 'Active',
+                html,
+                targetURL: landingUrl,
+                clickThroughURL: landingUrl,
+                dimension: config.dimension,
+                isExpandable: false,
+                isInSync: true,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
             const adId = adResp.data.ad.id;
             createdAdsByCreativeSize[dedupKey] = adId;
             if (!newAdIds[group.name]) newAdIds[group.name] = [];
