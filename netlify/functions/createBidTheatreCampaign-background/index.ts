@@ -361,13 +361,18 @@ async function fetchCreativesForBranch(
   if (!data || data.length === 0) return [];
 
   // Always try to filter by branch name first (creatives are named "City - Service - Size")
-  let searchLabel = branchLabel;
+  // Strip common prefixes so "Suun Terveystalo Jämsä" → "Jämsä"
+  let searchLabel = branchLabel
+    .replace(/^Suun Terveystalo\s+/i, '')
+    .replace(/^Terveystalo\s+/i, '')
+    .trim();
   if (nationwideAddressMode === 'with_address') {
     const bundle = getBundleForBranch(branchLabel);
     if (bundle) {
       searchLabel = bundle.bundleName;
     }
   }
+  console.log(`Branch filtering: branchLabel="${branchLabel}", searchLabel="${searchLabel}"`);
 
   const searchLower = searchLabel.toLowerCase();
   const branchCreatives = data.filter(c => {

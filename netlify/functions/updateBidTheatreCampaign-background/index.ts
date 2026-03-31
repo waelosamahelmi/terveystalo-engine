@@ -277,13 +277,18 @@ async function fetchCreativesForBranch(
   if (!data || data.length === 0) return [];
 
   // Always try to filter by branch name first (creatives are named "City - Service - Size")
-  let searchLabel = branchLabel;
+  // Strip common prefixes so "Suun Terveystalo Jämsä" → "Jämsä"
+  let searchLabel = branchLabel
+    .replace(/^Suun Terveystalo\s+/i, '')
+    .replace(/^Terveystalo\s+/i, '')
+    .trim();
   if (nationwideAddressMode === 'with_address') {
     const bundle = getBundleForBranch(branchLabel);
     if (bundle) {
       searchLabel = bundle.bundleName;
     }
   }
+  console.log(`Branch filtering: branchLabel="${branchLabel}", searchLabel="${searchLabel}"`);
 
   const searchLower = searchLabel.toLowerCase();
   const branchCreatives = data.filter(c => {
@@ -640,7 +645,13 @@ export async function handler(event: any) {
     let overallErrors = '';
 
     // Update each BT campaign (one per branch × channel)
-    for (const btRecord of btRecords) {
+    for (let i = 0; i < btRecords.length; i++) {
+      const btRecord = btRecords[i];
+      // Wait between campaigns to avoid 429 rate limit (60 writes/min)
+      if (i > 0) {
+        console.log(`Waiting 10s before next BT campaign to respect rate limits...`);
+        await sleep(10000);
+      }
       try {
         await updateBtCampaign(btRecord, campaign, btToken, networkId, serviceSlug);
         console.log(`✓ Updated BT ${btRecord.bt_campaign_id} (${btRecord.channel})`);
