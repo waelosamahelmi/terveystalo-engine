@@ -13,7 +13,7 @@ import {
   deleteCampaignFromSheet,
 } from './googleSheets';
 
-import { getCreativeTemplates, renderTemplateHtml, fixFontUrls } from './creativeService';
+import { getCreativeTemplates, renderTemplateHtml, fixFontUrls, renderHtmlToJpg } from './creativeService';
 import { buildMetaTemplateVariables, getConjugatedCity, findMatchingBundle, getBundleForBranch, groupBranchesByBundle } from './metaTemplateVariables';
 import type { BranchGroup } from './metaTemplateVariables';
 
@@ -631,6 +631,30 @@ export async function createCampaignCreatives(
 
     // Batch upload all HTML files via Netlify function (uses service role key, bypasses RLS)
     if (uploadItems.length > 0) {
+      // Generate JPG images for PDOOH creatives (static image for BidTheatre)
+      const jpgByIndex = new Map<number, string>(); // index → base64 JPG
+      for (let idx = 0; idx < uploadItems.length; idx++) {
+        const item = uploadItems[idx];
+        if (item.channelType === 'pdooh') {
+          try {
+            console.log(`Rendering JPG for PDOOH creative: ${item.creative.name}`);
+            const jpgBlob = await renderHtmlToJpg(item.html, {
+              width: item.channelWidth,
+              height: item.channelHeight,
+            });
+            // Convert blob to base64 string for JSON transport
+            const buffer = await jpgBlob.arrayBuffer();
+            const base64 = btoa(
+              new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+            );
+            jpgByIndex.set(idx, base64);
+            console.log(`Generated JPG for ${item.creative.name}: ${jpgBlob.size} bytes`);
+          } catch (err) {
+            console.error(`JPG generation failed for ${item.creative.name}:`, err);
+          }
+        }
+      }
+
       // Split into batches of 20 to avoid payload size limits
       const BATCH_SIZE = 20;
       for (let i = 0; i < uploadItems.length; i += BATCH_SIZE) {
@@ -640,9 +664,10 @@ export async function createCampaignCreatives(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              items: batch.map(item => ({
+              items: batch.map((item, batchIdx) => ({
                 storagePath: item.storagePath,
                 html: item.html,
+                jpgBase64: jpgByIndex.get(i + batchIdx),
                 creative: item.creative,
               })),
             }),

@@ -357,6 +357,7 @@ export interface Creative {
   rendered_html?: string;
   image_url?: string;
   preview_url?: string;
+  jpg_url?: string;
   
   // Customization
   headline?: string;

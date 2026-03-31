@@ -495,35 +495,65 @@ async function updateBtCampaign(
 
           const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
           const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
-          const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
-          console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
 
           try {
-            const adResp = await retryWithBackoff(() =>
-              bidTheatreApi.post(`/${networkId}/ad`, {
-                campaign: btCampaignId,
-                name: creative.name || `${branchLabel} - ${size}`,
-                adType: 'HTML banner',
-                adStatus: 'Active',
-                html,
-                targetURL: landingUrl,
-                clickThroughURL: landingUrl,
-                dimension: config.dimension,
-                isExpandable: false,
-                isInSync: true,
-                isSecure: true,
-              }, {
-                headers: { Authorization: `Bearer ${btToken}` },
-              })
-            );
+            let adResp;
+
+            if (creative.jpg_url && channelType === 'PDOOH') {
+              // --- PDOOH image ad: send JPG directly to BidTheatre ---
+              const jpgResponse = await axios.get(creative.jpg_url, { responseType: 'arraybuffer', timeout: 30000 });
+              const jpgBase64 = Buffer.from(jpgResponse.data).toString('base64');
+              console.log(`Sending JPG image ad for ${creative.name} (${jpgResponse.data.byteLength} bytes)`);
+
+              adResp = await retryWithBackoff(() =>
+                bidTheatreApi.post(`/${networkId}/ad`, {
+                  campaign: btCampaignId,
+                  name: creative.name || `${branchLabel} - ${size}`,
+                  adType: 'Image',
+                  adStatus: 'Active',
+                  imageData: jpgBase64,
+                  imageType: 'image/jpeg',
+                  targetURL: landingUrl,
+                  clickThroughURL: landingUrl,
+                  dimension: config.dimension,
+                  isSecure: true,
+                }, {
+                  headers: { Authorization: `Bearer ${btToken}` },
+                })
+              );
+              console.log(`Created JPG image ad ${adResp.data.ad.id} for ${size}`);
+            } else {
+              // --- HTML banner ad (uses lightweight iframe wrapper) ---
+              const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+              console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
+
+              adResp = await retryWithBackoff(() =>
+                bidTheatreApi.post(`/${networkId}/ad`, {
+                  campaign: btCampaignId,
+                  name: creative.name || `${branchLabel} - ${size}`,
+                  adType: 'HTML banner',
+                  adStatus: 'Active',
+                  html,
+                  targetURL: landingUrl,
+                  clickThroughURL: landingUrl,
+                  dimension: config.dimension,
+                  isExpandable: false,
+                  isInSync: true,
+                  isSecure: true,
+                }, {
+                  headers: { Authorization: `Bearer ${btToken}` },
+                })
+              );
+              console.log(`Created updated HTML ad ${adResp.data.ad.id} for ${size}`);
+            }
+
             const adId = adResp.data.ad.id;
             createdAdsByCreativeSize[dedupKey] = adId;
             if (!newAdIds[group.name]) newAdIds[group.name] = [];
             newAdIds[group.name].push(adId);
-            console.log(`Created updated HTML ad ${adId} for ${size}`);
             await sleep(300);
           } catch (adErr: any) {
-            console.error(`HTML ad creation failed for ${size}: ${adErr.message}`);
+            console.error(`Ad creation failed for ${size}: ${adErr.response?.data?.message || adErr.message}`);
           }
         }
       }

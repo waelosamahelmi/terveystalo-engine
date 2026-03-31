@@ -974,6 +974,106 @@ export async function generateMetaVideoCreative(
 }
 
 /**
+ * Render an HTML creative to a JPG image blob using html2canvas.
+ * Used for PDOOH creatives that need to be sent to BidTheatre as static images.
+ *
+ * @param templateHtml - Fully rendered HTML string
+ * @param size - Image dimensions { width, height }
+ * @param quality - JPEG quality 0-1 (default 0.92)
+ * @returns Blob of the JPG image
+ */
+export async function renderHtmlToJpg(
+  templateHtml: string,
+  size: { width: number; height: number } = { width: 1080, height: 1920 },
+  quality: number = 0.92
+): Promise<Blob> {
+  console.log(`[renderHtmlToJpg] Starting: ${size.width}x${size.height}`);
+
+  // Embed external images as data URLs to avoid cross-origin issues
+  const embeddedHtml = await embedExternalResources(templateHtml);
+
+  // Create a hidden container and inject the template HTML
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '-9999px';
+  container.style.width = `${size.width}px`;
+  container.style.height = `${size.height}px`;
+  container.style.overflow = 'hidden';
+  container.style.zIndex = '-1';
+  container.style.pointerEvents = 'none';
+
+  // Create a shadow root for style isolation
+  const shadow = container.attachShadow({ mode: 'open' });
+
+  // Parse the template HTML and extract head/body content
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(embeddedHtml, 'text/html');
+
+  // Copy all styles from the template's <head>
+  const styleElements = doc.querySelectorAll('style');
+  styleElements.forEach(style => {
+    const cloned = style.cloneNode(true) as HTMLStyleElement;
+    shadow.appendChild(cloned);
+  });
+
+  // Add Google Fonts via a link element in shadow DOM
+  const fontLink = document.createElement('link');
+  fontLink.rel = 'stylesheet';
+  fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800;900&display=swap';
+  shadow.appendChild(fontLink);
+
+  // Copy the body content
+  const wrapper = document.createElement('div');
+  wrapper.style.width = `${size.width}px`;
+  wrapper.style.height = `${size.height}px`;
+  wrapper.style.overflow = 'hidden';
+  wrapper.style.position = 'relative';
+  wrapper.innerHTML = doc.body.innerHTML;
+  shadow.appendChild(wrapper);
+
+  document.body.appendChild(container);
+
+  // Wait for fonts and images to load
+  await new Promise(r => setTimeout(r, 1500));
+  try {
+    await document.fonts.ready;
+  } catch {
+    // fonts.ready may not be available in all contexts
+  }
+
+  try {
+    // Capture with html2canvas
+    const capturedCanvas = await html2canvas(wrapper, {
+      width: size.width,
+      height: size.height,
+      scale: 1,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: null,
+      logging: false,
+    });
+
+    // Convert canvas to JPG blob
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      capturedCanvas.toBlob(
+        (b) => {
+          if (b) resolve(b);
+          else reject(new Error('Failed to convert canvas to JPG blob'));
+        },
+        'image/jpeg',
+        quality
+      );
+    });
+
+    console.log(`[renderHtmlToJpg] Generated JPG: ${blob.size} bytes`);
+    return blob;
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+/**
  * Legacy canvas-based video generation (kept as fallback).
  * Used when HTML template is not available.
  */

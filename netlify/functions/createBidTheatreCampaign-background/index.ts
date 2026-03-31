@@ -678,38 +678,68 @@ async function createBtCampaignForBranch(
           continue;
         }
 
-        // --- HTML banner ad (uses lightweight iframe wrapper) ---
         // Build per-creative landing URL with service-specific UTM parameters
         const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
         const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
-        const wrapperHtml = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
-        console.log(`Built iframe wrapper for ${creative.name} (${wrapperHtml.length} bytes, URL: ${creativeUrl})`);
 
         try {
-          const adResp = await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${networkId}/ad`, {
-              campaign: btCampaignId,
-              name: creative.name || `${branchName} - ${size}`,
-              adType: 'HTML banner',
-              adStatus: 'Active',
-              html: wrapperHtml,
-              targetURL: landingUrl,
-              clickThroughURL: landingUrl,
-              dimension: config.dimension,
-              isExpandable: false,
-              isInSync: true,
-              isSecure: true,
-            }, {
-              headers: { Authorization: `Bearer ${btToken}` },
-            })
-          );
+          let adResp;
+
+          if (creative.jpg_url && channelType === 'PDOOH') {
+            // --- PDOOH image ad: send JPG directly to BidTheatre ---
+            // Fetch the JPG image as base64 for BidTheatre API
+            const jpgResponse = await axios.get(creative.jpg_url, { responseType: 'arraybuffer', timeout: 30000 });
+            const jpgBase64 = Buffer.from(jpgResponse.data).toString('base64');
+            console.log(`Sending JPG image ad for ${creative.name} (${jpgResponse.data.byteLength} bytes)`);
+
+            adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchName} - ${size}`,
+                adType: 'Image',
+                adStatus: 'Active',
+                imageData: jpgBase64,
+                imageType: 'image/jpeg',
+                targetURL: landingUrl,
+                clickThroughURL: landingUrl,
+                dimension: config.dimension,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            console.log(`Created JPG image ad ${adResp.data.ad.id} for ${size} (${creative.name})`);
+          } else {
+            // --- HTML banner ad (uses lightweight iframe wrapper) ---
+            const wrapperHtml = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+            console.log(`Built iframe wrapper for ${creative.name} (${wrapperHtml.length} bytes, URL: ${creativeUrl})`);
+
+            adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchName} - ${size}`,
+                adType: 'HTML banner',
+                adStatus: 'Active',
+                html: wrapperHtml,
+                targetURL: landingUrl,
+                clickThroughURL: landingUrl,
+                dimension: config.dimension,
+                isExpandable: false,
+                isInSync: true,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            console.log(`Created HTML ad ${adResp.data.ad.id} for ${size} (${creative.name})`);
+          }
+
           const adId = adResp.data.ad.id;
           adIds[group.name].push(adId);
           createdAdsByCreativeSize[dedupKey] = adId;
-          console.log(`Created HTML ad ${adId} for ${size} (${creative.name})`);
           await sleep(300);
         } catch (adError: any) {
-          console.error(`HTML ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
+          console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
         }
       }
     }

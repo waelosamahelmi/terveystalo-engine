@@ -9,6 +9,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 interface UploadItem {
   storagePath: string;
   html: string;
+  jpgBase64?: string;
   creative: {
     campaign_id: string;
     template_id: string;
@@ -59,6 +60,25 @@ const handler: Handler = async (event) => {
         const { data: urlData } = supabase.storage.from('media').getPublicUrl(item.storagePath);
         const publicUrl = urlData.publicUrl;
 
+        // Upload JPG version if provided (for PDOOH creatives)
+        let jpgUrl: string | undefined;
+        if (item.jpgBase64) {
+          const jpgPath = item.storagePath.replace(/\.html$/, '.jpg');
+          const jpgBuffer = Buffer.from(item.jpgBase64, 'base64');
+          const { error: jpgUploadErr } = await supabase.storage
+            .from('media')
+            .upload(jpgPath, jpgBuffer, {
+              contentType: 'image/jpeg',
+              upsert: true,
+            });
+          if (jpgUploadErr) {
+            console.error(`JPG upload error for ${jpgPath}:`, jpgUploadErr.message);
+          } else {
+            const { data: jpgUrlData } = supabase.storage.from('media').getPublicUrl(jpgPath);
+            jpgUrl = jpgUrlData.publicUrl;
+          }
+        }
+
         // Create creative DB record
         const { error: creativeErr } = await supabase.from('creatives').insert({
           campaign_id: item.creative.campaign_id,
@@ -70,6 +90,7 @@ const handler: Handler = async (event) => {
           height: item.creative.height,
           image_url: publicUrl,
           preview_url: publicUrl,
+          ...(jpgUrl ? { jpg_url: jpgUrl } : {}),
           status: 'ready',
         });
 
