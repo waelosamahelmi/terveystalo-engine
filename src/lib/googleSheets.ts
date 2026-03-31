@@ -476,7 +476,7 @@ function formatDentalCampaignRow(
     // ── Service (H-J) ──
     svc?.name || '',                                              // H: service_name
     svc?.code || '',                                              // I: service_code
-    campaign.offer_text || svc?.default_price || '',               // J: service_price (user-edited price takes priority)
+    ((campaign as any).service_prices?.[svc?.id] || campaign.offer_text || svc?.default_price || ''), // J: service_price (per-service price > offer_text > default)
 
     // ── Branch (K-P) ──
     br?.name || '',                                               // K: branch_name
@@ -520,7 +520,7 @@ function formatDentalCampaignRow(
     // ── Creative content (AN-AT) ──
     (campaign.headline || '').replace(/\|/g, ' '),                // AN: headline (pipe replaced with space)
     campaign.subheadline || '',                                   // AO: subheadline
-    campaign.offer_text || '',                                    // AP: offer_text
+    ((campaign as any).service_prices?.[svc?.id] || campaign.offer_text || ''), // AP: offer_text (per-service price > offer_text)
     campaign.cta_text || '',                                      // AQ: cta_text
     appendUtm(campaign.landing_url || '', buildMetaUtmParams(svc?.code || '')), // AR: landing_url (with Meta UTMs)
     campaign.background_image_url || '',                          // AS: background_image_url
