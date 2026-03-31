@@ -424,11 +424,17 @@ async function updateBtCampaign(
   }
 
   // 3. Update geo-targeting using per-branch radius and branch coordinates
-  const { data: branchData } = await supabase
+  const { data: branchData, error: branchError } = await supabase
     .from('branches')
-    .select('name, short_name, city, coordinates, latitude, longitude')
+    .select('*')
     .eq('id', btRecord.branch_id)
     .single();
+
+  if (branchError || !branchData) {
+    console.error(`Branch lookup failed for ${btRecord.branch_id}: ${branchError?.message || 'not found'}`);
+    console.log(`btRecord keys: ${JSON.stringify(Object.keys(btRecord))}`);
+    console.log(`btRecord.branch_id: "${btRecord.branch_id}"`);
+  }
 
   const lat = branchData?.coordinates?.lat || branchData?.latitude || campaign.campaign_coordinates?.lat || 0;
   const lng = branchData?.coordinates?.lng || branchData?.longitude || campaign.campaign_coordinates?.lng || 0;
