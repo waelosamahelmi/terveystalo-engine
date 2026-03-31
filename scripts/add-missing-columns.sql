@@ -1,0 +1,32 @@
+-- Add missing columns to dental_campaigns table
+-- Run this in Supabase SQL Editor
+
+ALTER TABLE dental_campaigns
+ADD COLUMN IF NOT EXISTS subheadline text,
+ADD COLUMN IF NOT EXISTS offer_title text,
+ADD COLUMN IF NOT EXISTS offer_subtitle text,
+ADD COLUMN IF NOT EXISTS offer_date text,
+ADD COLUMN IF NOT EXISTS disclaimer_text text,
+ADD COLUMN IF NOT EXISTS service_prices jsonb,
+ADD COLUMN IF NOT EXISTS background_image_url text,
+ADD COLUMN IF NOT EXISTS general_brand_message text,
+ADD COLUMN IF NOT EXISTS meta_primary_text text,
+ADD COLUMN IF NOT EXISTS meta_headline text,
+ADD COLUMN IF NOT EXISTS meta_description text,
+ADD COLUMN IF NOT EXISTS meta_video_url text,
+ADD COLUMN IF NOT EXISTS meta_audio_url text,
+ADD COLUMN IF NOT EXISTS meta_story_url text,
+ADD COLUMN IF NOT EXISTS ad_type text,
+ADD COLUMN IF NOT EXISTS nationwide_address_mode text,
+ADD COLUMN IF NOT EXISTS include_pricing text,
+ADD COLUMN IF NOT EXISTS target_age_min integer DEFAULT 18,
+ADD COLUMN IF NOT EXISTS target_age_max integer DEFAULT 65,
+ADD COLUMN IF NOT EXISTS target_genders text[] DEFAULT ARRAY['all'],
+ADD COLUMN IF NOT EXISTS campaign_objective text DEFAULT 'traffic',
+ADD COLUMN IF NOT EXISTS is_ongoing boolean DEFAULT false,
+ADD COLUMN IF NOT EXISTS excluded_branch_ids text[],
+ADD COLUMN IF NOT EXISTS branch_radius_settings jsonb,
+ADD COLUMN IF NOT EXISTS branch_channel_budgets jsonb,
+ADD COLUMN IF NOT EXISTS bidding_strategy text,
+ADD COLUMN IF NOT EXISTS max_cpm_display numeric,
+ADD COLUMN IF NOT EXISTS max_cpm_pdooh numeric;

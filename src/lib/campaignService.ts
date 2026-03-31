@@ -802,6 +802,7 @@ export async function createCampaign(
     offer_date: formData.offer_date || null,
     disclaimer_text: formData.disclaimer_text || null,
     meta_video_url: formData.meta_video_url || null,
+    meta_audio_url: formData.meta_audio_url || null,
 
     // New fields for campaign redesign
     ad_type: formData.ad_type,
@@ -946,7 +947,7 @@ export async function updateCampaign(
     'offer_date', 'disclaimer_text', 'service_prices',
     'cta_text', 'landing_url', 'background_image_url', 'general_brand_message',
     'meta_primary_text', 'meta_headline', 'meta_description',
-    'meta_video_url',
+    'meta_video_url', 'meta_audio_url',
     'ad_type', 'nationwide_address_mode', 'include_pricing',
     'target_age_min', 'target_age_max', 'target_genders', 'campaign_objective',
     'excluded_branch_ids', 'branch_radius_settings', 'branch_channel_budgets',
