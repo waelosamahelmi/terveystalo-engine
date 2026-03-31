@@ -219,7 +219,7 @@ async function getBidTheatreToken() {
   return token;
 }
 
-async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 5, baseDelay = 2000): Promise<T> {
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 3, retryDelay = 5000): Promise<T> {
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -227,9 +227,8 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 5, baseDel
     } catch (error: any) {
       lastError = error;
       if (axios.isAxiosError(error) && error.response?.status === 429 && attempt < maxRetries) {
-        const delay = baseDelay * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s, 32s
-        console.log(`Rate limited (429), retry ${attempt}/${maxRetries} in ${delay}ms`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        console.log(`Rate limited (429), retry ${attempt}/${maxRetries} after ${retryDelay}ms`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       } else {
         throw error;
       }
