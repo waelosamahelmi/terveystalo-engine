@@ -931,12 +931,38 @@ export async function createCampaign(
  * Update a campaign
  */
 export async function updateCampaign(
-  id: string, 
+  id: string,
   updates: Partial<DentalCampaign>
 ): Promise<DentalCampaign | null> {
+  // Whitelist only known DB columns to avoid 400 errors from unknown properties
+  const u = updates as any;
+  const dbUpdates: Record<string, any> = { updated_at: new Date().toISOString() };
+  const dbColumns = [
+    'name', 'description', 'service_id', 'service_ids', 'branch_id', 'branch_ids',
+    'campaign_address', 'campaign_postal_code', 'campaign_city', 'campaign_radius', 'campaign_coordinates',
+    'start_date', 'end_date', 'campaign_start_date', 'campaign_end_date', 'is_ongoing',
+    'total_budget', 'budget_meta', 'budget_display', 'budget_pdooh', 'budget_audio',
+    'channel_meta', 'channel_display', 'channel_pdooh', 'channel_audio',
+    'creative_type', 'headline', 'subheadline', 'offer_text', 'offer_title', 'offer_subtitle',
+    'offer_date', 'disclaimer_text', 'service_prices',
+    'cta_text', 'landing_url', 'background_image_url', 'general_brand_message',
+    'meta_primary_text', 'meta_headline', 'meta_description',
+    'meta_video_url', 'meta_audio_url',
+    'ad_type', 'nationwide_address_mode', 'include_pricing',
+    'target_age_min', 'target_age_max', 'target_genders', 'campaign_objective',
+    'excluded_branch_ids', 'branch_radius_settings', 'branch_channel_budgets',
+    'status', 'bt_campaign_id', 'bt_advertiser_id', 'bt_sync_status', 'bt_last_sync', 'bt_sync_error',
+    'bidding_strategy', 'max_cpm_display', 'max_cpm_pdooh',
+  ];
+  for (const col of dbColumns) {
+    if (u[col] !== undefined) {
+      dbUpdates[col] = u[col];
+    }
+  }
+
   const { data, error } = await supabase
     .from('dental_campaigns')
-    .update({ ...updates, updated_at: new Date().toISOString() })
+    .update(dbUpdates)
     .eq('id', id)
     .select(`
       *,
