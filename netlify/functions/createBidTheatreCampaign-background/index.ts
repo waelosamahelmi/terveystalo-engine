@@ -473,6 +473,24 @@ document.body.appendChild(a);
 </body></html>`;
 }
 
+/**
+ * Build a lightweight HTML wrapper that displays a static JPG image.
+ * Used for PDOOH creatives where a pre-rendered JPG is available.
+ * The image loads instantly (no iframe/JS overhead) and renders identically
+ * to the HTML creative but as a static image.
+ */
+function buildImageWrapper(jpgUrl: string, width: number, height: number, landingUrl: string): string {
+  const clickTagValue = `{clickurl}${encodeURIComponent(landingUrl)}`;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script>var clickTag="${clickTagValue}";</script>
+<style>*{margin:0;padding:0;overflow:hidden}body{width:${width}px;height:${height}px;position:relative}</style>
+</head><body>
+<img src="${jpgUrl}" width="${width}" height="${height}" style="display:block" alt="">
+<a href="javascript:void(window.open(clickTag))" style="position:absolute;top:0;left:0;width:${width}px;height:${height}px;z-index:9999;display:block;cursor:pointer"></a>
+</body></html>`;
+}
+
 // ============================================================================
 // CREATE BT CAMPAIGN FOR A SINGLE BRANCH + CHANNEL
 // ============================================================================
@@ -686,17 +704,16 @@ async function createBtCampaignForBranch(
           let adResp;
 
           if (creative.jpg_url && channelType === 'PDOOH') {
-            // --- PDOOH image ad: send JPG directly to BidTheatre ---
-            // Fetch the JPG image as base64 for BidTheatre API
+            // --- PDOOH: send pre-rendered JPG as Image banner ---
             const jpgResponse = await axios.get(creative.jpg_url, { responseType: 'arraybuffer', timeout: 30000 });
             const jpgBase64 = Buffer.from(jpgResponse.data).toString('base64');
-            console.log(`Sending JPG image ad for ${creative.name} (${jpgResponse.data.byteLength} bytes)`);
+            console.log(`Sending Image banner for ${creative.name} (${jpgResponse.data.byteLength} bytes)`);
 
             adResp = await retryWithBackoff(() =>
               bidTheatreApi.post(`/${networkId}/ad`, {
                 campaign: btCampaignId,
                 name: creative.name || `${branchName} - ${size}`,
-                adType: 'Image',
+                adType: 'Image banner',
                 adStatus: 'Active',
                 imageData: jpgBase64,
                 imageType: 'image/jpeg',
@@ -708,7 +725,6 @@ async function createBtCampaignForBranch(
                 headers: { Authorization: `Bearer ${btToken}` },
               })
             );
-            console.log(`Created JPG image ad ${adResp.data.ad.id} for ${size} (${creative.name})`);
           } else {
             // --- HTML banner ad (uses lightweight iframe wrapper) ---
             const wrapperHtml = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
@@ -731,12 +747,12 @@ async function createBtCampaignForBranch(
                 headers: { Authorization: `Bearer ${btToken}` },
               })
             );
-            console.log(`Created HTML ad ${adResp.data.ad.id} for ${size} (${creative.name})`);
           }
 
           const adId = adResp.data.ad.id;
           adIds[group.name].push(adId);
           createdAdsByCreativeSize[dedupKey] = adId;
+          console.log(`Created ad ${adId} for ${size} (${creative.name})`);
           await sleep(300);
         } catch (adError: any) {
           console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);

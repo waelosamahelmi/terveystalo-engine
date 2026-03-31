@@ -96,11 +96,18 @@ async function main() {
       // Use serve-creative proxy to get correct content-type
       const proxyUrl = `${SITE_URL}/.netlify/functions/serve-creative?url=${encodeURIComponent(creativeUrl)}`;
 
+      // 2160x3840 creatives are just 1080x1920 upscaled via CSS transform:scale(2).
+      // Render at native 1080x1920 with deviceScaleFactor:2 for a crisp 2160x3840 image.
+      const isUpscaled = (creative.width === 2160 && creative.height === 3840);
+      const viewportWidth = isUpscaled ? 1080 : (creative.width || 1080);
+      const viewportHeight = isUpscaled ? 1920 : (creative.height || 1920);
+      const scaleFactor = isUpscaled ? 2 : 1;
+
       const page = await browser.newPage();
       await page.setViewport({
-        width: creative.width || 1080,
-        height: creative.height || 1920,
-        deviceScaleFactor: 1,
+        width: viewportWidth,
+        height: viewportHeight,
+        deviceScaleFactor: scaleFactor,
       });
 
       // Navigate to the creative HTML via proxy
@@ -108,6 +115,25 @@ async function main() {
         waitUntil: 'networkidle0',
         timeout: 30000,
       });
+
+      // For upscaled creatives, remove the CSS transform so we render the
+      // native 1080x1920 content — deviceScaleFactor:2 handles the upscale.
+      if (isUpscaled) {
+        await page.evaluate(() => {
+          // Remove the upscale style that was injected during generation
+          const styles = document.querySelectorAll('style');
+          styles.forEach(s => {
+            if (s.textContent && s.textContent.includes('transform:scale(2)')) {
+              s.remove();
+            }
+          });
+          // Reset body dimensions to native 1080x1920
+          document.documentElement.style.width = '1080px';
+          document.documentElement.style.height = '1920px';
+          document.body.style.width = '1080px';
+          document.body.style.height = '1920px';
+        });
+      }
 
       // Wait a bit for fonts and animations to settle
       await new Promise(r => setTimeout(r, 2000));
@@ -120,8 +146,8 @@ async function main() {
         clip: {
           x: 0,
           y: 0,
-          width: creative.width || 1080,
-          height: creative.height || 1920,
+          width: viewportWidth,
+          height: viewportHeight,
         },
       });
 
