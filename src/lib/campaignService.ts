@@ -1247,9 +1247,9 @@ export async function duplicateCampaign(
     return null;
   }
 
-  const { 
-    id: _id, 
-    created_at: _created, 
+  const {
+    id: _id,
+    created_at: _created,
     updated_at: _updated,
     bt_campaign_id: _btId,
     bt_sync_status: _syncStatus,
@@ -1258,7 +1258,13 @@ export async function duplicateCampaign(
     creatives: _creatives,
     service: _service,
     branch: _branch,
-    ...campaignData 
+    creator: _creator,
+    spent_budget: _spent,
+    total_impressions: _impressions,
+    total_clicks: _clicks,
+    ctr: _ctr,
+    sheet_row_id: _sheetRow,
+    ...campaignData
   } = original;
 
   const newCampaign = {
