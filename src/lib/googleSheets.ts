@@ -587,9 +587,13 @@ function formatDentalCampaignRow(
       }
       return `Sujuvampaa suunterveyttä aina ${svcElative} erikoisosaamista vaativiin hoitoihin.`;
     })(), // BX: brand_message
-    br?.city                                                      // BY: offer_message
-      ? `Sujuvampaa suunterveyttä ${getConjugatedCity(br.city)} Suun Terveystalossa.`
-      : 'Sujuvampaa suunterveyttä Suun Terveystaloissa.',
+    (() => {                                                       // BY: offer_message
+      if (!br?.city) return 'Sujuvampaa suunterveyttä Suun Terveystaloissa.';
+      const branchLabel = (br as any).short_name || br.name || '';
+      const isBundle = !!getBundleForBranch(branchLabel);
+      const suffix = isBundle ? 'Terveystaloissa' : 'Terveystalossa';
+      return `Sujuvampaa suunterveyttä ${getConjugatedCity(br.city)} Suun ${suffix}.`;
+    })(),
     (campaign as any).offer_title || svc?.default_offer_fi || svc?.name_fi || svc?.name || '', // BZ: offer_headline (Tarjouksen otsikko)
     ((campaign as any).offer_date || (campaign as any).offer_subtitle || '').replace(/<br\s*\/?>/gi, ' ').replace(/\|/g, ' '), // CA: offer_subtitle (Voimassaoloaika)
 
