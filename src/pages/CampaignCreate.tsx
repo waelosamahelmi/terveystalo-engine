@@ -1040,12 +1040,17 @@ const CampaignCreate = () => {
         subheadline: ca.subheadline || '',
         offer_text: c.offer_text || '',
         offer_title: ca.offer_title || '',
+        offer_subtitle: ca.offer_subtitle || undefined,
+        offer_date: ca.offer_date || undefined,
+        disclaimer_text: ca.disclaimer_text || undefined,
         service_prices: ca.service_prices || undefined,
         cta_text: c.cta_text || 'Varaa aika',
         landing_url: c.landing_url || '',
         background_image_url: ca.background_image_url || undefined,
         general_brand_message: ca.general_brand_message || '',
         description: c.description || '',
+        meta_video_url: ca.meta_video_url || undefined,
+        meta_audio_url: ca.meta_audio_url || undefined,
 
         // Meta ad copy
         meta_primary_text: ca.meta_primary_text || '',

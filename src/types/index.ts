@@ -186,6 +186,10 @@ export interface DentalCampaign {
   subheadline?: string;
   offer_text?: string;
   offer_title?: string;
+  offer_subtitle?: string;
+  offer_date?: string;
+  disclaimer_text?: string;
+  service_prices?: Record<string, string>;
   cta_text?: string;
   landing_url?: string;
   background_image_url?: string;
@@ -200,9 +204,10 @@ export interface DentalCampaign {
   // Excluded branches (toimipisteet)
   excluded_branch_ids?: string[];
 
-  // Meta video creatives (generated server-side, stored as Supabase Storage URLs)
-  meta_video_url?: string;    // 1080x1080 feed video URL
-  meta_story_url?: string;    // 1080x1920 stories/reels video URL
+  // Meta video/audio creatives
+  meta_video_url?: string;
+  meta_audio_url?: string;
+  meta_story_url?: string;
 
   // Audience targeting (age and gender)
   target_age_min?: number;
