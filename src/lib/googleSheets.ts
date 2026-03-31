@@ -600,12 +600,12 @@ function formatDentalCampaignRow(
     videoGender,                                                  // CC: background_video_gender (Nainen / Mies / Custom)
     '',                                                           // CD: offer_bubble_subtitle (removed – not displayed anywhere)
     (() => {                                                      // CE: service_price (price for this specific service)
-      // User-edited offer price takes priority over service defaults
-      if (campaign.offer_text) return campaign.offer_text;
+      // Per-service edited price takes priority over generic offer_text
       const servicePrices = (campaign as any).service_prices;
       if (servicePrices && svc?.id && servicePrices[svc.id]) {
         return String(servicePrices[svc.id]);
       }
+      if (campaign.offer_text) return campaign.offer_text;
       return (svc?.default_price || '').replace(/€/g, '').trim() || '';
     })(),
     audioTrackType,                                               // CF: audio_track_type (Brändillinen / Geneerinen)
