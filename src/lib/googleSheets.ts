@@ -433,6 +433,9 @@ function formatDentalCampaignRow(
     : svcNameLower.includes('hammastarkastus') ? 'Mies'
     : 'Nainen';
 
+  // Meta video URL
+  const metaVideoUrl = (campaign as any).meta_video_url || '';
+
   // Audio track type (Brändillinen / Geneerinen)
   const metaAudioUrl = (campaign as any).meta_audio_url || '';
   const audioTrackType = metaAudioUrl.toLowerCase().includes('br\u00e4ndillinen') ? 'Brändillinen'
