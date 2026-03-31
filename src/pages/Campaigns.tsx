@@ -480,7 +480,7 @@ const Campaigns = () => {
       created_at: dc.created_at,
       service: { name: dc.service_name },
       branch: { name: dc.branch_name },
-    })) : [...allCampaigns].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 1);
+    })) : [...allCampaigns].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     
     // Search filter
     if (searchQuery) {
