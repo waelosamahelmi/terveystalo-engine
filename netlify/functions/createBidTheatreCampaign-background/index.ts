@@ -380,8 +380,11 @@ async function fetchCreativesForBranch(
     return name.includes(searchLower);
   });
 
-  // If no branch-specific creatives found, return all (fallback for nationwide)
-  return branchCreatives.length > 0 ? branchCreatives : data;
+  // Only return branch-specific creatives; do NOT fall back to all creatives
+  if (branchCreatives.length === 0) {
+    console.warn(`No creatives matched branch "${searchLabel}" — skipping this branch`);
+  }
+  return branchCreatives;
 }
 
 /**

@@ -296,8 +296,11 @@ async function fetchCreativesForBranch(
     return name.includes(searchLower);
   });
 
-  // Fallback to all creatives if no branch-specific match found
-  return branchCreatives.length > 0 ? branchCreatives : data;
+  // Only return branch-specific creatives; do NOT fall back to all creatives
+  if (branchCreatives.length === 0) {
+    console.warn(`No creatives matched branch "${searchLabel}" — skipping this branch`);
+  }
+  return branchCreatives;
 }
 
 // ============================================================================
