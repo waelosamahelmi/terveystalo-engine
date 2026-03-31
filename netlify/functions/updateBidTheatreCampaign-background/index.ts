@@ -323,7 +323,8 @@ async function updateBtCampaign(
   campaign: any, // dental_campaigns row
   btToken: string,
   networkId: string,
-  serviceSlug: string
+  serviceSlug: string,
+  branchMap: Map<string, any>
 ) {
   const btCampaignId = btRecord.bt_campaign_id;
   const channelType = btRecord.channel;
@@ -424,15 +425,11 @@ async function updateBtCampaign(
   }
 
   // 3. Update geo-targeting using per-branch radius and branch coordinates
-  const { data: branchData, error: branchError } = await supabase
-    .from('branches')
-    .select('*')
-    .eq('id', btRecord.branch_id)
-    .single();
+  const branchData = branchMap.get(btRecord.branch_id) || null;
 
-  if (branchError || !branchData) {
-    console.error(`Branch lookup failed for ${btRecord.branch_id}: ${branchError?.message || 'not found'}`);
-    console.log(`btRecord keys: ${JSON.stringify(Object.keys(btRecord))}`);
+  if (!branchData) {
+    console.error(`Branch not found in campaign branches for ${btRecord.branch_id}`);
+    console.log(`Available branch IDs: ${[...branchMap.keys()].join(', ')}`);
     console.log(`btRecord.branch_id: "${btRecord.branch_id}"`);
   }
 
@@ -664,6 +661,16 @@ export async function handler(event: any) {
     const credentials = await getBidTheatreCredentials();
     const networkId = credentials.network_id;
 
+    // Fetch all branches for this campaign upfront (same as create function)
+    const rawBranchIds = campaign.branch_ids || (campaign.branch_id ? [campaign.branch_id] : []);
+    const branchIds: string[] = typeof rawBranchIds === 'string' ? JSON.parse(rawBranchIds) : rawBranchIds;
+    const { data: allBranches } = await supabase
+      .from('branches')
+      .select('*')
+      .in('id', branchIds);
+    const branchMap = new Map((allBranches || []).map((b: any) => [b.id, b]));
+    console.log(`Loaded ${branchMap.size} branches from campaign.branch_ids`);
+
     // Fetch primary service code for UTM parameters
     const serviceCode = await fetchPrimaryServiceCode(campaign.service_id);
     const serviceSlug = getServiceSlug(serviceCode);
@@ -680,7 +687,7 @@ export async function handler(event: any) {
         await sleep(10000);
       }
       try {
-        await updateBtCampaign(btRecord, campaign, btToken, networkId, serviceSlug);
+        await updateBtCampaign(btRecord, campaign, btToken, networkId, serviceSlug, branchMap);
         console.log(`✓ Updated BT ${btRecord.bt_campaign_id} (${btRecord.channel})`);
       } catch (err: any) {
         overallSuccess = false;
