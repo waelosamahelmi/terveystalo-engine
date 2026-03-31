@@ -290,6 +290,12 @@ async function fetchCreativesForBranch(
   }
   console.log(`Branch filtering: branchLabel="${branchLabel}", searchLabel="${searchLabel}"`);
 
+  // Empty search would match everything — return empty instead
+  if (!searchLabel) {
+    console.warn(`Empty searchLabel — cannot filter creatives, returning none`);
+    return [];
+  }
+
   const searchLower = searchLabel.toLowerCase();
   const branchCreatives = data.filter(c => {
     const name = (c.name || '').toLowerCase();
@@ -467,7 +473,12 @@ async function updateBtCampaign(
   }
 
   // Fetch fresh creatives using the same logic as create function
-  const branchLabel = branchData?.short_name || branchData?.name || '';
+  const branchLabel = branchData?.short_name || branchData?.name || branchData?.city || '';
+  console.log(`Branch data for ${btRecord.branch_id}: short_name="${branchData?.short_name}", name="${branchData?.name}", city="${branchData?.city}"`);
+  if (!branchLabel) {
+    console.warn(`No branch name/city found for ${btRecord.branch_id} — skipping ad creation`);
+    return { btCampaignId, success: true };
+  }
   const creatives = await fetchCreativesForBranch(
     campaign.id,
     channelType.toLowerCase() as 'display' | 'pdooh',

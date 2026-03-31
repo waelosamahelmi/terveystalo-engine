@@ -374,6 +374,12 @@ async function fetchCreativesForBranch(
   }
   console.log(`Branch filtering: branchLabel="${branchLabel}", searchLabel="${searchLabel}"`);
 
+  // Empty search would match everything — return empty instead
+  if (!searchLabel) {
+    console.warn(`Empty searchLabel — cannot filter creatives, returning none`);
+    return [];
+  }
+
   const searchLower = searchLabel.toLowerCase();
   const branchCreatives = data.filter(c => {
     const name = (c.name || '').toLowerCase();
