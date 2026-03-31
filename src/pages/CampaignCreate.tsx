@@ -988,16 +988,42 @@ const CampaignCreate = () => {
     if (!editCampaignId) return;
     getCampaignById(editCampaignId).then(c => {
       if (!c) { toast.error('Kampanjaa ei löytynyt'); navigate('/campaigns'); return; }
+      const ca = c as any;
       setFormData(prev => ({
         ...prev,
+        // Step 1: Service & Ad Type
         name: c.name || '',
         service_id: c.service_id || '',
-        service_ids: c.service_id ? [c.service_id] : [],
+        service_ids: ca.service_ids || (c.service_id ? [c.service_id] : []),
+        ad_type: ca.ad_type || undefined,
+        nationwide_address_mode: ca.nationwide_address_mode || prev.nationwide_address_mode,
+        include_pricing: ca.include_pricing || undefined,
+
+        // Step 2: Branch (branch_ids takes priority over single branch_id)
         branch_id: c.branch_id || '',
-        branch_ids: c.branch_id ? [c.branch_id] : (c as any).branch_ids || [],
+        branch_ids: ca.branch_ids && ca.branch_ids.length > 0 ? ca.branch_ids : (c.branch_id ? [c.branch_id] : []),
+        excluded_branch_ids: ca.excluded_branch_ids || [],
+
+        // Step 3: Location / Audience
+        campaign_address: ca.campaign_address || '',
+        campaign_postal_code: ca.campaign_postal_code || '',
+        campaign_city: ca.campaign_city || '',
+        campaign_radius: c.campaign_radius || prev.campaign_radius,
+        campaign_coordinates: ca.campaign_coordinates || prev.campaign_coordinates,
+        target_age_min: ca.target_age_min || 18,
+        target_age_max: ca.target_age_max || 65,
+        target_genders: ca.target_genders || ['all'],
+        campaign_objective: ca.campaign_objective || 'traffic',
+
+        // Step 4: Schedule
+        creative_type: c.creative_type || prev.creative_type,
+        creative_weight_nationwide: c.creative_weight_nationwide ?? prev.creative_weight_nationwide,
+        creative_weight_local: c.creative_weight_local ?? prev.creative_weight_local,
         start_date: c.start_date || prev.start_date,
         end_date: c.end_date || prev.end_date,
-        is_ongoing: !c.end_date || (c as any).campaign_end_date === 'ONGOING',
+        is_ongoing: ca.is_ongoing || !c.end_date || ca.campaign_end_date === 'ONGOING',
+
+        // Step 5: Budget & Channels
         total_budget: c.total_budget || prev.total_budget,
         channel_meta: !!c.channel_meta,
         channel_display: !!c.channel_display,
@@ -1007,21 +1033,82 @@ const CampaignCreate = () => {
         budget_display: c.budget_display || 0,
         budget_pdooh: c.budget_pdooh || 0,
         budget_audio: c.budget_audio || 0,
+        branch_channel_budgets: ca.branch_channel_budgets || undefined,
+
+        // Step 6: Creative content
         headline: c.headline || '',
+        subheadline: ca.subheadline || '',
         offer_text: c.offer_text || '',
+        offer_title: ca.offer_title || '',
+        service_prices: ca.service_prices || undefined,
         cta_text: c.cta_text || 'Varaa aika',
         landing_url: c.landing_url || '',
+        background_image_url: ca.background_image_url || undefined,
+        general_brand_message: ca.general_brand_message || '',
         description: c.description || '',
-        ad_type: (c as any).ad_type || undefined,
-        target_age_min: (c as any).target_age_min || 18,
-        target_age_max: (c as any).target_age_max || 65,
-        target_genders: (c as any).target_genders || ['all'],
-        campaign_objective: (c as any).campaign_objective || 'traffic',
-        meta_primary_text: (c as any).meta_primary_text || '',
-        meta_headline: (c as any).meta_headline || '',
-        meta_description: (c as any).meta_description || '',
-        excluded_branch_ids: (c as any).excluded_branch_ids || [],
+
+        // Meta ad copy
+        meta_primary_text: ca.meta_primary_text || '',
+        meta_headline: ca.meta_headline || '',
+        meta_description: ca.meta_description || '',
       }));
+
+      // Restore per-branch radius settings from saved campaign data
+      if (ca.branch_radius_settings) {
+        const saved = typeof ca.branch_radius_settings === 'string'
+          ? JSON.parse(ca.branch_radius_settings)
+          : ca.branch_radius_settings;
+        setBranchRadiusSettings(saved);
+      }
+
+      // Restore creativeConfig from saved campaign data
+      setCreativeConfig(prev => ({
+        ...prev,
+        headline: c.headline || prev.headline,
+        subheadline: ca.subheadline || prev.subheadline,
+        offer: c.offer_text || prev.offer,
+        offerTitle: ca.offer_title || prev.offerTitle,
+        servicePrices: ca.service_prices || prev.servicePrices,
+        cta: c.cta_text || prev.cta,
+        backgroundImage: ca.background_image_url || prev.backgroundImage,
+        useCustomBackground: !!ca.background_image_url,
+        targetUrl: c.landing_url || prev.targetUrl,
+        generalBrandMessage: ca.general_brand_message || prev.generalBrandMessage,
+        offerSubtitle: ca.offer_subtitle || prev.offerSubtitle,
+        offerDate: ca.offer_date || prev.offerDate,
+        disclaimerText: ca.disclaimer_text || prev.disclaimerText,
+        selectedVideo: ca.meta_video_url || prev.selectedVideo,
+        selectedAudio: ca.meta_audio_url || prev.selectedAudio,
+        metaPrimaryText: ca.meta_primary_text || prev.metaPrimaryText,
+        metaHeadline: ca.meta_headline || prev.metaHeadline,
+        metaDescription: ca.meta_description || prev.metaDescription,
+      }));
+
+      // Restore budget selection state and prevent auto-recommendation from overwriting
+      if (c.total_budget) {
+        setSelectedBudget(c.total_budget);
+      }
+      setRecommendationApplied(true);
+
+      // Restore per-branch budget allocations and channel overrides
+      if (ca.branch_channel_budgets) {
+        const bcb = typeof ca.branch_channel_budgets === 'string'
+          ? JSON.parse(ca.branch_channel_budgets)
+          : ca.branch_channel_budgets;
+        // Reconstruct branchChannelOverrides from saved per-branch budgets
+        setBranchChannelOverrides(bcb);
+        // Reconstruct allocation percentages from saved data
+        const totalAll = Object.values(bcb).reduce((sum: number, b: any) =>
+          sum + (b.meta || 0) + (b.display || 0) + (b.pdooh || 0) + (b.audio || 0), 0);
+        if (totalAll > 0) {
+          const allocs: Record<string, number> = {};
+          for (const [id, b] of Object.entries(bcb) as [string, any][]) {
+            const branchTotal = (b.meta || 0) + (b.display || 0) + (b.pdooh || 0) + (b.audio || 0);
+            allocs[id] = Math.round((branchTotal / totalAll) * 100);
+          }
+          setBranchBudgetAllocations(allocs);
+        }
+      }
     }).catch(err => { console.error('Failed to load campaign for edit:', err); toast.error('Virhe kampanjan lataamisessa'); });
   }, [editCampaignId]);
 

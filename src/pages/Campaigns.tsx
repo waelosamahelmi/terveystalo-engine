@@ -62,6 +62,7 @@ const StatusBadge = ({ status }: { status: CampaignStatus }) => {
 // Campaign Card Component
 interface CampaignCardProps {
   campaign: DentalCampaign;
+  branches: Pick<Branch, 'id' | 'name' | 'city'>[];
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onClose: (id: string) => void;
@@ -69,7 +70,7 @@ interface CampaignCardProps {
   onDelete: (id: string) => void;
 }
 
-const CampaignCard = ({ campaign, onPause, onResume, onClose, onDuplicate, onDelete }: CampaignCardProps) => {
+const CampaignCard = ({ campaign, branches, onPause, onResume, onClose, onDuplicate, onDelete }: CampaignCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -208,7 +209,20 @@ const CampaignCard = ({ campaign, onPause, onResume, onClose, onDuplicate, onDel
         {/* Branch Info */}
         <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mt-3">
           <MapPin size={14} className="mr-1.5" />
-          <span>{campaign.branch?.name}, {campaign.branch?.city}</span>
+          <span>
+            {(() => {
+              const ids: string[] = campaign.branch_ids && campaign.branch_ids.length > 0
+                ? campaign.branch_ids
+                : campaign.branch_id ? [campaign.branch_id] : [];
+              if (ids.length === 0) return campaign.branch?.name || '—';
+              const names = ids
+                .map(id => branches.find(b => b.id === id))
+                .filter(Boolean)
+                .map(b => b!.name);
+              if (names.length <= 2) return names.join(', ');
+              return `${names[0]}, ${names[1]} +${names.length - 2}`;
+            })()}
+          </span>
         </div>
 
         {/* Date Range */}
@@ -695,6 +709,7 @@ const Campaigns = () => {
               <CampaignCard
                 key={campaign.id}
                 campaign={campaign}
+                branches={allBranches}
                 onPause={handlePause}
                 onResume={handleResume}
                 onClose={handleClose}
