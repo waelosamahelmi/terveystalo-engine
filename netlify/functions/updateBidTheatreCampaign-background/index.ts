@@ -466,21 +466,29 @@ async function updateBtCampaign(
   console.log(`Deactivating ${allOldAdIds.length} existing ads...`);
   for (const adId of allOldAdIds) {
     try {
+      // GET the ad first, then PUT back with Inactive status
+      const adResp = await retryWithBackoff(() =>
+        bidTheatreApi.get(`/${networkId}/ad/${adId}`, {
+          headers: { Authorization: `Bearer ${btToken}` },
+        })
+      );
+      const adData = adResp.data?.ad || adResp.data;
       await retryWithBackoff(() =>
         bidTheatreApi.put(`/${networkId}/ad/${adId}`, {
+          ...adData,
           adStatus: 'Inactive',
         }, {
           headers: { Authorization: `Bearer ${btToken}` },
         })
       );
       console.log(`Deactivated ad ${adId}`);
-      await sleep(500);
+      await sleep(1000);
     } catch (deactivateErr: any) {
       const status = deactivateErr.response?.status;
       if (status === 404) {
         console.log(`Ad ${adId} not found (404)`);
       } else {
-        console.warn(`Failed to deactivate ad ${adId}: ${deactivateErr.message}`);
+        console.warn(`Failed to deactivate ad ${adId}: ${deactivateErr.response?.data?.error?.message || deactivateErr.message}`);
       }
     }
   }
