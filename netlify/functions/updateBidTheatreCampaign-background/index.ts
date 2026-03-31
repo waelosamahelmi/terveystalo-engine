@@ -464,25 +464,26 @@ async function updateBtCampaign(
   const adGroupIds = btRecord.ad_group_ids || {};
   const existingAdIds = btRecord.ad_ids || {};
 
-  // Delete old ads first
-  console.log(`Deleting ${Object.values(existingAdIds).flat().length} existing ads...`);
-  for (const [, ids] of Object.entries(existingAdIds)) {
-    for (const adId of (ids as number[])) {
-      try {
-        await retryWithBackoff(() =>
-          bidTheatreApi.delete(`/${networkId}/ad/${adId}`, {
-            headers: { Authorization: `Bearer ${btToken}` },
-          })
-        );
-        console.log(`Deleted ad ${adId}`);
-        await sleep(500);
-      } catch (delErr: any) {
-        const status = delErr.response?.status;
-        if (status === 404) {
-          console.log(`Ad ${adId} already deleted (404)`);
-        } else {
-          console.warn(`Failed to delete ad ${adId}: ${delErr.message}`);
-        }
+  // Deactivate old ads first (BT doesn't support DELETE, use PUT to set Inactive)
+  const allOldAdIds = Object.values(existingAdIds).flat() as number[];
+  console.log(`Deactivating ${allOldAdIds.length} existing ads...`);
+  for (const adId of allOldAdIds) {
+    try {
+      await retryWithBackoff(() =>
+        bidTheatreApi.put(`/${networkId}/ad/${adId}`, {
+          adStatus: 'Inactive',
+        }, {
+          headers: { Authorization: `Bearer ${btToken}` },
+        })
+      );
+      console.log(`Deactivated ad ${adId}`);
+      await sleep(500);
+    } catch (deactivateErr: any) {
+      const status = deactivateErr.response?.status;
+      if (status === 404) {
+        console.log(`Ad ${adId} not found (404)`);
+      } else {
+        console.warn(`Failed to deactivate ad ${adId}: ${deactivateErr.message}`);
       }
     }
   }
