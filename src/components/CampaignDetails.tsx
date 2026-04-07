@@ -200,143 +200,136 @@ const CampaignDetails = () => {
   const fetchCampaignStats = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('fetchCampaignStats: Starting fetch', { campaignId, selectedMonth });
 
       const [year, month] = selectedMonth.split('-').map(Number);
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
 
-      // Remove .single() to avoid errors when no data exists
-      const { data: mediaCostsArray, error: mediaCostsError } = await supabase
-        .from('media_costs')
+      // Fetch all analytics rows for this campaign in the selected month
+      const { data: rows, error } = await supabase
+        .from('campaign_analytics')
         .select('*')
         .eq('campaign_id', campaignId)
-        .eq('year', year)
-        .eq('month', month)
-        .order('created_at', { ascending: false });
+        .gte('date', startDate)
+        .lte('date', endDate);
 
-      console.log('fetchCampaignStats: Media costs data from Supabase', { mediaCostsArray, mediaCostsError });
-      
-      // Check if we have any data
-      const mediaCosts = mediaCostsArray && mediaCostsArray.length > 0 ? mediaCostsArray[0] : null;
+      if (error) throw error;
 
-      // If there's an error but it's not just "no data", show the error
-      if (mediaCostsError && mediaCostsError.code !== 'PGRST116') {
-        throw mediaCostsError;
-      }
+      const allRows = rows || [];
 
-      // If no data found, set everything to default values instead of showing an error
-      if (!mediaCosts) {
-        console.log('No data found for the selected period, using default values');
-        
-        // Set default stats with zeroes
-        setDisplayStats([{
-          CTR: 0,
-          activeImps: 0,
-          nrClicks: 0,
-          nrImps: 0,
-          cost: 0,
-          revenue: 0,
-          engagementRate: 0,
-        }]);
-        
-        setPdoohStats([{
-          CTR: 0,
-          activeImps: 0,
-          nrClicks: 0,
-          nrImps: 0,
-          cost: 0,
-          revenue: 0,
-          engagementRate: 0,
-        }]);
-        
-        // Clear all other arrays
-        setDisplayDevices([]);
-        setDisplayAudience([]);
-        setPdoohAudience([]);
-        setDisplayGeo([]);
-        setPdoohGeo([]);
-        setDisplayGeoCities([]);
-        setPdoohGeoCities([]);
-        setDisplaySites([]);
-        setPdoohSites([]);
-        setDisplayHotspots([]);
-        setPdoohHotspots([]);
-        setDisplayDailyStats([]);
-        setPdoohDailyStats([]);
-        
+      if (allRows.length === 0) {
+        // No data — set defaults
+        setDisplayStats([{ CTR: 0, activeImps: 0, nrClicks: 0, nrImps: 0, cost: 0, revenue: 0, engagementRate: 0 }]);
+        setPdoohStats([{ CTR: 0, activeImps: 0, nrClicks: 0, nrImps: 0, cost: 0, revenue: 0, engagementRate: 0 }]);
+        setDisplayDevices([]); setDisplayAudience([]); setPdoohAudience([]);
+        setDisplayGeo([]); setPdoohGeo([]); setDisplayGeoCities([]); setPdoohGeoCities([]);
+        setDisplaySites([]); setPdoohSites([]); setDisplayHotspots([]); setPdoohHotspots([]);
+        setDisplayDailyStats([]); setPdoohDailyStats([]);
         setLoading(false);
         return;
       }
 
-      // Transform base stats
-      const displayStats: CampaignStats[] = [{
-        CTR: mediaCosts.ctr_display || 0,
-        activeImps: mediaCosts.active_impressions_display,
-        nrClicks: mediaCosts.clicks_display,
-        nrImps: mediaCosts.impressions_display,
-        cost: mediaCosts.cost_display,
-        revenue: mediaCosts.revenue_display,
-        engagementRate: mediaCosts.engagement_rate_display || 0,
-      }];
-      setDisplayStats(displayStats);
+      // Split rows by channel
+      const displayRows = allRows.filter(r => r.channel === 'display');
+      const pdoohRows = allRows.filter(r => r.channel === 'pdooh');
 
-      const pdoohStats: CampaignStats[] = [{
-        CTR: mediaCosts.ctr_pdooh || 0,
-        activeImps: mediaCosts.active_impressions_pdooh,
-        nrClicks: mediaCosts.clicks_pdooh,
-        nrImps: mediaCosts.impressions_pdooh,
-        cost: mediaCosts.cost_pdooh,
-        revenue: mediaCosts.revenue_pdooh,
-        engagementRate: mediaCosts.engagement_rate_pdooh || 0,
-      }];
-      setPdoohStats(pdoohStats);
+      // Helper: aggregate basic stats from rows
+      const aggregateStats = (channelRows: typeof allRows): CampaignStats => {
+        const nrImps = channelRows.reduce((s, r) => s + (r.impressions || 0), 0);
+        const nrClicks = channelRows.reduce((s, r) => s + (r.clicks || 0), 0);
+        const cost = channelRows.reduce((s, r) => s + (r.spend || 0), 0);
+        return {
+          CTR: nrImps > 0 ? (nrClicks / nrImps) * 100 : 0,
+          activeImps: nrImps,
+          nrClicks,
+          nrImps,
+          cost,
+          revenue: cost,
+          engagementRate: channelRows.reduce((s, r) => s + (r.engagement_rate || 0), 0) / (channelRows.length || 1),
+        };
+      };
 
-      // Set device stats
-      setDisplayDevices(mediaCosts.device_stats_display || []);
+      setDisplayStats([aggregateStats(displayRows)]);
+      setPdoohStats([aggregateStats(pdoohRows)]);
 
-      // Set audience stats
-      setDisplayAudience(mediaCosts.audience_stats_display || []);
-      setPdoohAudience(mediaCosts.audience_stats_pdooh || []);
+      // Helper: merge JSONB array breakdowns from rows (device_stats, geo_stats, etc.)
+      const mergeJsonbArrays = (channelRows: typeof allRows, field: string) => {
+        const map = new Map<string | number, any>();
+        for (const row of channelRows) {
+          const arr = (row as any)[field];
+          if (!Array.isArray(arr)) continue;
+          for (const item of arr) {
+            const key = item.id ?? item.name ?? item.rtbSiteURL ?? item.audName ?? JSON.stringify(item);
+            const existing = map.get(key);
+            if (existing) {
+              existing.nrImps = (existing.nrImps || 0) + (item.nrImps || 0);
+              existing.cost = (existing.cost || 0) + (item.cost || 0);
+            } else {
+              map.set(key, { ...item });
+            }
+          }
+        }
+        return Array.from(map.values());
+      };
 
-      // Set geo stats
-      setDisplayGeo(mediaCosts.geo_stats_display || []);
-      setPdoohGeo(mediaCosts.geo_stats_pdooh || []);
+      // Device stats (display only in BT)
+      setDisplayDevices(mergeJsonbArrays(displayRows, 'device_stats'));
 
-      // Set geo city stats
-      setDisplayGeoCities(mediaCosts.geo_city_stats_display || []);
-      setPdoohGeoCities(mediaCosts.geo_city_stats_pdooh || []);
+      // Audience stats
+      setDisplayAudience(mergeJsonbArrays(displayRows, 'audience_stats'));
+      setPdoohAudience(mergeJsonbArrays(pdoohRows, 'audience_stats'));
 
-      // Set site stats
-      setDisplaySites(mediaCosts.site_stats_display || []);
-      setPdoohSites(mediaCosts.site_stats_pdooh || []);
+      // Geo stats
+      setDisplayGeo(mergeJsonbArrays(displayRows, 'geo_stats'));
+      setPdoohGeo(mergeJsonbArrays(pdoohRows, 'geo_stats'));
 
-      // Set hotspot stats
-      setDisplayHotspots(mediaCosts.hotspot_stats_display || []);
-      setPdoohHotspots(mediaCosts.hotspot_stats_pdooh || []);
+      // Geo city stats (stored inside geo_stats as cities in campaign_analytics)
+      setDisplayGeoCities([]);
+      setPdoohGeoCities([]);
 
-      // Filter and set daily stats for selected month
-      const filteredDisplayDailyStats = filterDailyStatsByMonth(mediaCosts.daily_stats_display || []);
-      setDisplayDailyStats(filteredDisplayDailyStats);
-      
-      const filteredPdoohDailyStats = filterDailyStatsByMonth(mediaCosts.daily_stats_pdooh || []);
-      setPdoohDailyStats(filteredPdoohDailyStats);
+      // Site stats
+      setDisplaySites(mergeJsonbArrays(displayRows, 'site_stats'));
+      setPdoohSites(mergeJsonbArrays(pdoohRows, 'site_stats'));
 
-      console.log('fetchCampaignStats: Fetch completed', {
-        displayStats,
-        pdoohStats,
-        displayDevices: mediaCosts.device_stats_display,
-        displayAudience: mediaCosts.audience_stats_display,
-        pdoohAudience: mediaCosts.audience_stats_pdooh,
-        displayGeo: mediaCosts.geo_stats_display,
-        pdoohGeo: mediaCosts.geo_stats_pdooh,
-        displayGeoCities: mediaCosts.geo_city_stats_display,
-        pdoohGeoCities: mediaCosts.geo_city_stats_pdooh,
-        displaySites: mediaCosts.site_stats_display,
-        pdoohSites: mediaCosts.site_stats_pdooh,
-        displayHotspots: mediaCosts.hotspot_stats_display,
-        pdoohHotspots: mediaCosts.hotspot_stats_pdooh,
-        filteredDisplayDailyStats,
-        filteredPdoohDailyStats
-      });
+      // Hotspot stats — not stored per-row in campaign_analytics
+      setDisplayHotspots([]);
+      setPdoohHotspots([]);
+
+      // Daily stats — aggregate from rows grouped by date
+      const buildDaily = (channelRows: typeof allRows): DailyStats[] => {
+        const map = new Map<string, DailyStats>();
+        for (const r of channelRows) {
+          const existing = map.get(r.date);
+          if (existing) {
+            existing.nrImps += r.impressions || 0;
+            existing.nrClicks += r.clicks || 0;
+            existing.revenue += r.spend || 0;
+            existing.cost += r.spend || 0;
+          } else {
+            map.set(r.date, {
+              day: r.date + ' 00:00:00.0',
+              nrImps: r.impressions || 0,
+              nrClicks: r.clicks || 0,
+              CTR: 0,
+              activeImps: r.impressions || 0,
+              viewableRate: r.viewable_rate || 0,
+              engagementRate: r.engagement_rate || 0,
+              revenue: r.spend || 0,
+              cost: r.spend || 0,
+            });
+          }
+        }
+        // Recalculate CTR
+        for (const d of map.values()) {
+          d.CTR = d.nrImps > 0 ? (d.nrClicks / d.nrImps) * 100 : 0;
+        }
+        return Array.from(map.values()).sort((a, b) => a.day.localeCompare(b.day));
+      };
+
+      setDisplayDailyStats(buildDaily(displayRows));
+      setPdoohDailyStats(buildDaily(pdoohRows));
+
     } catch (error) {
       console.error('fetchCampaignStats: Error fetching campaign stats', error);
       toast.error('Failed to load campaign details');
@@ -738,23 +731,23 @@ const CampaignDetails = () => {
           <div className="bg-blue-50 p-6 rounded-lg shadow-sm border border-blue-100 transform hover:scale-105 transition-transform duration-200">
             <h3 className="text-lg font-medium text-blue-800">Meta Spend</h3>
             <p className="text-2xl font-semibold text-blue-900">
-              €{spendData?.spendMeta ? spendData.spendMeta.toFixed(2) : '0.00'}
+              €0.00
             </p>
-            <p className="text-sm text-blue-700">Tracking not available</p>
+            <p className="text-sm text-blue-700">Tracking not connected</p>
           </div>
           <div className="bg-green-50 p-6 rounded-lg shadow-sm border border-green-100 transform hover:scale-105 transition-transform duration-200">
             <h3 className="text-lg font-medium text-green-800">Display Spend</h3>
             <p className="text-2xl font-semibold text-green-900">
-              €{spendData?.spendDisplay ? spendData.spendDisplay.toFixed(2) : '0.00'}
+              €{displayStats.length > 0 ? displayStats.reduce((sum, stat) => sum + stat.cost, 0).toFixed(2) : '0.00'}
             </p>
-            <p className="text-sm text-green-700">Impressions: {displayStats.length > 0 ? displayStats.reduce((sum, stat) => sum + stat.nrImps, 0) : 0}</p>
+            <p className="text-sm text-green-700">Impressions: {displayStats.length > 0 ? displayStats.reduce((sum, stat) => sum + stat.nrImps, 0).toLocaleString('fi-FI') : 0}</p>
           </div>
           <div className="bg-purple-50 p-6 rounded-lg shadow-sm border border-purple-100 transform hover:scale-105 transition-transform duration-200">
             <h3 className="text-lg font-medium text-purple-800">PDOOH Spend</h3>
             <p className="text-2xl font-semibold text-purple-900">
-              €{spendData?.spendPdooh ? spendData.spendPdooh.toFixed(2) : '0.00'}
+              €{pdoohStats.length > 0 ? pdoohStats.reduce((sum, stat) => sum + stat.cost, 0).toFixed(2) : '0.00'}
             </p>
-            <p className="text-sm text-purple-700">Impressions: {pdoohStats.length > 0 ? pdoohStats.reduce((sum, stat) => sum + stat.nrImps, 0) : 0}</p>
+            <p className="text-sm text-purple-700">Impressions: {pdoohStats.length > 0 ? pdoohStats.reduce((sum, stat) => sum + stat.nrImps, 0).toLocaleString('fi-FI') : 0}</p>
           </div>
         </div>
 
