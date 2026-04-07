@@ -26,9 +26,12 @@ interface BidTheatreNamedStats {
 }
 
 interface BidTheatreDailyStats {
-  date: string;
+  day: string;   // BT API returns "day" field, e.g. "2026-04-07 00:00:01.0"
+  date: string;  // normalized date string (YYYY-MM-DD)
   nrImps: number;
   cost: number;
+  nrClicks: number;
+  revenue: number;
 }
 
 interface ChannelStats {
@@ -161,7 +164,12 @@ async function fetchBtCampaignStats(
     geoCities: geoCityStats.data.statsCampaignGeoCity || [],
     sites: siteStats.data.statsCampaignSites || [],
     hotspots: hotspotStats.data.statsCampaignHotspot || [],
-    daily: dailyStats.data.statsCampaignDay || [],
+    // Normalize daily stats: BT returns "day" field, we need "date" (YYYY-MM-DD)
+    daily: (dailyStats.data.statsCampaignDay || []).map((d: any) => ({
+      ...d,
+      date: (d.day || '').substring(0, 10),
+      cost: d.revenue || 0,  // BT "revenue" = advertiser cost
+    })),
   };
 }
 
@@ -207,12 +215,16 @@ function mergeNamedStats(a: BidTheatreNamedStats[], b: BidTheatreNamedStats[]): 
 function mergeDailyStats(a: BidTheatreDailyStats[], b: BidTheatreDailyStats[]): BidTheatreDailyStats[] {
   const map = new Map<string, BidTheatreDailyStats>();
   for (const item of [...a, ...b]) {
-    const existing = map.get(item.date);
+    const dateKey = item.date || (item.day || '').substring(0, 10);
+    if (!dateKey) continue;
+    const existing = map.get(dateKey);
     if (existing) {
       existing.nrImps = (existing.nrImps || 0) + (item.nrImps || 0);
+      existing.nrClicks = (existing.nrClicks || 0) + (item.nrClicks || 0);
       existing.cost = (existing.cost || 0) + (item.cost || 0);
+      existing.revenue = (existing.revenue || 0) + (item.revenue || 0);
     } else {
-      map.set(item.date, { ...item });
+      map.set(dateKey, { ...item, date: dateKey });
     }
   }
   return Array.from(map.values()).sort((x, y) => x.date.localeCompare(y.date));
@@ -369,13 +381,13 @@ export const handler: Handler = async () => {
         const totalPdoohClicks = pdoohStats.basic?.nrClicks || 0;
         const syncNow = new Date().toISOString();
 
-        // Display daily stats
+        // Display daily stats — use real per-day clicks from BT when available
         for (const day of displayStats.daily) {
           const imps = day.nrImps || 0;
-          const spend = day.cost || 0;
-          const clicks = totalDisplayImps > 0
-            ? Math.round((imps / totalDisplayImps) * totalDisplayClicks)
-            : 0;
+          const spend = day.cost || day.revenue || 0;
+          // Use real per-day clicks if available, else distribute proportionally
+          const clicks = day.nrClicks != null ? day.nrClicks
+            : (totalDisplayImps > 0 ? Math.round((imps / totalDisplayImps) * totalDisplayClicks) : 0);
           analyticsRows.push({
             campaign_id: campaign.id,
             date: day.date,
@@ -383,7 +395,7 @@ export const handler: Handler = async () => {
             impressions: imps,
             clicks,
             spend,
-            ctr: imps > 0 ? clicks / imps : 0,
+            ctr: imps > 0 ? (clicks / imps) * 100 : 0,
             cpc: clicks > 0 ? spend / clicks : null,
             cpm: imps > 0 ? (spend / imps) * 1000 : null,
             engagement_rate: displayStats.basic?.engagementRate || null,
@@ -395,10 +407,9 @@ export const handler: Handler = async () => {
         // PDOOH daily stats
         for (const day of pdoohStats.daily) {
           const imps = day.nrImps || 0;
-          const spend = day.cost || 0;
-          const clicks = totalPdoohImps > 0
-            ? Math.round((imps / totalPdoohImps) * totalPdoohClicks)
-            : 0;
+          const spend = day.cost || day.revenue || 0;
+          const clicks = day.nrClicks != null ? day.nrClicks
+            : (totalPdoohImps > 0 ? Math.round((imps / totalPdoohImps) * totalPdoohClicks) : 0);
           analyticsRows.push({
             campaign_id: campaign.id,
             date: day.date,
@@ -406,7 +417,7 @@ export const handler: Handler = async () => {
             impressions: imps,
             clicks,
             spend,
-            ctr: imps > 0 ? clicks / imps : 0,
+            ctr: imps > 0 ? (clicks / imps) * 100 : 0,
             cpc: clicks > 0 ? spend / clicks : null,
             cpm: imps > 0 ? (spend / imps) * 1000 : null,
             engagement_rate: pdoohStats.basic?.engagementRate || null,

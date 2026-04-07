@@ -443,10 +443,10 @@ export async function getGeoAnalytics(filters?: AnalyticsFilters): Promise<Array
   spend: number;
   ctr: number;
 }>> {
-  // Try to select geo_region - if column doesn't exist, gracefully return empty
+  // Select geo_region for geographic breakdown
   let query = supabase
     .from('campaign_analytics')
-    .select('impressions, clicks, spend');
+    .select('impressions, clicks, spend, geo_region, geo_stats');
 
   if (filters?.date_from) {
     query = query.gte('date', filters.date_from);
@@ -468,17 +468,33 @@ export async function getGeoAnalytics(filters?: AnalyticsFilters): Promise<Array
     return [];
   }
 
-  // Aggregate by region (use 'Unknown' since geo_region column may not exist)
+  // Aggregate by region — use geo_stats JSON from BidTheatre if geo_region is not set
   const regionMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
   
   (data || []).forEach(row => {
-    const region = (row as any).geo_region || 'Suomi';
-    const existing = regionMap.get(region) || { impressions: 0, clicks: 0, spend: 0 };
-    regionMap.set(region, {
-      impressions: existing.impressions + (row.impressions || 0),
-      clicks: existing.clicks + (row.clicks || 0),
-      spend: existing.spend + (row.spend || 0),
-    });
+    const geoStats = (row as any).geo_stats;
+    
+    // If we have BidTheatre geo_stats breakdown, use it for per-region data
+    if (Array.isArray(geoStats) && geoStats.length > 0) {
+      for (const geo of geoStats) {
+        const region = geo.name || 'Tuntematon';
+        const existing = regionMap.get(region) || { impressions: 0, clicks: 0, spend: 0 };
+        regionMap.set(region, {
+          impressions: existing.impressions + (geo.nrImps || 0),
+          clicks: existing.clicks + 0,
+          spend: existing.spend + (geo.cost || 0),
+        });
+      }
+    } else {
+      // Fallback: use geo_region column or default
+      const region = (row as any).geo_region || 'Suomi';
+      const existing = regionMap.get(region) || { impressions: 0, clicks: 0, spend: 0 };
+      regionMap.set(region, {
+        impressions: existing.impressions + (row.impressions || 0),
+        clicks: existing.clicks + (row.clicks || 0),
+        spend: existing.spend + (row.spend || 0),
+      });
+    }
   });
 
   return Array.from(regionMap.entries()).map(([region, stats]) => ({
@@ -536,8 +552,16 @@ export async function getChannelAnalytics(filters?: AnalyticsFilters): Promise<A
     });
   });
 
+  // Map internal channel names to display labels
+  const channelLabels: Record<string, string> = {
+    display: 'Display',
+    pdooh: 'PDOOH',
+    meta: 'Meta',
+    other: 'Muu',
+  };
+
   return Array.from(channelMap.entries()).map(([channel, stats]) => ({
-    channel,
+    channel: channelLabels[channel] || channel,
     ...stats,
     ctr: stats.impressions > 0 ? (stats.clicks / stats.impressions) * 100 : 0,
     share: totalImpressions > 0 ? (stats.impressions / totalImpressions) * 100 : 0,

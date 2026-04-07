@@ -217,23 +217,31 @@ const Analytics = () => {
         return;
       }
 
-      // Load summary
+      // Map UI channel filter values to DB channel names
+      const channelFilterMap: Record<string, string | undefined> = {
+        all: undefined,
+        DOOH: 'pdooh',
+        Display: 'display',
+        Social: 'meta',
+      };
+      const dbChannel = channelFilterMap[channelFilter];
+
+      // Load summary (with channel filter)
       const summaryData = await getAnalyticsSummary({ 
         date_from: startDate, 
-        date_to: endDate
+        date_to: endDate,
+        channel: dbChannel,
       });
       setSummary(summaryData);
 
-      // Load daily data - getRecentAnalytics takes days count
-      const days = Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24));
-      const recentData = await getRecentAnalytics(days);
-      setDailyData(recentData.daily);
+      // Load daily data from the same aggregated query
+      setDailyData(summaryData.daily || []);
 
-      // Load geo data
-      const geo = await getGeoAnalytics({ date_from: startDate, date_to: endDate });
+      // Load geo data (with channel filter)
+      const geo = await getGeoAnalytics({ date_from: startDate, date_to: endDate, channel: dbChannel });
       setGeoData(geo);
 
-      // Load channel data
+      // Load channel data (no channel filter — always show all channels)
       const channel = await getChannelAnalytics({ date_from: startDate, date_to: endDate });
       setChannelData(channel);
 
@@ -263,13 +271,29 @@ const Analytics = () => {
         console.warn('Could not load campaigns:', campaignError.message);
         setCampaigns([]);
       } else {
-        // Map to expected format with default values
-        setCampaigns((campaignData || []).map(c => ({
-          ...c,
-          spent_budget: 0,
-          total_impressions: 0,
-          total_clicks: 0
-        })));
+        // Fetch actual spend/impressions/clicks from campaign_analytics for each campaign
+        const campaignsWithStats = await Promise.all(
+          (campaignData || []).map(async (c) => {
+            const { data: analyticsRows } = await supabase
+              .from('campaign_analytics')
+              .select('impressions, clicks, spend')
+              .eq('campaign_id', c.id)
+              .gte('date', startDate)
+              .lte('date', endDate);
+            
+            const totalImpressions = analyticsRows?.reduce((sum, r) => sum + (r.impressions || 0), 0) || 0;
+            const totalClicks = analyticsRows?.reduce((sum, r) => sum + (r.clicks || 0), 0) || 0;
+            const totalSpend = analyticsRows?.reduce((sum, r) => sum + (r.spend || 0), 0) || 0;
+            
+            return {
+              ...c,
+              spent_budget: totalSpend,
+              total_impressions: totalImpressions,
+              total_clicks: totalClicks,
+            };
+          })
+        );
+        setCampaigns(campaignsWithStats);
       }
 
     } catch (error) {
@@ -277,7 +301,7 @@ const Analytics = () => {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, branchFilter]);
+  }, [startDate, endDate, branchFilter, channelFilter]);
 
   useEffect(() => {
     loadAnalytics();
