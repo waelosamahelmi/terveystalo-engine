@@ -557,40 +557,68 @@ async function updateBtCampaign(
             continue;
           }
 
+          // Build per-creative landing URL with service-specific UTM parameters
+          const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
           const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
           const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
-
-          // Use static JPG image wrapper for PDOOH (if available), or iframe for HTML
-          const useJpg = creative.jpg_url && channelType === 'PDOOH';
-          const html = useJpg
-            ? buildImageWrapper(creative.jpg_url, config.width, config.height, landingUrl)
-            : buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
-          console.log(`Built ${useJpg ? 'JPG image' : 'iframe'} wrapper for ${creative.name} (${html.length} bytes)`);
+          const isPDOOH = channelType === 'PDOOH';
 
           try {
-            const adResp = await retryWithBackoff(() =>
-              bidTheatreApi.post(`/${networkId}/ad`, {
-                campaign: btCampaignId,
-                name: creative.name || `${branchLabel} - ${size}`,
-                adType: 'HTML banner',
-                adStatus: 'Active',
-                html,
-                targetURL: landingUrl,
-                clickThroughURL: landingUrl,
-                dimension: config.dimension,
-                isExpandable: false,
-                isInSync: true,
-                isSecure: true,
-              }, {
-                headers: { Authorization: `Bearer ${btToken}` },
-              })
-            );
+            let adResp;
+
+            if (isPDOOH) {
+              // --- PDOOH: Image banner ad (direct image URL, accepted by all DOOH suppliers) ---
+              let imageUrl = creativeUrl;
+              if (imageUrl.endsWith('.html')) {
+                imageUrl = imageUrl.replace(/\.html$/, '.jpg');
+              }
+
+              adResp = await retryWithBackoff(() =>
+                bidTheatreApi.post(`/${networkId}/ad`, {
+                  campaign: btCampaignId,
+                  name: creative.name || `${branchLabel} - ${size}`,
+                  adType: 'Image banner',
+                  adStatus: 'Active',
+                  contentURL: imageUrl,
+                  targetURL: landingUrl,
+                  dimension: config.dimension,
+                  isExpandable: false,
+                  isInSync: true,
+                  isSecure: true,
+                }, {
+                  headers: { Authorization: `Bearer ${btToken}` },
+                })
+              );
+              console.log(`Created Image banner ad ${adResp.data.ad.id} for PDOOH ${size} (${creative.name}), URL: ${imageUrl}`);
+            } else {
+              // --- DISPLAY: HTML banner ad (uses lightweight iframe wrapper) ---
+              const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+              console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
+
+              adResp = await retryWithBackoff(() =>
+                bidTheatreApi.post(`/${networkId}/ad`, {
+                  campaign: btCampaignId,
+                  name: creative.name || `${branchLabel} - ${size}`,
+                  adType: 'HTML banner',
+                  adStatus: 'Active',
+                  html,
+                  targetURL: landingUrl,
+                  clickThroughURL: landingUrl,
+                  dimension: config.dimension,
+                  isExpandable: false,
+                  isInSync: true,
+                  isSecure: true,
+                }, {
+                  headers: { Authorization: `Bearer ${btToken}` },
+                })
+              );
+              console.log(`Created HTML banner ad ${adResp.data.ad.id} for DISPLAY ${size} (${creative.name})`);
+            }
+
             const adId = adResp.data.ad.id;
-            createdAdsByCreativeSize[dedupKey] = adId;
-            if (!newAdIds[group.name]) newAdIds[group.name] = [];
-            newAdIds[group.name].push(adId);
-            console.log(`Created ad ${adId} for ${size}`);
-            await sleep(1000);
+            if (!newAdIds[groupName]) newAdIds[groupName] = [];
+            newAdIds[groupName].push(adId);
+            await sleep(300);
           } catch (adErr: any) {
             console.error(`Ad creation failed for ${size}: ${adErr.response?.data?.message || adErr.message}`);
           }

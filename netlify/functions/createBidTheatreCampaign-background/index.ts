@@ -677,9 +677,12 @@ async function createBtCampaignForBranch(
   );
   console.log(`Found ${creatives.length} creatives for ${branchName} / ${channelType}`);
 
-  // 7. Create HTML ads from creatives (deduplicate across ad groups sharing sizes)
+  // 7. Create ads from creatives (deduplicate across ad groups sharing sizes)
+  // PDOOH uses "Image banner" with direct contentURL (accepted by all DOOH suppliers)
+  // DISPLAY uses "HTML banner" with iframe wrapper (standard web display)
   const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
-  const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → HTML adId
+  const createdAdsByCreativeSize: Record<string, number> = {}; // "creativeId::size" → adId
+  const isPDOOH = channelType === 'PDOOH';
 
   for (const group of adGroups) {
     for (const size of group.sizes) {
@@ -700,7 +703,7 @@ async function createBtCampaignForBranch(
           continue;
         }
 
-        // Get the public URL for the hosted creative HTML
+        // Get the public URL for the hosted creative
         const creativeUrl = creative.image_url || creative.preview_url;
 
         if (!creativeUrl) {
@@ -712,35 +715,68 @@ async function createBtCampaignForBranch(
         const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
         const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
 
-        // Use static JPG image wrapper for PDOOH (if available), or iframe for HTML
-        const useJpg = creative.jpg_url && channelType === 'PDOOH';
-        const wrapperHtml = useJpg
-          ? buildImageWrapper(creative.jpg_url, config.width, config.height, landingUrl)
-          : buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
-        console.log(`Built ${useJpg ? 'JPG image' : 'iframe'} wrapper for ${creative.name} (${wrapperHtml.length} bytes)`);
 
         try {
-          const adResp = await retryWithBackoff(() =>
-            bidTheatreApi.post(`/${networkId}/ad`, {
-              campaign: btCampaignId,
-              name: creative.name || `${branchName} - ${size}`,
-              adType: 'HTML banner',
-              adStatus: 'Active',
-              html: wrapperHtml,
-              targetURL: landingUrl,
-              clickThroughURL: landingUrl,
-              dimension: config.dimension,
-              isExpandable: false,
-              isInSync: true,
-              isSecure: true,
-            }, {
-              headers: { Authorization: `Bearer ${btToken}` },
-            })
-          );
+          let adResp;
+
+          if (isPDOOH) {
+            // --- PDOOH: Image banner ad (direct image URL, accepted by all DOOH suppliers) ---
+            // For PDOOH creatives, extract the underlying image URL from the HTML creative
+            // The image_url points to an HTML file; we need the actual image inside it.
+            // Creative naming: "Branch - Service - WxH" → image stored alongside HTML
+            // Use the image_url but replace .html extension with .jpg/.png if it's an HTML wrapper
+            let imageUrl = creativeUrl;
+            if (imageUrl.endsWith('.html')) {
+              // Try .jpg first (most common for PDOOH creatives), fallback to original
+              imageUrl = imageUrl.replace(/\.html$/, '.jpg');
+            }
+
+            adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchName} - ${size}`,
+                adType: 'Image banner',
+                adStatus: 'Active',
+                contentURL: imageUrl,
+                targetURL: landingUrl,
+                dimension: config.dimension,
+                isExpandable: false,
+                isInSync: true,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            console.log(`Created Image banner ad ${adResp.data.ad.id} for PDOOH ${size} (${creative.name}), URL: ${imageUrl}`);
+          } else {
+            // --- DISPLAY: HTML banner ad (uses lightweight iframe wrapper) ---
+            const wrapperHtml = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+            console.log(`Built iframe wrapper for ${creative.name} (${wrapperHtml.length} bytes, URL: ${creativeUrl})`);
+
+            adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchName} - ${size}`,
+                adType: 'HTML banner',
+                adStatus: 'Active',
+                html: wrapperHtml,
+                targetURL: landingUrl,
+                clickThroughURL: landingUrl,
+                dimension: config.dimension,
+                isExpandable: false,
+                isInSync: true,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            console.log(`Created HTML banner ad ${adResp.data.ad.id} for DISPLAY ${size} (${creative.name})`);
+          }
+
           const adId = adResp.data.ad.id;
           adIds[group.name].push(adId);
           createdAdsByCreativeSize[dedupKey] = adId;
-          console.log(`Created ad ${adId} for ${size} (${creative.name})`);
+
           await sleep(300);
         } catch (adError: any) {
           console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
