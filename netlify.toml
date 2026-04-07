@@ -11,9 +11,9 @@
 [functions]
   directory = "netlify/functions"
 
-# BidTheatre sync - runs daily at 5:40 PM
+# BidTheatre sync - runs every hour at :40
 [functions."sync-media-costs-background"]
-schedule = "40 17 * * *"
+schedule = "40 * * * *"
 
 # Media screens sync - runs daily at 3:00 AM
 [functions."syncMediaScreens-background"]
