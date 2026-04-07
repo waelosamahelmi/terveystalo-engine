@@ -715,9 +715,15 @@ const Analytics = () => {
                   </div>
                   <span className="font-medium text-gray-900 dark:text-white">{geo.region || 'Tuntematon'}</span>
                 </div>
-                <div className="text-right">
-                  <p className="font-medium text-gray-900 dark:text-white">{geo.impressions.toLocaleString('fi-FI')}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">näyttöä</p>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="font-medium text-gray-900 dark:text-white">{geo.impressions.toLocaleString('fi-FI')}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">näyttöä</p>
+                  </div>
+                  <div className="text-right min-w-[60px]">
+                    <p className="font-medium text-gray-900 dark:text-white">{geo.clicks.toLocaleString('fi-FI')}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">klikkiä</p>
+                  </div>
                 </div>
               </div>
             ))}
