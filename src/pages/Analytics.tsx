@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { getAnalyticsSummary, getRecentAnalytics, getGeoAnalytics, getChannelAnalytics } from '../lib/analyticsService';
+// Analytics queries are now inline in loadAnalytics for proper filter support
 import type { DailyStats, GeoStats } from '../types';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { fi } from 'date-fns/locale';
@@ -224,26 +224,120 @@ const Analytics = () => {
         Display: 'display',
         Social: 'meta',
       };
-      const dbChannel = channelFilterMap[channelFilter];
+      const dbChannel = channelFilterMap[channelFilter] as any;
 
-      // Load summary (with channel filter)
-      const summaryData = await getAnalyticsSummary({ 
-        date_from: startDate, 
-        date_to: endDate,
-        channel: dbChannel,
+      // If branch is selected, find campaign_ids that have BT campaigns for that branch
+      let branchCampaignIds: string[] | null = null;
+      if (branchFilter !== 'all') {
+        const { data: btRecs } = await supabase
+          .from('bidtheatre_campaigns')
+          .select('campaign_id')
+          .eq('branch_id', branchFilter);
+        branchCampaignIds = [...new Set((btRecs || []).map(r => r.campaign_id))];
+      }
+
+      // Build base filters
+      const baseFilters: any = { date_from: startDate, date_to: endDate };
+      if (dbChannel) baseFilters.channel = dbChannel;
+
+      // Load all campaign_analytics rows for the date range (apply filters client-side for branch)
+      let analyticsQuery = supabase
+        .from('campaign_analytics')
+        .select('*')
+        .gte('date', startDate)
+        .lte('date', endDate);
+      
+      if (dbChannel) {
+        analyticsQuery = analyticsQuery.eq('channel', dbChannel);
+      }
+      if (branchCampaignIds && branchCampaignIds.length > 0) {
+        analyticsQuery = analyticsQuery.in('campaign_id', branchCampaignIds);
+      }
+
+      const { data: allRows } = await analyticsQuery;
+      const rows = allRows || [];
+
+      // Aggregate summary metrics
+      const totalImpressions = rows.reduce((s, r) => s + (r.impressions || 0), 0);
+      const totalClicks = rows.reduce((s, r) => s + (r.clicks || 0), 0);
+      const totalSpend = rows.reduce((s, r) => s + (r.spend || 0), 0);
+      const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+      const avgCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+      const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+
+      setSummary({ totalImpressions, totalClicks, totalSpend, avgCtr, avgCpm, avgCpc });
+
+      // Build daily data (aggregate across campaigns per date)
+      const dailyMap = new Map<string, { date: string; impressions: number; clicks: number; spend: number }>();
+      rows.forEach(r => {
+        const existing = dailyMap.get(r.date) || { date: r.date, impressions: 0, clicks: 0, spend: 0 };
+        dailyMap.set(r.date, {
+          date: r.date,
+          impressions: existing.impressions + (r.impressions || 0),
+          clicks: existing.clicks + (r.clicks || 0),
+          spend: existing.spend + (r.spend || 0),
+        });
       });
-      setSummary(summaryData);
+      setDailyData(Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date)));
 
-      // Load daily data from the same aggregated query
-      setDailyData(summaryData.daily || []);
+      // Build channel breakdown (always from unfiltered-by-channel data for the doughnut)
+      let channelRows = rows;
+      if (dbChannel) {
+        // Re-fetch without channel filter for the doughnut chart
+        let chQuery = supabase.from('campaign_analytics').select('channel, impressions, clicks, spend')
+          .gte('date', startDate).lte('date', endDate);
+        if (branchCampaignIds && branchCampaignIds.length > 0) {
+          chQuery = chQuery.in('campaign_id', branchCampaignIds);
+        }
+        const { data: chRows } = await chQuery;
+        channelRows = chRows || [];
+      }
+      const channelMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
+      let chTotalImps = 0;
+      channelRows.forEach(r => {
+        const ch = r.channel || 'other';
+        const existing = channelMap.get(ch) || { impressions: 0, clicks: 0, spend: 0 };
+        const imps = r.impressions || 0;
+        chTotalImps += imps;
+        channelMap.set(ch, {
+          impressions: existing.impressions + imps,
+          clicks: existing.clicks + (r.clicks || 0),
+          spend: existing.spend + (r.spend || 0),
+        });
+      });
+      const channelLabels: Record<string, string> = { display: 'Display', pdooh: 'PDOOH', meta: 'Meta', other: 'Muu' };
+      setChannelData(Array.from(channelMap.entries()).map(([ch, stats]) => ({
+        channel: channelLabels[ch] || ch,
+        ...stats,
+        ctr: stats.impressions > 0 ? (stats.clicks / stats.impressions) * 100 : 0,
+        share: chTotalImps > 0 ? (stats.impressions / chTotalImps) * 100 : 0,
+      })).sort((a, b) => b.impressions - a.impressions));
 
-      // Load geo data (with channel filter)
-      const geo = await getGeoAnalytics({ date_from: startDate, date_to: endDate, channel: dbChannel });
-      setGeoData(geo);
-
-      // Load channel data (no channel filter — always show all channels)
-      const channel = await getChannelAnalytics({ date_from: startDate, date_to: endDate });
-      setChannelData(channel);
+      // Build geo data from geo_stats JSON on the latest rows
+      const geoMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
+      rows.forEach(r => {
+        const geoStats = (r as any).geo_stats;
+        if (Array.isArray(geoStats) && geoStats.length > 0) {
+          for (const geo of geoStats) {
+            const region = geo.name || 'Tuntematon';
+            const existing = geoMap.get(region) || { impressions: 0, clicks: 0, spend: 0 };
+            geoMap.set(region, {
+              impressions: existing.impressions + (geo.nrImps || 0),
+              clicks: existing.clicks + 0,
+              spend: existing.spend + (geo.cost || 0),
+            });
+          }
+        }
+      });
+      // Fallback if no geo_stats: show total as "Suomi"
+      if (geoMap.size === 0 && totalImpressions > 0) {
+        geoMap.set('Suomi', { impressions: totalImpressions, clicks: totalClicks, spend: totalSpend });
+      }
+      setGeoData(Array.from(geoMap.entries()).map(([region, stats]) => ({
+        region,
+        ...stats,
+        ctr: stats.impressions > 0 ? (stats.clicks / stats.impressions) * 100 : 0,
+      })).sort((a, b) => b.impressions - a.impressions));
 
       // Load branches for filter
       const { data: branchData } = await supabase
@@ -253,48 +347,33 @@ const Analytics = () => {
         .order('city');
       setBranches(branchData || []);
 
-      // Load campaign performance - simplified query to avoid missing column errors
-      let campaignQuery = supabase
+      // Load campaign performance table
+      const { data: campaignData } = await supabase
         .from('dental_campaigns')
         .select('id, name, status, total_budget')
         .order('created_at', { ascending: false })
         .limit(10);
       
-      // Apply branch filter if selected
-      if (branchFilter !== 'all') {
-        campaignQuery = campaignQuery.eq('branch_id', branchFilter);
-      }
-      
-      const { data: campaignData, error: campaignError } = await campaignQuery;
-      
-      if (campaignError) {
-        console.warn('Could not load campaigns:', campaignError.message);
-        setCampaigns([]);
-      } else {
-        // Fetch actual spend/impressions/clicks from campaign_analytics for each campaign
-        const campaignsWithStats = await Promise.all(
-          (campaignData || []).map(async (c) => {
-            const { data: analyticsRows } = await supabase
-              .from('campaign_analytics')
-              .select('impressions, clicks, spend')
-              .eq('campaign_id', c.id)
-              .gte('date', startDate)
-              .lte('date', endDate);
-            
-            const totalImpressions = analyticsRows?.reduce((sum, r) => sum + (r.impressions || 0), 0) || 0;
-            const totalClicks = analyticsRows?.reduce((sum, r) => sum + (r.clicks || 0), 0) || 0;
-            const totalSpend = analyticsRows?.reduce((sum, r) => sum + (r.spend || 0), 0) || 0;
-            
-            return {
-              ...c,
-              spent_budget: totalSpend,
-              total_impressions: totalImpressions,
-              total_clicks: totalClicks,
-            };
-          })
-        );
-        setCampaigns(campaignsWithStats);
-      }
+      // Group analytics by campaign_id for the table
+      const byCampaign = new Map<string, { imps: number; clicks: number; spend: number }>();
+      rows.forEach(r => {
+        const existing = byCampaign.get(r.campaign_id) || { imps: 0, clicks: 0, spend: 0 };
+        byCampaign.set(r.campaign_id, {
+          imps: existing.imps + (r.impressions || 0),
+          clicks: existing.clicks + (r.clicks || 0),
+          spend: existing.spend + (r.spend || 0),
+        });
+      });
+
+      setCampaigns((campaignData || []).map(c => {
+        const stats = byCampaign.get(c.id) || { imps: 0, clicks: 0, spend: 0 };
+        return {
+          ...c,
+          spent_budget: stats.spend,
+          total_impressions: stats.imps,
+          total_clicks: stats.clicks,
+        };
+      }));
 
     } catch (error) {
       console.error('Error loading analytics:', error);
