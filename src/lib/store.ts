@@ -214,7 +214,7 @@ class GlobalStore {
         }));
       }
       if (servicesRes.data) this._services = servicesRes.data;
-      if (campaignsRes.data) this._campaigns = campaignsRes.data;
+      if (campaignsRes.data) this._campaigns = await this.enrichCampaignsWithSpend(campaignsRes.data);
 
       this._initialDataLoaded = true;
       this.notify();
@@ -269,8 +269,32 @@ class GlobalStore {
 
   refreshCampaigns = async () => {
     const { data } = await supabase.from('dental_campaigns').select('*, service:services(*), branch:branches(*), creator:users!created_by(name, email, image_url)').order('created_at', { ascending: false });
-    if (data) { this._campaigns = data; this.notify(); }
+    if (data) { this._campaigns = await this.enrichCampaignsWithSpend(data); this.notify(); }
   };
+
+  private async enrichCampaignsWithSpend(campaigns: any[]): Promise<any[]> {
+    if (campaigns.length === 0) return campaigns;
+    const ids = campaigns.map(c => c.id);
+    const { data: spendRows } = await supabase
+      .from('campaign_analytics')
+      .select('campaign_id, impressions, clicks, spend')
+      .in('campaign_id', ids);
+    if (!spendRows || spendRows.length === 0) return campaigns;
+    // Aggregate spend per campaign
+    const spendMap = new Map<string, { spend: number; impressions: number; clicks: number }>();
+    for (const row of spendRows) {
+      const existing = spendMap.get(row.campaign_id) || { spend: 0, impressions: 0, clicks: 0 };
+      spendMap.set(row.campaign_id, {
+        spend: existing.spend + (row.spend || 0),
+        impressions: existing.impressions + (row.impressions || 0),
+        clicks: existing.clicks + (row.clicks || 0),
+      });
+    }
+    return campaigns.map(c => {
+      const stats = spendMap.get(c.id);
+      return stats ? { ...c, spent_budget: Math.round(stats.spend * 100) / 100, total_impressions: stats.impressions, total_clicks: stats.clicks } : c;
+    });
+  }
 
   refreshActivityLogs = async () => {
     const { data } = await supabase.from('activity_logs').select('*, user:users(name, email)').order('created_at', { ascending: false }).limit(100);
