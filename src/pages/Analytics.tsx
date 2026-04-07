@@ -226,14 +226,23 @@ const Analytics = () => {
       };
       const dbChannel = channelFilterMap[channelFilter] as any;
 
-      // If branch is selected, find campaign_ids that have BT campaigns for that branch
+      // If branch is selected, find campaigns that include this branch
+      // dental_campaigns.branch_ids is a JSON array of branch UUIDs
       let branchCampaignIds: string[] | null = null;
       if (branchFilter !== 'all') {
-        const { data: btRecs } = await supabase
-          .from('bidtheatre_campaigns')
-          .select('campaign_id')
-          .eq('branch_id', branchFilter);
-        branchCampaignIds = [...new Set((btRecs || []).map(r => r.campaign_id))];
+        const { data: matchedCampaigns } = await supabase
+          .from('dental_campaigns')
+          .select('id')
+          .contains('branch_ids', [branchFilter]);
+        branchCampaignIds = (matchedCampaigns || []).map(c => c.id);
+        // If no match via branch_ids array, also check the single branch_id column
+        if (!branchCampaignIds.length) {
+          const { data: singleMatch } = await supabase
+            .from('dental_campaigns')
+            .select('id')
+            .eq('branch_id', branchFilter);
+          branchCampaignIds = (singleMatch || []).map(c => c.id);
+        }
       }
 
       // Build base filters
@@ -347,12 +356,17 @@ const Analytics = () => {
         .order('city');
       setBranches(branchData || []);
 
-      // Load campaign performance table
-      const { data: campaignData } = await supabase
+      // Load campaign performance table (filtered by branch if selected)
+      let campQuery = supabase
         .from('dental_campaigns')
         .select('id, name, status, total_budget')
         .order('created_at', { ascending: false })
         .limit(10);
+      
+      if (branchCampaignIds && branchCampaignIds.length > 0) {
+        campQuery = campQuery.in('id', branchCampaignIds);
+      }
+      const { data: campaignData } = await campQuery;
       
       // Group analytics by campaign_id for the table
       const byCampaign = new Map<string, { imps: number; clicks: number; spend: number }>();
