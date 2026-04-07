@@ -1302,7 +1302,7 @@ export async function getCampaignsByBranch(branchId: string): Promise<DentalCamp
       service:services(*),
       branch:branches(*)
     `)
-    .eq('branch_id', branchId)
+    .or(`branch_id.eq.${branchId},branch_ids.cs.{"${branchId}"}`)
     .order('created_at', { ascending: false });
 
   if (error) {

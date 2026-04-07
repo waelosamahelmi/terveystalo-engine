@@ -596,9 +596,9 @@ const Dashboard = () => {
     datasets: [
       {
         data: [
-          byChannel['dooh']?.impressions || 0,
+          byChannel['pdooh']?.impressions || 0,
           byChannel['display']?.impressions || 0,
-          byChannel['social']?.impressions || 0,
+          byChannel['meta']?.impressions || 0,
         ],
         backgroundColor: ['#00A5B5', '#1B365D', '#E31E24'],
         borderWidth: 0,

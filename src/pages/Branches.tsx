@@ -55,17 +55,19 @@ const BranchCard = ({
   totalCampaignBudget,
   hasActiveCampaigns
 }: BranchCardProps) => {
-  // Calculate total budget from all campaigns
+  // Calculate total budget from all campaigns (per-branch share)
   const totalBudget = campaigns.reduce((sum, campaign) => {
-    return sum + (campaign.total_budget || 0);
+    const branchCount = (campaign as any).branch_ids?.length || 1;
+    return sum + ((campaign.total_budget || 0) / branchCount);
   }, 0);
 
-  // Calculate budget by channel
+  // Calculate budget by channel (per-branch share)
   const channelBudgets = campaigns.reduce((acc, campaign) => {
+    const branchCount = (campaign as any).branch_ids?.length || 1;
     return {
-      display: acc.display + (campaign.budget_display || 0),
-      pdooh: acc.pdooh + (campaign.budget_pdooh || 0),
-      meta: acc.meta + (campaign.budget_meta || 0),
+      display: acc.display + ((campaign.budget_display || 0) / branchCount),
+      pdooh: acc.pdooh + ((campaign.budget_pdooh || 0) / branchCount),
+      meta: acc.meta + ((campaign.budget_meta || 0) / branchCount),
     };
   }, { display: 0, pdooh: 0, meta: 0 });
 

@@ -299,10 +299,14 @@ export async function getTopCampaigns(
 export async function getDashboardStats(): Promise<{
   activeCampaigns: number;
   totalSpendMTD: number;
+  totalSpend: number;
   totalImpressionsMTD: number;
+  totalImpressions: number;
+  totalClicks: number;
   avgCtrMTD: number;
   spendChange: number;
   impressionsChange: number;
+  clicksChange: number;
 }> {
   // Get current month dates
   const now = new Date();
@@ -342,13 +346,21 @@ export async function getDashboardStats(): Promise<{
     ? ((currentMonth.totalImpressions - lastMonth.totalImpressions) / lastMonth.totalImpressions) * 100
     : 0;
 
+  const clicksChange = lastMonth.totalClicks > 0
+    ? ((currentMonth.totalClicks - lastMonth.totalClicks) / lastMonth.totalClicks) * 100
+    : 0;
+
   return {
     activeCampaigns,
     totalSpendMTD: currentMonth.totalSpend,
+    totalSpend: currentMonth.totalSpend,
     totalImpressionsMTD: currentMonth.totalImpressions,
+    totalImpressions: currentMonth.totalImpressions,
+    totalClicks: currentMonth.totalClicks,
     avgCtrMTD: currentMonth.avgCtr,
     spendChange,
-    impressionsChange
+    impressionsChange,
+    clicksChange,
   };
 }
 
