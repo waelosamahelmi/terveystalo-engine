@@ -178,6 +178,7 @@ const Analytics = () => {
     avgCpc: number;
   } | null>(null);
   const [dailyData, setDailyData] = useState<DailyStats[]>([]);
+  const [dailyByChannel, setDailyByChannel] = useState<Map<string, Map<string, number>>>(new Map());
   const [geoData, setGeoData] = useState<GeoStats[]>([]);
   const [channelData, setChannelData] = useState<Array<{ channel: string; impressions: number; clicks: number; spend: number; ctr: number; share: number }>>([]);
   const [campaigns, setCampaigns] = useState<Array<{ id: string; name: string; status: string; total_impressions?: number; total_clicks?: number; spent_budget?: number; total_budget?: number }>>([]);
@@ -266,6 +267,16 @@ const Analytics = () => {
       });
       setDailyData(Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date)));
 
+      // Build per-channel daily spend for stacked bar chart
+      const channelDailyMap = new Map<string, Map<string, number>>();
+      rows.forEach(r => {
+        const ch = r.channel || 'other';
+        if (!channelDailyMap.has(r.date)) channelDailyMap.set(r.date, new Map());
+        const dayMap = channelDailyMap.get(r.date)!;
+        dayMap.set(ch, (dayMap.get(ch) || 0) + (r.spend || 0));
+      });
+      setDailyByChannel(channelDailyMap);
+
       // Build channel breakdown (always from unfiltered-by-channel data for the doughnut)
       let channelRows = rows;
       if (dbChannel) {
@@ -301,8 +312,10 @@ const Analytics = () => {
         };
       }).sort((a, b) => b.impressions - a.impressions));
 
-      // Build geo data from geo_stats JSON on the latest rows
+      // Build geo data by branch city (each row has branch_id)
       const geoMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
+
+      // First try geo_stats JSONB breakdowns
       rows.forEach(r => {
         const geoStats = (r as any).geo_stats;
         if (Array.isArray(geoStats) && geoStats.length > 0) {
@@ -317,10 +330,27 @@ const Analytics = () => {
           }
         }
       });
-      // Fallback if no geo_stats: show total as "Suomi"
+
+      // Fallback: aggregate by branch city using branches lookup
       if (geoMap.size === 0 && totalImpressions > 0) {
-        geoMap.set('Suomi', { impressions: totalImpressions, clicks: totalClicks, spend: totalSpend });
+        // Load branch lookup (already fetched below, but we need it here)
+        const { data: branchLookup } = await supabase
+          .from('branches')
+          .select('id, city');
+        const cityMap = new Map<string, string>();
+        (branchLookup || []).forEach((b: any) => cityMap.set(b.id, b.city || 'Tuntematon'));
+
+        rows.forEach(r => {
+          const city = cityMap.get(r.branch_id) || 'Tuntematon';
+          const existing = geoMap.get(city) || { impressions: 0, clicks: 0, spend: 0 };
+          geoMap.set(city, {
+            impressions: existing.impressions + (r.impressions || 0),
+            clicks: existing.clicks + (r.clicks || 0),
+            spend: existing.spend + (r.spend || 0),
+          });
+        });
       }
+
       setGeoData(Array.from(geoMap.entries()).map(([region, stats]) => ({
         region,
         ...stats,
@@ -472,14 +502,29 @@ const Analytics = () => {
     }],
   };
 
+  const sortedDates = dailyData.map(d => d.date).sort();
   const spendChartData = {
-    labels: dailyData.map(d => format(new Date(d.date), 'd.M', { locale: fi })),
-    datasets: [{
-      label: 'Kulutus (€)',
-      data: dailyData.map(d => d.spend),
-      backgroundColor: '#00A5B5',
-      borderRadius: 4,
-    }],
+    labels: sortedDates.map(d => format(new Date(d), 'd.M', { locale: fi })),
+    datasets: [
+      {
+        label: 'Display',
+        data: sortedDates.map(d => dailyByChannel.get(d)?.get('display') || 0),
+        backgroundColor: '#1B365D',
+        borderRadius: 2,
+      },
+      {
+        label: 'PDOOH',
+        data: sortedDates.map(d => dailyByChannel.get(d)?.get('pdooh') || 0),
+        backgroundColor: '#00A5B5',
+        borderRadius: 2,
+      },
+      {
+        label: 'Meta',
+        data: sortedDates.map(d => dailyByChannel.get(d)?.get('meta') || 0),
+        backgroundColor: '#E31E24',
+        borderRadius: 2,
+      },
+    ],
   };
 
   const chartOptions = {
@@ -494,6 +539,14 @@ const Analytics = () => {
     scales: {
       x: { grid: { display: false } },
       y: { grid: { color: '#F3F4F6' }, beginAtZero: true },
+    },
+  };
+
+  const spendChartOptions = {
+    ...chartOptions,
+    scales: {
+      x: { stacked: true, grid: { display: false } },
+      y: { stacked: true, grid: { color: '#F3F4F6' }, beginAtZero: true },
     },
   };
 
@@ -646,7 +699,7 @@ const Analytics = () => {
         <div className="card p-6 dark:bg-slate-800/70 dark:border-white/10">
           <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Päiväkohtainen kulutus</h2>
           <div className="h-64">
-            <Bar data={spendChartData} options={chartOptions} />
+            <Bar data={spendChartData} options={spendChartOptions} />
           </div>
         </div>
 
