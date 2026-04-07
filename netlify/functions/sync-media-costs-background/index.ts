@@ -290,14 +290,17 @@ export const handler: Handler = async () => {
           continue;
         }
 
-        // Collect stats per channel, aggregating across branches
+        // Collect stats per branch per channel (no longer aggregate across branches)
+        const branchStats: Array<{ branchId: string; channel: string; stats: ChannelStats }> = [];
+        // Also keep aggregated stats for media_costs (legacy)
         const displayStatsArr: ChannelStats[] = [];
         const pdoohStatsArr: ChannelStats[] = [];
 
         for (const btRecord of btRecords) {
           try {
-            console.log(`Fetching stats for BT ${btRecord.bt_campaign_id} (${btRecord.channel})`);
+            console.log(`Fetching stats for BT ${btRecord.bt_campaign_id} (${btRecord.channel}) branch ${btRecord.branch_id}`);
             const stats = await fetchBtCampaignStats(btToken, networkId, String(btRecord.bt_campaign_id), startDate, endDate);
+            branchStats.push({ branchId: btRecord.branch_id, channel: btRecord.channel.toLowerCase(), stats });
             if (btRecord.channel === 'DISPLAY') displayStatsArr.push(stats);
             else if (btRecord.channel === 'PDOOH') pdoohStatsArr.push(stats);
             await delay(200);
@@ -306,7 +309,7 @@ export const handler: Handler = async () => {
           }
         }
 
-        // Aggregate across branches
+        // Aggregate across branches (for media_costs only)
         const displayStats = aggregateChannelStats(displayStatsArr);
         const pdoohStats = aggregateChannelStats(pdoohStatsArr);
 
@@ -373,91 +376,61 @@ export const handler: Handler = async () => {
         if (upsertError) throw upsertError;
         console.log(`✓ Synced media_costs for campaign ${campaign.id}`);
 
-        // === Write daily stats to campaign_analytics table ===
+        // === Write per-branch daily stats to campaign_analytics table ===
         const analyticsRows: Record<string, any>[] = [];
-        const totalDisplayImps = displayStats.basic?.nrImps || 0;
-        const totalDisplayClicks = displayStats.basic?.nrClicks || 0;
-        const totalPdoohImps = pdoohStats.basic?.nrImps || 0;
-        const totalPdoohClicks = pdoohStats.basic?.nrClicks || 0;
         const syncNow = new Date().toISOString();
 
-        // Display daily stats — use real per-day clicks from BT when available
-        for (const day of displayStats.daily) {
-          const imps = day.nrImps || 0;
-          const spend = day.cost || day.revenue || 0;
-          // Use real per-day clicks if available, else distribute proportionally
-          const clicks = day.nrClicks != null ? day.nrClicks
-            : (totalDisplayImps > 0 ? Math.round((imps / totalDisplayImps) * totalDisplayClicks) : 0);
-          analyticsRows.push({
-            campaign_id: campaign.id,
-            date: day.date,
-            channel: 'display',
-            impressions: imps,
-            clicks,
-            spend,
-            ctr: imps > 0 ? (clicks / imps) * 100 : 0,
-            cpc: clicks > 0 ? spend / clicks : null,
-            cpm: imps > 0 ? (spend / imps) * 1000 : null,
-            engagement_rate: displayStats.basic?.engagementRate || null,
-            last_sync_at: syncNow,
-            sync_source: 'bidtheatre_sync',
-          });
+        for (const { branchId, channel, stats } of branchStats) {
+          const totalImps = stats.basic?.nrImps || 0;
+          const totalClicks = stats.basic?.nrClicks || 0;
+
+          for (const day of stats.daily) {
+            const imps = day.nrImps || 0;
+            const spend = day.cost || day.revenue || 0;
+            const clicks = day.nrClicks != null ? day.nrClicks
+              : (totalImps > 0 ? Math.round((imps / totalImps) * totalClicks) : 0);
+            analyticsRows.push({
+              campaign_id: campaign.id,
+              branch_id: branchId,
+              date: day.date,
+              channel,
+              impressions: imps,
+              clicks,
+              spend,
+              ctr: imps > 0 ? (clicks / imps) * 100 : 0,
+              cpc: clicks > 0 ? spend / clicks : null,
+              cpm: imps > 0 ? (spend / imps) * 1000 : null,
+              engagement_rate: stats.basic?.engagementRate || null,
+              last_sync_at: syncNow,
+              sync_source: 'bidtheatre_sync',
+            });
+          }
+
+          // Attach detailed breakdowns to the latest day's row for this branch+channel
+          const branchChannelRows = analyticsRows.filter(r => r.branch_id === branchId && r.channel === channel);
+          if (branchChannelRows.length > 0) {
+            const viewableRate = stats.sites.length
+              ? stats.sites.reduce((sum, s) => sum + (s.viewableRate || 0), 0) / stats.sites.length
+              : 0;
+            const latest = branchChannelRows[branchChannelRows.length - 1];
+            latest.device_stats = stats.devices;
+            latest.geo_stats = stats.geo;
+            latest.site_stats = stats.sites;
+            latest.audience_stats = stats.audience;
+            latest.viewable_rate = viewableRate || null;
+            latest.viewable_impressions = stats.sites.reduce((sum, s) => sum + (s.nrImps || 0), 0);
+          }
         }
 
-        // PDOOH daily stats
-        for (const day of pdoohStats.daily) {
-          const imps = day.nrImps || 0;
-          const spend = day.cost || day.revenue || 0;
-          const clicks = day.nrClicks != null ? day.nrClicks
-            : (totalPdoohImps > 0 ? Math.round((imps / totalPdoohImps) * totalPdoohClicks) : 0);
-          analyticsRows.push({
-            campaign_id: campaign.id,
-            date: day.date,
-            channel: 'pdooh',
-            impressions: imps,
-            clicks,
-            spend,
-            ctr: imps > 0 ? (clicks / imps) * 100 : 0,
-            cpc: clicks > 0 ? spend / clicks : null,
-            cpm: imps > 0 ? (spend / imps) * 1000 : null,
-            engagement_rate: pdoohStats.basic?.engagementRate || null,
-            last_sync_at: syncNow,
-            sync_source: 'bidtheatre_sync',
-          });
-        }
-
-        // Attach detailed breakdowns to the latest day's row per channel
         if (analyticsRows.length > 0) {
-          const displayRows = analyticsRows.filter(r => r.channel === 'display');
-          const pdoohRows = analyticsRows.filter(r => r.channel === 'pdooh');
-
-          if (displayRows.length > 0) {
-            const latest = displayRows[displayRows.length - 1];
-            latest.device_stats = displayStats.devices;
-            latest.geo_stats = displayStats.geo;
-            latest.site_stats = displayStats.sites;
-            latest.audience_stats = displayStats.audience;
-            latest.viewable_rate = displayViewableRate || null;
-            latest.viewable_impressions = displayStats.sites.reduce((sum, s) => sum + (s.nrImps || 0), 0);
-          }
-          if (pdoohRows.length > 0) {
-            const latest = pdoohRows[pdoohRows.length - 1];
-            latest.device_stats = pdoohStats.devices;
-            latest.geo_stats = pdoohStats.geo;
-            latest.site_stats = pdoohStats.sites;
-            latest.audience_stats = pdoohStats.audience;
-            latest.viewable_rate = pdoohViewableRate || null;
-            latest.viewable_impressions = pdoohStats.sites.reduce((sum, s) => sum + (s.nrImps || 0), 0);
-          }
-
           const { error: analyticsError } = await supabase
             .from('campaign_analytics')
-            .upsert(analyticsRows, { onConflict: 'campaign_id,date,channel' });
+            .upsert(analyticsRows, { onConflict: 'campaign_id,branch_id,date,channel' });
 
           if (analyticsError) {
             console.error(`Failed to upsert campaign_analytics for ${campaign.id}: ${analyticsError.message}`);
           } else {
-            console.log(`  ✓ Wrote ${analyticsRows.length} daily analytics rows`);
+            console.log(`  ✓ Wrote ${analyticsRows.length} daily per-branch analytics rows`);
           }
         }
       } catch (error: any) {

@@ -226,39 +226,7 @@ const Analytics = () => {
       };
       const dbChannel = channelFilterMap[channelFilter] as any;
 
-      // If branch is selected, compute proportional share from BT campaign budgets
-      let branchBudgetShare = 1; // 1 = show 100% (no branch filter)
-      let branchCampaignIds: string[] | null = null;
-      if (branchFilter !== 'all') {
-        // Get this branch's BT campaign budgets
-        const { data: branchBtRecs } = await supabase
-          .from('bidtheatre_campaigns')
-          .select('campaign_id, budget, channel')
-          .eq('branch_id', branchFilter);
-        
-        if (branchBtRecs && branchBtRecs.length > 0) {
-          branchCampaignIds = [...new Set(branchBtRecs.map(r => r.campaign_id))];
-          const branchBudget = branchBtRecs.reduce((s, r) => s + (r.budget || 0), 0);
-          
-          // Get total budget across all branches for the same campaigns
-          const campaignId = branchCampaignIds[0]; // typically one campaign
-          const { data: allBtRecs } = await supabase
-            .from('bidtheatre_campaigns')
-            .select('budget')
-            .eq('campaign_id', campaignId);
-          const totalBudget = (allBtRecs || []).reduce((s, r) => s + (r.budget || 0), 0);
-          
-          branchBudgetShare = totalBudget > 0 ? branchBudget / totalBudget : 0;
-        } else {
-          branchBudgetShare = 0;
-        }
-      }
-
-      // Build base filters
-      const baseFilters: any = { date_from: startDate, date_to: endDate };
-      if (dbChannel) baseFilters.channel = dbChannel;
-
-      // Load all campaign_analytics rows for the date range (apply filters client-side for branch)
+      // Build base query — filter by branch_id directly when a branch is selected
       let analyticsQuery = supabase
         .from('campaign_analytics')
         .select('*')
@@ -268,21 +236,17 @@ const Analytics = () => {
       if (dbChannel) {
         analyticsQuery = analyticsQuery.eq('channel', dbChannel);
       }
-      if (branchCampaignIds && branchCampaignIds.length > 0) {
-        analyticsQuery = analyticsQuery.in('campaign_id', branchCampaignIds);
+      if (branchFilter !== 'all') {
+        analyticsQuery = analyticsQuery.eq('branch_id', branchFilter);
       }
 
       const { data: allRows } = await analyticsQuery;
       const rows = allRows || [];
 
-      // Aggregate summary metrics (apply branch proportional share)
-      const rawImpressions = rows.reduce((s, r) => s + (r.impressions || 0), 0);
-      const rawClicks = rows.reduce((s, r) => s + (r.clicks || 0), 0);
-      const rawSpend = rows.reduce((s, r) => s + (r.spend || 0), 0);
-      
-      const totalImpressions = Math.round(rawImpressions * branchBudgetShare);
-      const totalClicks = Math.round(rawClicks * branchBudgetShare);
-      const totalSpend = Math.round(rawSpend * branchBudgetShare * 100) / 100;
+      // Aggregate summary metrics (exact numbers — no proportional estimation)
+      const totalImpressions = rows.reduce((s, r) => s + (r.impressions || 0), 0);
+      const totalClicks = rows.reduce((s, r) => s + (r.clicks || 0), 0);
+      const totalSpend = Math.round(rows.reduce((s, r) => s + (r.spend || 0), 0) * 100) / 100;
       const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
       const avgCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
       const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
@@ -300,12 +264,7 @@ const Analytics = () => {
           spend: existing.spend + (r.spend || 0),
         });
       });
-      setDailyData(Array.from(dailyMap.values()).map(d => ({
-        ...d,
-        impressions: Math.round(d.impressions * branchBudgetShare),
-        clicks: Math.round(d.clicks * branchBudgetShare),
-        spend: Math.round(d.spend * branchBudgetShare * 100) / 100,
-      })).sort((a, b) => a.date.localeCompare(b.date)));
+      setDailyData(Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date)));
 
       // Build channel breakdown (always from unfiltered-by-channel data for the doughnut)
       let channelRows = rows;
@@ -313,8 +272,8 @@ const Analytics = () => {
         // Re-fetch without channel filter for the doughnut chart
         let chQuery = supabase.from('campaign_analytics').select('channel, impressions, clicks, spend')
           .gte('date', startDate).lte('date', endDate);
-        if (branchCampaignIds && branchCampaignIds.length > 0) {
-          chQuery = chQuery.in('campaign_id', branchCampaignIds);
+        if (branchFilter !== 'all') {
+          chQuery = chQuery.eq('branch_id', branchFilter);
         }
         const { data: chRows } = await chQuery;
         channelRows = chRows || [];
@@ -334,13 +293,10 @@ const Analytics = () => {
       });
       const channelLabels: Record<string, string> = { display: 'Display', pdooh: 'PDOOH', meta: 'Meta', other: 'Muu' };
       setChannelData(Array.from(channelMap.entries()).map(([ch, stats]) => {
-        const imps = Math.round(stats.impressions * branchBudgetShare);
-        const clicks = Math.round(stats.clicks * branchBudgetShare);
-        const spend = Math.round(stats.spend * branchBudgetShare * 100) / 100;
         return {
           channel: channelLabels[ch] || ch,
-          impressions: imps, clicks, spend,
-          ctr: imps > 0 ? (clicks / imps) * 100 : 0,
+          impressions: stats.impressions, clicks: stats.clicks, spend: stats.spend,
+          ctr: stats.impressions > 0 ? (stats.clicks / stats.impressions) * 100 : 0,
           share: chTotalImps > 0 ? (stats.impressions / chTotalImps) * 100 : 0,
         };
       }).sort((a, b) => b.impressions - a.impressions));
@@ -379,15 +335,17 @@ const Analytics = () => {
         .order('city');
       setBranches(branchData || []);
 
-      // Load campaign performance table (filtered by branch if selected)
+      // Load campaign performance table
+      // Derive relevant campaign IDs from already-filtered analytics rows
+      const relevantCampaignIds = [...new Set(rows.map(r => r.campaign_id).filter(Boolean))];
       let campQuery = supabase
         .from('dental_campaigns')
         .select('id, name, status, total_budget')
         .order('created_at', { ascending: false })
         .limit(10);
       
-      if (branchCampaignIds && branchCampaignIds.length > 0) {
-        campQuery = campQuery.in('id', branchCampaignIds);
+      if (relevantCampaignIds.length > 0 && branchFilter !== 'all') {
+        campQuery = campQuery.in('id', relevantCampaignIds);
       }
       const { data: campaignData } = await campQuery;
       
@@ -406,9 +364,9 @@ const Analytics = () => {
         const stats = byCampaign.get(c.id) || { imps: 0, clicks: 0, spend: 0 };
         return {
           ...c,
-          spent_budget: Math.round(stats.spend * branchBudgetShare * 100) / 100,
-          total_impressions: Math.round(stats.imps * branchBudgetShare),
-          total_clicks: Math.round(stats.clicks * branchBudgetShare),
+          spent_budget: Math.round(stats.spend * 100) / 100,
+          total_impressions: stats.imps,
+          total_clicks: stats.clicks,
         };
       }));
 
