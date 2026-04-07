@@ -226,23 +226,14 @@ const Analytics = () => {
       };
       const dbChannel = channelFilterMap[channelFilter] as any;
 
-      // If branch is selected, find campaigns that include this branch
-      // dental_campaigns.branch_ids is a JSON array of branch UUIDs
+      // If branch is selected, find campaign_ids via bidtheatre_campaigns (has branch_id per row)
       let branchCampaignIds: string[] | null = null;
       if (branchFilter !== 'all') {
-        const { data: matchedCampaigns } = await supabase
-          .from('dental_campaigns')
-          .select('id')
-          .contains('branch_ids', [branchFilter]);
-        branchCampaignIds = (matchedCampaigns || []).map(c => c.id);
-        // If no match via branch_ids array, also check the single branch_id column
-        if (!branchCampaignIds.length) {
-          const { data: singleMatch } = await supabase
-            .from('dental_campaigns')
-            .select('id')
-            .eq('branch_id', branchFilter);
-          branchCampaignIds = (singleMatch || []).map(c => c.id);
-        }
+        const { data: btRecs } = await supabase
+          .from('bidtheatre_campaigns')
+          .select('campaign_id')
+          .eq('branch_id', branchFilter);
+        branchCampaignIds = [...new Set((btRecs || []).map(r => r.campaign_id))];
       }
 
       // Build base filters
