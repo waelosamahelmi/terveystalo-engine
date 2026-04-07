@@ -226,14 +226,32 @@ const Analytics = () => {
       };
       const dbChannel = channelFilterMap[channelFilter] as any;
 
-      // If branch is selected, find campaign_ids via bidtheatre_campaigns (has branch_id per row)
+      // If branch is selected, compute proportional share from BT campaign budgets
+      let branchBudgetShare = 1; // 1 = show 100% (no branch filter)
       let branchCampaignIds: string[] | null = null;
       if (branchFilter !== 'all') {
-        const { data: btRecs } = await supabase
+        // Get this branch's BT campaign budgets
+        const { data: branchBtRecs } = await supabase
           .from('bidtheatre_campaigns')
-          .select('campaign_id')
+          .select('campaign_id, budget, channel')
           .eq('branch_id', branchFilter);
-        branchCampaignIds = [...new Set((btRecs || []).map(r => r.campaign_id))];
+        
+        if (branchBtRecs && branchBtRecs.length > 0) {
+          branchCampaignIds = [...new Set(branchBtRecs.map(r => r.campaign_id))];
+          const branchBudget = branchBtRecs.reduce((s, r) => s + (r.budget || 0), 0);
+          
+          // Get total budget across all branches for the same campaigns
+          const campaignId = branchCampaignIds[0]; // typically one campaign
+          const { data: allBtRecs } = await supabase
+            .from('bidtheatre_campaigns')
+            .select('budget')
+            .eq('campaign_id', campaignId);
+          const totalBudget = (allBtRecs || []).reduce((s, r) => s + (r.budget || 0), 0);
+          
+          branchBudgetShare = totalBudget > 0 ? branchBudget / totalBudget : 0;
+        } else {
+          branchBudgetShare = 0;
+        }
       }
 
       // Build base filters
@@ -257,17 +275,21 @@ const Analytics = () => {
       const { data: allRows } = await analyticsQuery;
       const rows = allRows || [];
 
-      // Aggregate summary metrics
-      const totalImpressions = rows.reduce((s, r) => s + (r.impressions || 0), 0);
-      const totalClicks = rows.reduce((s, r) => s + (r.clicks || 0), 0);
-      const totalSpend = rows.reduce((s, r) => s + (r.spend || 0), 0);
+      // Aggregate summary metrics (apply branch proportional share)
+      const rawImpressions = rows.reduce((s, r) => s + (r.impressions || 0), 0);
+      const rawClicks = rows.reduce((s, r) => s + (r.clicks || 0), 0);
+      const rawSpend = rows.reduce((s, r) => s + (r.spend || 0), 0);
+      
+      const totalImpressions = Math.round(rawImpressions * branchBudgetShare);
+      const totalClicks = Math.round(rawClicks * branchBudgetShare);
+      const totalSpend = Math.round(rawSpend * branchBudgetShare * 100) / 100;
       const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
       const avgCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
       const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
 
       setSummary({ totalImpressions, totalClicks, totalSpend, avgCtr, avgCpm, avgCpc });
 
-      // Build daily data (aggregate across campaigns per date)
+      // Build daily data (aggregate across campaigns per date, apply branch share)
       const dailyMap = new Map<string, { date: string; impressions: number; clicks: number; spend: number }>();
       rows.forEach(r => {
         const existing = dailyMap.get(r.date) || { date: r.date, impressions: 0, clicks: 0, spend: 0 };
@@ -278,7 +300,12 @@ const Analytics = () => {
           spend: existing.spend + (r.spend || 0),
         });
       });
-      setDailyData(Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date)));
+      setDailyData(Array.from(dailyMap.values()).map(d => ({
+        ...d,
+        impressions: Math.round(d.impressions * branchBudgetShare),
+        clicks: Math.round(d.clicks * branchBudgetShare),
+        spend: Math.round(d.spend * branchBudgetShare * 100) / 100,
+      })).sort((a, b) => a.date.localeCompare(b.date)));
 
       // Build channel breakdown (always from unfiltered-by-channel data for the doughnut)
       let channelRows = rows;
@@ -306,12 +333,17 @@ const Analytics = () => {
         });
       });
       const channelLabels: Record<string, string> = { display: 'Display', pdooh: 'PDOOH', meta: 'Meta', other: 'Muu' };
-      setChannelData(Array.from(channelMap.entries()).map(([ch, stats]) => ({
-        channel: channelLabels[ch] || ch,
-        ...stats,
-        ctr: stats.impressions > 0 ? (stats.clicks / stats.impressions) * 100 : 0,
-        share: chTotalImps > 0 ? (stats.impressions / chTotalImps) * 100 : 0,
-      })).sort((a, b) => b.impressions - a.impressions));
+      setChannelData(Array.from(channelMap.entries()).map(([ch, stats]) => {
+        const imps = Math.round(stats.impressions * branchBudgetShare);
+        const clicks = Math.round(stats.clicks * branchBudgetShare);
+        const spend = Math.round(stats.spend * branchBudgetShare * 100) / 100;
+        return {
+          channel: channelLabels[ch] || ch,
+          impressions: imps, clicks, spend,
+          ctr: imps > 0 ? (clicks / imps) * 100 : 0,
+          share: chTotalImps > 0 ? (stats.impressions / chTotalImps) * 100 : 0,
+        };
+      }).sort((a, b) => b.impressions - a.impressions));
 
       // Build geo data from geo_stats JSON on the latest rows
       const geoMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
@@ -374,9 +406,9 @@ const Analytics = () => {
         const stats = byCampaign.get(c.id) || { imps: 0, clicks: 0, spend: 0 };
         return {
           ...c,
-          spent_budget: stats.spend,
-          total_impressions: stats.imps,
-          total_clicks: stats.clicks,
+          spent_budget: Math.round(stats.spend * branchBudgetShare * 100) / 100,
+          total_impressions: Math.round(stats.imps * branchBudgetShare),
+          total_clicks: Math.round(stats.clicks * branchBudgetShare),
         };
       }));
 
