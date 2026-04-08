@@ -493,11 +493,19 @@ const Analytics = () => {
     ],
   };
 
+  // Consistent channel color map used across all charts
+  const CHANNEL_COLORS: Record<string, string> = {
+    'Display': '#1B365D',
+    'PDOOH': '#00A5B5',
+    'Meta': '#1877F2',
+    'Muu': '#F59E0B',
+  };
+
   const channelChartData = {
     labels: channelData.map(c => c.channel),
     datasets: [{
       data: channelData.map(c => c.impressions),
-      backgroundColor: ['#00A5B5', '#1B365D', '#E31E24', '#F59E0B'],
+      backgroundColor: channelData.map(c => CHANNEL_COLORS[c.channel] || '#9CA3AF'),
       borderWidth: 0,
     }],
   };
@@ -509,19 +517,19 @@ const Analytics = () => {
       {
         label: 'Display',
         data: sortedDates.map(d => dailyByChannel.get(d)?.get('display') || 0),
-        backgroundColor: '#1B365D',
+        backgroundColor: CHANNEL_COLORS['Display'],
         borderRadius: 2,
       },
       {
         label: 'PDOOH',
         data: sortedDates.map(d => dailyByChannel.get(d)?.get('pdooh') || 0),
-        backgroundColor: '#00A5B5',
+        backgroundColor: CHANNEL_COLORS['PDOOH'],
         borderRadius: 2,
       },
       {
         label: 'Meta',
         data: sortedDates.map(d => dailyByChannel.get(d)?.get('meta') || 0),
-        backgroundColor: '#E31E24',
+        backgroundColor: CHANNEL_COLORS['Meta'],
         borderRadius: 2,
       },
     ],

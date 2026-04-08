@@ -411,7 +411,7 @@ const ComparisonMode = ({ isOpen, onClose, defaultType = 'time' }: ComparisonMod
                         {comparisonData.map((data, idx) => {
                           const value = data[metric as keyof ComparisonData] as number;
                           const percentage = maxValue > 0 ? (value / maxValue) * 100 : 0;
-                          const colors = ['from-[#00A5B5] to-[#008a97]', 'from-[#1B365D] to-[#2a4a7a]', 'from-[#E31E24] to-[#f15a5f]'];
+                          const colors = ['from-[#00A5B5] to-[#008a97]', 'from-[#1B365D] to-[#2a4a7a]', 'from-[#1877F2] to-[#4a9ff5]'];
                           
                           return (
                             <div key={idx} className="flex items-center space-x-3">

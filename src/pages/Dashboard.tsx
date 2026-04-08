@@ -592,7 +592,7 @@ const Dashboard = () => {
 
   const byChannel = recentAnalytics?.byChannel || {};
   const channelChartData = {
-    labels: ['DOOH', 'Display', 'Social'],
+    labels: ['DOOH', 'Display', 'Meta'],
     datasets: [
       {
         data: [
@@ -600,7 +600,7 @@ const Dashboard = () => {
           byChannel['display']?.impressions || 0,
           byChannel['meta']?.impressions || 0,
         ],
-        backgroundColor: ['#00A5B5', '#1B365D', '#E31E24'],
+        backgroundColor: ['#00A5B5', '#1B365D', '#1877F2'],
         borderWidth: 0,
       },
     ],
