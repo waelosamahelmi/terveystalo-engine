@@ -46,12 +46,14 @@ import {
   Mail,
   MessageSquare,
   Hash,
-  Send
+  Send,
+  Share2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SettingsBidTheatre from '../components/SettingsBidTheatre';
+import SettingsMeta from '../components/SettingsMeta';
 
-type SettingsTab = 'general' | 'ai' | 'brand' | 'notifications' | 'slack' | 'bidtheatre' | 'integrations' | 'database' | 'developer';
+type SettingsTab = 'general' | 'ai' | 'brand' | 'notifications' | 'slack' | 'bidtheatre' | 'meta' | 'integrations' | 'database' | 'developer';
 
 interface DbSetting {
   key: string;
@@ -1168,6 +1170,13 @@ const Settings = () => {
               onClick={() => setActiveTab('bidtheatre')}
             />
             <TabButton
+              tab="meta"
+              currentTab={activeTab}
+              label="Meta Ads"
+              icon={Share2}
+              onClick={() => setActiveTab('meta')}
+            />
+            <TabButton
               tab="integrations"
               currentTab={activeTab}
               label="Integraatiot"
@@ -1967,6 +1976,9 @@ const Settings = () => {
 
           {/* BidTheatre Integration */}
           {activeTab === 'bidtheatre' && <SettingsBidTheatre />}
+
+          {/* Meta Ads */}
+          {activeTab === 'meta' && <SettingsMeta />}
 
           {/* Integrations */}
           {activeTab === 'integrations' && (

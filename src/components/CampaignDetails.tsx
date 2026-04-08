@@ -22,6 +22,7 @@ import L from 'leaflet';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
+import { syncMetaAnalytics } from '../lib/metaAdsService';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -176,6 +177,13 @@ const CampaignDetails = () => {
   const [displayDailyStats, setDisplayDailyStats] = useState<DailyStats[]>([]);
   const [pdoohDailyStats, setPdoohDailyStats] = useState<DailyStats[]>([]);
   
+  // Meta channel state
+  const [metaStats, setMetaStats] = useState<CampaignStats[]>([]);
+  const [metaDailyStats, setMetaDailyStats] = useState<DailyStats[]>([]);
+  const [metaAudienceData, setMetaAudienceData] = useState<any>(null); // audience_stats JSONB with reach, frequency, etc.
+  const [metaVideoViews, setMetaVideoViews] = useState<number>(0);
+  const [metaSyncing, setMetaSyncing] = useState(false);
+
   // Replace two date inputs with a single month input
   const currentDate = new Date();
   const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -233,6 +241,7 @@ const CampaignDetails = () => {
       // Split rows by channel
       const displayRows = allRows.filter(r => r.channel === 'display');
       const pdoohRows = allRows.filter(r => r.channel === 'pdooh');
+      const metaRows = allRows.filter(r => r.channel === 'meta');
 
       // Helper: aggregate basic stats from rows
       const aggregateStats = (channelRows: typeof allRows): CampaignStats => {
@@ -252,6 +261,30 @@ const CampaignDetails = () => {
 
       setDisplayStats([aggregateStats(displayRows)]);
       setPdoohStats([aggregateStats(pdoohRows)]);
+      setMetaStats([aggregateStats(metaRows)]);
+
+      // Meta-specific: aggregate audience_stats JSONB data (reach, frequency, link_clicks, landing_page_views)
+      const metaAudience = {
+        reach: 0,
+        frequency: 0,
+        link_clicks: 0,
+        landing_page_views: 0,
+      };
+      let metaVidViews = 0;
+      for (const row of metaRows) {
+        const as = row.audience_stats;
+        if (as && typeof as === 'object' && !Array.isArray(as)) {
+          metaAudience.reach += Number(as.reach || 0);
+          metaAudience.link_clicks += Number(as.link_clicks || 0);
+          metaAudience.landing_page_views += Number(as.landing_page_views || 0);
+        }
+        metaVidViews += Number(row.video_views || 0);
+      }
+      // Frequency = impressions / reach (average)
+      const totalMetaImps = metaRows.reduce((s, r) => s + (r.impressions || 0), 0);
+      metaAudience.frequency = metaAudience.reach > 0 ? totalMetaImps / metaAudience.reach : 0;
+      setMetaAudienceData(metaAudience);
+      setMetaVideoViews(metaVidViews);
 
       // Helper: merge JSONB array breakdowns from rows (device_stats, geo_stats, etc.)
       const mergeJsonbArrays = (channelRows: typeof allRows, field: string) => {
@@ -329,6 +362,7 @@ const CampaignDetails = () => {
 
       setDisplayDailyStats(buildDaily(displayRows));
       setPdoohDailyStats(buildDaily(pdoohRows));
+      setMetaDailyStats(buildDaily(metaRows));
 
     } catch (error) {
       console.error('fetchCampaignStats: Error fetching campaign stats', error);
@@ -573,7 +607,38 @@ const CampaignDetails = () => {
           Back to Media Costs
         </button>
 
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">{campaign?.name || `Campaign Details: ${campaignId}`}</h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-3xl font-bold text-gray-800">{campaign?.name || `Campaign Details: ${campaignId}`}</h1>
+          {campaign?.channel_meta && (
+            <button
+              onClick={async () => {
+                setMetaSyncing(true);
+                try {
+                  const result = await syncMetaAnalytics(campaignId);
+                  if (result.success) {
+                    toast.success(`Meta synced: ${result.synced_rows || 0} rows`);
+                    fetchCampaignStats();
+                  } else {
+                    toast.error(result.error || 'Meta sync failed');
+                  }
+                } catch (e: any) {
+                  toast.error(e.message || 'Meta sync failed');
+                } finally {
+                  setMetaSyncing(false);
+                }
+              }}
+              disabled={metaSyncing}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
+            >
+              {metaSyncing ? (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+              ) : (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              )}
+              Sync Meta
+            </button>
+          )}
+        </div>
         {campaign?.creator?.name && (
           <p className="text-sm text-gray-500 mb-2">Luonut: {campaign.creator.name}</p>
         )}
@@ -731,9 +796,9 @@ const CampaignDetails = () => {
           <div className="bg-blue-50 p-6 rounded-lg shadow-sm border border-blue-100 transform hover:scale-105 transition-transform duration-200">
             <h3 className="text-lg font-medium text-blue-800">Meta Spend</h3>
             <p className="text-2xl font-semibold text-blue-900">
-              €0.00
+              €{metaStats.length > 0 ? metaStats.reduce((sum, stat) => sum + stat.cost, 0).toFixed(2) : '0.00'}
             </p>
-            <p className="text-sm text-blue-700">Tracking not connected</p>
+            <p className="text-sm text-blue-700">Impressions: {metaStats.length > 0 ? metaStats.reduce((sum, stat) => sum + stat.nrImps, 0).toLocaleString('fi-FI') : 0}</p>
           </div>
           <div className="bg-green-50 p-6 rounded-lg shadow-sm border border-green-100 transform hover:scale-105 transition-transform duration-200">
             <h3 className="text-lg font-medium text-green-800">Display Spend</h3>
@@ -793,6 +858,84 @@ const CampaignDetails = () => {
           {/* Summary Tab */}
           <TabPanel>
             <div className="mt-4 space-y-6">
+              {/* Meta Summary */}
+              {metaStats.length > 0 && metaStats[0].nrImps > 0 ? (
+                <div className="bg-white p-6 rounded-lg shadow-sm border border-blue-100">
+                  <h2 className="text-lg font-semibold text-blue-800 mb-4">Meta Ads Summary</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
+                    <div>
+                      <p className="text-sm text-gray-500">Impressions</p>
+                      <p className="text-xl font-semibold text-gray-900">{metaStats.reduce((sum, s) => sum + s.nrImps, 0).toLocaleString('fi-FI')}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Clicks</p>
+                      <p className="text-xl font-semibold text-gray-900">{metaStats.reduce((sum, s) => sum + s.nrClicks, 0).toLocaleString('fi-FI')}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Spend</p>
+                      <p className="text-xl font-semibold text-gray-900">€{metaStats.reduce((sum, s) => sum + s.cost, 0).toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">CTR</p>
+                      <p className="text-xl font-semibold text-gray-900">{(metaStats.reduce((sum, s) => sum + s.CTR, 0) / metaStats.length).toFixed(2)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">CPM</p>
+                      <p className="text-xl font-semibold text-gray-900">
+                        €{(() => { const imps = metaStats.reduce((s, st) => s + st.nrImps, 0); const cost = metaStats.reduce((s, st) => s + st.cost, 0); return imps > 0 ? (cost / imps * 1000).toFixed(2) : '0.00'; })()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">CPC</p>
+                      <p className="text-xl font-semibold text-gray-900">
+                        €{(() => { const clicks = metaStats.reduce((s, st) => s + st.nrClicks, 0); const cost = metaStats.reduce((s, st) => s + st.cost, 0); return clicks > 0 ? (cost / clicks).toFixed(2) : '0.00'; })()}
+                      </p>
+                    </div>
+                    {metaAudienceData && metaAudienceData.reach > 0 && (
+                      <div>
+                        <p className="text-sm text-gray-500">Reach</p>
+                        <p className="text-xl font-semibold text-gray-900">{metaAudienceData.reach.toLocaleString('fi-FI')}</p>
+                      </div>
+                    )}
+                    {metaAudienceData && metaAudienceData.frequency > 0 && (
+                      <div>
+                        <p className="text-sm text-gray-500">Frequency</p>
+                        <p className="text-xl font-semibold text-gray-900">{metaAudienceData.frequency.toFixed(2)}</p>
+                      </div>
+                    )}
+                    {metaAudienceData && metaAudienceData.link_clicks > 0 && (
+                      <div>
+                        <p className="text-sm text-gray-500">Link Clicks</p>
+                        <p className="text-xl font-semibold text-gray-900">{metaAudienceData.link_clicks.toLocaleString('fi-FI')}</p>
+                      </div>
+                    )}
+                    {metaAudienceData && metaAudienceData.landing_page_views > 0 && (
+                      <div>
+                        <p className="text-sm text-gray-500">Landing Page Views</p>
+                        <p className="text-xl font-semibold text-gray-900">{metaAudienceData.landing_page_views.toLocaleString('fi-FI')}</p>
+                      </div>
+                    )}
+                    {metaVideoViews > 0 && (
+                      <div>
+                        <p className="text-sm text-gray-500">Video Views</p>
+                        <p className="text-xl font-semibold text-gray-900">{metaVideoViews.toLocaleString('fi-FI')}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="h-64">
+                    <Line
+                      data={dailyImpressionsChartData(metaDailyStats, 'Meta')}
+                      options={chartOptions}
+                    />
+                  </div>
+                </div>
+              ) : campaign?.channel_meta ? (
+                <div className="bg-white p-6 rounded-lg shadow-sm border border-blue-100">
+                  <h2 className="text-lg font-semibold text-blue-800 mb-4">Meta Ads Summary</h2>
+                  <p className="text-sm text-gray-500">No Meta data available for the selected period. Try syncing using the button above.</p>
+                </div>
+              ) : null}
+
               {displayStats.length > 0 ? (
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
                   <h2 className="text-lg font-semibold text-gray-800 mb-4">Display Summary</h2>
