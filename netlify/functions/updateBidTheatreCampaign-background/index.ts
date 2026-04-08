@@ -455,6 +455,8 @@ async function updateBtCampaign(
     } catch (err: any) {
       console.warn(`Geo-target update failed: ${err.message}`);
     }
+  } else if (lat && lng) {
+    console.warn(`Cannot update geo-target for branch ${btRecord.branch_id}: missing geo_target_id (${btRecord.geo_target_id}) or geo_target_coordinates_id (${btRecord.geo_target_coordinates_id}). Radius change will not propagate to BidTheatre.`);
   }
 
   // 4. Update ads with fresh creatives

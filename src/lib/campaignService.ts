@@ -957,7 +957,8 @@ export async function createCampaign(
  */
 export async function updateCampaign(
   id: string,
-  updates: Partial<DentalCampaign>
+  updates: Partial<DentalCampaign>,
+  options?: { skipCreativeRegeneration?: boolean }
 ): Promise<DentalCampaign | null> {
   // Whitelist only known DB columns to avoid 400 errors from unknown properties
   const u = updates as any;
@@ -997,18 +998,20 @@ export async function updateCampaign(
     .single();
 
   if (error) {
-    console.error('Failed to update campaign:', error);
-    return null;
+    console.error('Failed to update campaign:', error.message, error.details, error.hint);
+    throw new Error(`Kampanjan päivitys epäonnistui: ${error.message}`);
   }
 
   if (data) {
-    // 1. Regenerate creative HTML files with updated content
+    // 1. Regenerate creative HTML files with updated content (skip if only budget/radius changed)
     let creativeUrlsByAdVersion: Record<string, AdVersionUrls> = {};
-    try {
-      creativeUrlsByAdVersion = await createCampaignCreatives(id, data as any);
-      console.log('Creatives regenerated for campaign update');
-    } catch (e) {
-      console.error('Creative regeneration failed (non-blocking):', e);
+    if (!options?.skipCreativeRegeneration) {
+      try {
+        creativeUrlsByAdVersion = await createCampaignCreatives(id, data as any);
+        console.log('Creatives regenerated for campaign update');
+      } catch (e) {
+        console.error('Creative regeneration failed (non-blocking):', e);
+      }
     }
 
     // 2. Sync updated data to Google Sheets (with fresh creative URLs)

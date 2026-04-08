@@ -1915,7 +1915,7 @@ const CampaignCreate = () => {
         }
         // Check if channel budgets match total budget
         const channelSum = enabledChannelsBudget;
-        if (channelSum !== formData.total_budget) {
+        if (Math.abs(channelSum - formData.total_budget) > 2) {
           if (channelSum === 0) {
             toast.error('Aseta budjetit valituille kanaville');
           } else if (channelSum > formData.total_budget) {
@@ -2527,7 +2527,7 @@ const CampaignCreate = () => {
       const campaignPayload = {
         ...dbFormData,
         name: campaignName,
-        headline: creativeConfig.headline || 'Hymyile.|Olet hyvissä käsissä.',
+        headline: creativeConfig.headline || (editCampaignId ? undefined : 'Hymyile.|Olet hyvissä käsissä.'),
         subheadline: creativeConfig.subheadline || '',
         offer_text: creativeConfig.offer,
         offer_title: creativeConfig.offerTitle || undefined,
