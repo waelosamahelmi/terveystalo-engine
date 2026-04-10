@@ -318,37 +318,60 @@ async function fetchCreativesForBranch(
 // UPDATE SINGLE BT CAMPAIGN (one branch + channel)
 // ============================================================================
 
+/**
+ * Granular update flags — if omitted, defaults to "update everything" (legacy behavior).
+ * Set individual flags to false to skip that phase.
+ */
+type UpdateFlags = {
+  updateBudget?: boolean;  // default true — cycle PUT
+  updateGeo?: boolean;     // default true — geo-target PUT
+  updateAds?: boolean;     // default true — deactivate old ads + create new ones
+  updateName?: boolean;    // default true — campaign name PUT
+};
+
 async function updateBtCampaign(
   btRecord: any, // bidtheatre_campaigns row
   campaign: any, // dental_campaigns row
   btToken: string,
   networkId: string,
   serviceSlug: string,
-  branchMap: Map<string, any>
+  branchMap: Map<string, any>,
+  flags: UpdateFlags = {}
 ) {
+  const {
+    updateBudget = true,
+    updateGeo = true,
+    updateAds = true,
+    updateName = true,
+  } = flags;
+
   const btCampaignId = btRecord.bt_campaign_id;
   const channelType = btRecord.channel;
   const channelLower = channelType.toLowerCase() as 'display' | 'pdooh';
 
-  console.log(`Updating BT campaign ${btCampaignId} (${channelType}) for branch ${btRecord.branch_id}`);
+  console.log(`Updating BT campaign ${btCampaignId} (${channelType}) for branch ${btRecord.branch_id} | flags: budget=${updateBudget} geo=${updateGeo} ads=${updateAds} name=${updateName}`);
 
   // 1. Update campaign name and targetURL with UTMs
-  const campaignName = (campaign.name || '').toUpperCase().replace(/\s+/g, '_');
-  const baseLandingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
-  const targetURLWithUtm = buildLandingUrlWithUtm(baseLandingUrl, channelLower, serviceSlug);
+  if (updateName) {
+    const campaignName = (campaign.name || '').toUpperCase().replace(/\s+/g, '_');
+    const baseLandingUrl = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+    const targetURLWithUtm = buildLandingUrlWithUtm(baseLandingUrl, channelLower, serviceSlug);
 
-  try {
-    await retryWithBackoff(() =>
-      bidTheatreApi.put(`/${networkId}/campaign/${btCampaignId}`, {
-        name: `NØRR3_SUUNTT_B2C_${btCampaignId}_SAVELA_K_${channelType}_${campaignName}`,
-        targetURL: targetURLWithUtm,
-      }, {
-        headers: { Authorization: `Bearer ${btToken}` },
-      })
-    );
-    console.log(`Updated campaign name for BT ${btCampaignId}`);
-  } catch (err: any) {
-    console.warn(`Failed to update campaign name: ${err.message}`);
+    try {
+      await retryWithBackoff(() =>
+        bidTheatreApi.put(`/${networkId}/campaign/${btCampaignId}`, {
+          name: `NØRR3_SUUNTT_B2C_${btCampaignId}_SAVELA_K_${channelType}_${campaignName}`,
+          targetURL: targetURLWithUtm,
+        }, {
+          headers: { Authorization: `Bearer ${btToken}` },
+        })
+      );
+      console.log(`Updated campaign name for BT ${btCampaignId}`);
+    } catch (err: any) {
+      console.warn(`Failed to update campaign name: ${err.message}`);
+    }
+  } else {
+    console.log(`Skipping name update for BT ${btCampaignId}`);
   }
 
   // 2. Update cycle (budget + dates)
@@ -382,46 +405,50 @@ async function updateBtCampaign(
   }
 
   // Fetch existing cycle
-  try {
-    const cycleResp = await retryWithBackoff(() =>
-      bidTheatreApi.get(`/${networkId}/campaign/${btCampaignId}/cycle`, {
-        headers: { Authorization: `Bearer ${btToken}` },
-      })
-    );
-    const cycle = cycleResp.data?.cycles?.[0];
+  if (updateBudget) {
+    try {
+      const cycleResp = await retryWithBackoff(() =>
+        bidTheatreApi.get(`/${networkId}/campaign/${btCampaignId}/cycle`, {
+          headers: { Authorization: `Bearer ${btToken}` },
+        })
+      );
+      const cycle = cycleResp.data?.cycles?.[0];
 
-    if (cycle) {
-      await retryWithBackoff(() =>
-        bidTheatreApi.put(`/${networkId}/campaign/${btCampaignId}/cycle/${cycle.id}`, {
-          id: cycle.id,
-          startDate,
-          endDate,
-          deliveryUnit: 'Budget',
-          amount: budgetPerBranch,
-          showDiffInvoicePopup: false,
-        }, {
-          headers: { Authorization: `Bearer ${btToken}` },
-        })
-      );
-      console.log(`Updated cycle ${cycle.id}: budget=${budgetPerBranch}, end=${endDate}`);
-    } else {
-      // Create new cycle if none exists
-      await retryWithBackoff(() =>
-        bidTheatreApi.post(`/${networkId}/campaign/${btCampaignId}/cycle`, {
-          startDate,
-          endDate,
-          deliveryUnit: 'Budget',
-          amount: budgetPerBranch,
-          showDiffInvoicePopup: false,
-        }, {
-          headers: { Authorization: `Bearer ${btToken}` },
-        })
-      );
-      console.log(`Created new cycle for BT ${btCampaignId}`);
+      if (cycle) {
+        await retryWithBackoff(() =>
+          bidTheatreApi.put(`/${networkId}/campaign/${btCampaignId}/cycle/${cycle.id}`, {
+            id: cycle.id,
+            startDate,
+            endDate,
+            deliveryUnit: 'Budget',
+            amount: budgetPerBranch,
+            showDiffInvoicePopup: false,
+          }, {
+            headers: { Authorization: `Bearer ${btToken}` },
+          })
+        );
+        console.log(`Updated cycle ${cycle.id}: budget=${budgetPerBranch}, end=${endDate}`);
+      } else {
+        // Create new cycle if none exists
+        await retryWithBackoff(() =>
+          bidTheatreApi.post(`/${networkId}/campaign/${btCampaignId}/cycle`, {
+            startDate,
+            endDate,
+            deliveryUnit: 'Budget',
+            amount: budgetPerBranch,
+            showDiffInvoicePopup: false,
+          }, {
+            headers: { Authorization: `Bearer ${btToken}` },
+          })
+        );
+        console.log(`Created new cycle for BT ${btCampaignId}`);
+      }
+    } catch (err: any) {
+      console.error(`Cycle update failed for BT ${btCampaignId}: ${err.message}`);
+      throw err;
     }
-  } catch (err: any) {
-    console.error(`Cycle update failed for BT ${btCampaignId}: ${err.message}`);
-    throw err;
+  } else {
+    console.log(`Skipping cycle update for BT ${btCampaignId}`);
   }
 
   // 3. Update geo-targeting using per-branch radius and branch coordinates
@@ -442,29 +469,68 @@ async function updateBtCampaign(
     typeof rawBrs === 'string' ? JSON.parse(rawBrs) : rawBrs || null;
   const radiusKm = branchRadiusSettings?.[btRecord.branch_id]?.radius || campaign.campaign_radius || 10;
 
-  if (btRecord.geo_target_id && btRecord.geo_target_coordinates_id && lat && lng) {
-    try {
-      await retryWithBackoff(() =>
-        bidTheatreApi.put(
-          `/${networkId}/geo-target/${btRecord.geo_target_id}/geo-target-coordinate/${btRecord.geo_target_coordinates_id}`,
-          { latitude: lat, longitude: lng, radius: radiusKm },
-          { headers: { Authorization: `Bearer ${btToken}` } }
-        )
-      );
-      console.log(`Updated geo-target coordinates: ${lat},${lng} r=${radiusKm}km`);
-    } catch (err: any) {
-      console.warn(`Geo-target update failed: ${err.message}`);
+  if (updateGeo) {
+    if (btRecord.geo_target_id && btRecord.geo_target_coordinates_id && lat && lng) {
+      try {
+        await retryWithBackoff(() =>
+          bidTheatreApi.put(
+            `/${networkId}/geo-target/${btRecord.geo_target_id}/geo-target-coordinate/${btRecord.geo_target_coordinates_id}`,
+            { latitude: lat, longitude: lng, radius: radiusKm },
+            { headers: { Authorization: `Bearer ${btToken}` } }
+          )
+        );
+        console.log(`Updated geo-target coordinates: ${lat},${lng} r=${radiusKm}km`);
+      } catch (err: any) {
+        console.warn(`Geo-target update failed: ${err.message}`);
+      }
+    } else if (lat && lng) {
+      console.warn(`Cannot update geo-target for branch ${btRecord.branch_id}: missing geo_target_id (${btRecord.geo_target_id}) or geo_target_coordinates_id (${btRecord.geo_target_coordinates_id}). Radius change will not propagate to BidTheatre.`);
     }
-  } else if (lat && lng) {
-    console.warn(`Cannot update geo-target for branch ${btRecord.branch_id}: missing geo_target_id (${btRecord.geo_target_id}) or geo_target_coordinates_id (${btRecord.geo_target_coordinates_id}). Radius change will not propagate to BidTheatre.`);
+  } else {
+    console.log(`Skipping geo-target update for BT ${btCampaignId}`);
   }
 
-  // 4. Update ads with fresh creatives
+  // 4. Update ads with fresh creatives — SKIPPED for budget-only / radius-only edits
+  if (!updateAds) {
+    console.log(`Skipping ad replacement for BT ${btCampaignId} — no creative changes`);
+    // Still need to update the bidtheatre_campaigns metadata (budget, updated_at)
+    await supabase
+      .from('bidtheatre_campaigns')
+      .update({
+        budget: budgetPerBranch,
+        is_ongoing: isOngoing,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', btRecord.id);
+    return { btCampaignId, success: true };
+  }
+
   const adGroupIds = btRecord.ad_group_ids || {};
   const existingAdIds = btRecord.ad_ids || {};
 
   // Deactivate old ads first
-  const allOldAdIds = Object.values(existingAdIds).flat() as number[];
+  // IMPORTANT: We query BT for ALL active ads on this campaign, not just the ones in
+  // btRecord.ad_ids — because previous updates may have created ads that were saved to
+  // ad_ids and then overwritten on the next update, leaving orphans. Those orphans
+  // accumulated into the 7,634-active-HTML-ads mess of April 2026.
+  let allOldAdIds: number[] = Object.values(existingAdIds).flat() as number[];
+  try {
+    const allAdsResp = await retryWithBackoff(() =>
+      bidTheatreApi.get(`/${networkId}/ad`, {
+        headers: { Authorization: `Bearer ${btToken}` },
+      })
+    );
+    const allAds = allAdsResp.data?.ads || [];
+    const campaignAds = allAds.filter((ad: any) => {
+      const adCampaign = typeof ad.campaign === 'object' ? ad.campaign?.id : ad.campaign;
+      return adCampaign === btCampaignId && ad.adStatus === 'Active';
+    });
+    allOldAdIds = campaignAds.map((ad: any) => ad.id);
+    console.log(`Found ${allOldAdIds.length} active ads via network scan (vs ${Object.values(existingAdIds).flat().length} in btRecord.ad_ids)`);
+  } catch (err: any) {
+    console.warn(`Failed to scan network ads, falling back to btRecord.ad_ids: ${err.message}`);
+  }
+
   console.log(`Deactivating ${allOldAdIds.length} existing ads...`);
   for (const adId of allOldAdIds) {
     try {
@@ -679,6 +745,15 @@ export async function handler(event: any) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing campaign id' }) };
   }
 
+  // Granular update flags — default to "update everything" if not specified (legacy caller)
+  const flags: UpdateFlags = {
+    updateBudget: payload.updateBudget !== false,
+    updateGeo: payload.updateGeo !== false,
+    updateAds: payload.updateAds !== false,
+    updateName: payload.updateName !== false,
+  };
+  console.log(`Update flags for campaign ${campaignId}:`, flags);
+
   try {
     // Fetch full campaign data
     const { data: campaign, error: campError } = await supabase
@@ -733,7 +808,7 @@ export async function handler(event: any) {
         await sleep(10000);
       }
       try {
-        await updateBtCampaign(btRecord, campaign, btToken, networkId, serviceSlug, branchMap);
+        await updateBtCampaign(btRecord, campaign, btToken, networkId, serviceSlug, branchMap, flags);
         console.log(`✓ Updated BT ${btRecord.bt_campaign_id} (${btRecord.channel})`);
       } catch (err: any) {
         overallSuccess = false;

@@ -952,15 +952,168 @@ export async function createCampaign(
   return data;
 }
 
+// ============================================================================
+// CHANGE CLASSIFICATION — decides what side-effects need to run after an update
+// ============================================================================
+
 /**
- * Update a campaign
+ * Fields grouped by what downstream effects they trigger.
+ *
+ * CREATIVE_CONTENT: requires regenerating HTML/JPG creatives (re-render)
+ * BT_BUDGET: requires BT cycle update (PUT cycle with new amount/dates)
+ * BT_GEO: requires BT geo-target update (PUT geo-target with new radius/coords)
+ * BT_ADS: requires replacing BT ads (new creatives → new ads, deactivate old)
+ * SHEET_CELLS: requires updating specific sheet cells in place (no row delete)
+ * SHEET_REBUILD: requires deleting + re-adding sheet rows (branch count changed)
+ * METADATA_ONLY: name/description/status — sheet cell update only, no BT change
+ */
+const CREATIVE_CONTENT_FIELDS = [
+  'headline', 'subheadline', 'offer_text', 'offer_title', 'offer_subtitle',
+  'offer_date', 'disclaimer_text', 'service_prices', 'cta_text', 'landing_url',
+  'background_image_url', 'general_brand_message',
+  'meta_primary_text', 'meta_headline', 'meta_description',
+  'meta_video_url', 'meta_audio_url',
+  'nationwide_address_mode',
+] as const;
+
+const BT_BUDGET_FIELDS = [
+  'total_budget', 'budget_meta', 'budget_display', 'budget_pdooh', 'budget_audio',
+  'branch_channel_budgets',
+  'campaign_start_date', 'campaign_end_date', 'start_date', 'end_date', 'is_ongoing',
+] as const;
+
+const BT_GEO_FIELDS = [
+  'campaign_radius', 'branch_radius_settings', 'campaign_coordinates',
+  'campaign_address', 'campaign_postal_code', 'campaign_city',
+] as const;
+
+const BRANCH_STRUCTURE_FIELDS = [
+  'branch_id', 'branch_ids', 'service_id', 'service_ids', 'excluded_branch_ids',
+] as const;
+
+type ChangeClassification = {
+  changed: Set<string>;
+  needsCreativeRegen: boolean;
+  needsBtBudgetUpdate: boolean;
+  needsBtGeoUpdate: boolean;
+  needsBtAdReplacement: boolean;
+  needsSheetRowRebuild: boolean;
+  needsSheetCellUpdate: boolean;
+  isNoop: boolean;
+};
+
+/** Shallow deep-equal for the values we actually compare (primitives, arrays, plain objects) */
+function deepEqual(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a === b;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const ak = Object.keys(a);
+    const bk = Object.keys(b);
+    if (ak.length !== bk.length) return false;
+    return ak.every(k => deepEqual(a[k], b[k]));
+  }
+  return false;
+}
+
+function classifyChanges(
+  existing: DentalCampaign,
+  updates: Partial<DentalCampaign>
+): ChangeClassification {
+  const changed = new Set<string>();
+  const e = existing as any;
+  const u = updates as any;
+
+  // Detect which fields actually changed
+  for (const key of Object.keys(u)) {
+    if (u[key] === undefined) continue;
+    if (!deepEqual(e[key], u[key])) {
+      changed.add(key);
+    }
+  }
+
+  const hit = (fields: readonly string[]) => fields.some(f => changed.has(f));
+
+  const creativeContentChanged = hit(CREATIVE_CONTENT_FIELDS);
+  const budgetChanged = hit(BT_BUDGET_FIELDS);
+  const geoChanged = hit(BT_GEO_FIELDS);
+  const branchStructureChanged = hit(BRANCH_STRUCTURE_FIELDS);
+
+  return {
+    changed,
+    needsCreativeRegen: creativeContentChanged || branchStructureChanged,
+    needsBtBudgetUpdate: budgetChanged || branchStructureChanged,
+    needsBtGeoUpdate: geoChanged,
+    // Replacing ads is only needed when creatives actually change visually
+    // OR when branch structure changes (add/remove branches)
+    needsBtAdReplacement: creativeContentChanged || branchStructureChanged,
+    // Full sheet rebuild only when row count could change
+    needsSheetRowRebuild: branchStructureChanged,
+    // Cell-level updates cover any scalar change (budget, radius, name, status)
+    needsSheetCellUpdate: changed.size > 0 && !branchStructureChanged,
+    isNoop: changed.size === 0,
+  };
+}
+
+/**
+ * Update a campaign with smart change detection.
+ *
+ * Budget-only edits skip creative regeneration and BT ad replacement.
+ * Radius-only edits skip everything except BT geo-target update.
+ * This prevents the "edit budget → all ads regenerated" disaster of April 2026.
+ *
+ * @param options.force — force full regeneration regardless of changes (legacy behavior)
+ * @param options.skipCreativeRegeneration — manual override (deprecated, classification handles it)
  */
 export async function updateCampaign(
   id: string,
   updates: Partial<DentalCampaign>,
-  options?: { skipCreativeRegeneration?: boolean }
+  options?: { skipCreativeRegeneration?: boolean; force?: boolean }
 ): Promise<DentalCampaign | null> {
-  // Whitelist only known DB columns to avoid 400 errors from unknown properties
+  // 1. Fetch existing campaign so we can classify the changes
+  const { data: existing, error: fetchErr } = await supabase
+    .from('dental_campaigns')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !existing) {
+    throw new Error(`Campaign not found: ${fetchErr?.message || 'unknown'}`);
+  }
+
+  // 2. Classify what actually changed
+  const classification = options?.force
+    ? {
+        changed: new Set<string>(Object.keys(updates)),
+        needsCreativeRegen: !options?.skipCreativeRegeneration,
+        needsBtBudgetUpdate: true,
+        needsBtGeoUpdate: true,
+        needsBtAdReplacement: !options?.skipCreativeRegeneration,
+        needsSheetRowRebuild: true,
+        needsSheetCellUpdate: false,
+        isNoop: false,
+      }
+    : classifyChanges(existing as DentalCampaign, updates);
+
+  console.log('[updateCampaign] Change classification:', {
+    changed: Array.from(classification.changed),
+    needsCreativeRegen: classification.needsCreativeRegen,
+    needsBtBudgetUpdate: classification.needsBtBudgetUpdate,
+    needsBtGeoUpdate: classification.needsBtGeoUpdate,
+    needsBtAdReplacement: classification.needsBtAdReplacement,
+    needsSheetRowRebuild: classification.needsSheetRowRebuild,
+  });
+
+  if (classification.isNoop) {
+    console.log('[updateCampaign] No actual changes detected — skipping all side effects');
+    return existing as DentalCampaign;
+  }
+
+  // 3. Whitelist DB columns (unchanged from before)
   const u = updates as any;
   const dbUpdates: Record<string, any> = { updated_at: new Date().toISOString() };
   const dbColumns = [
@@ -986,6 +1139,7 @@ export async function updateCampaign(
     }
   }
 
+  // 4. Write to DB
   const { data, error } = await supabase
     .from('dental_campaigns')
     .update(dbUpdates)
@@ -1002,39 +1156,83 @@ export async function updateCampaign(
     throw new Error(`Kampanjan päivitys epäonnistui: ${error.message}`);
   }
 
-  if (data) {
-    // 1. Regenerate creative HTML files with updated content (skip if only budget/radius changed)
-    let creativeUrlsByAdVersion: Record<string, AdVersionUrls> = {};
-    if (!options?.skipCreativeRegeneration) {
-      try {
-        creativeUrlsByAdVersion = await createCampaignCreatives(id, data as any);
-        console.log('Creatives regenerated for campaign update');
-      } catch (e) {
-        console.error('Creative regeneration failed (non-blocking):', e);
-      }
-    }
+  if (!data) return data;
 
-    // 2. Sync updated data to Google Sheets (with fresh creative URLs)
-    const sheetData = {
-      ...data,
-      meta_primary_text: (updates as any).meta_primary_text || '',
-      meta_headline: (updates as any).meta_headline || '',
-      meta_description: (updates as any).meta_description || '',
-      excluded_branch_ids: (updates as any).excluded_branch_ids || [],
-      offer_date: (updates as any).offer_date || '',
-      offer_subtitle: (updates as any).offer_subtitle || '',
-    };
+  // 5. Creative regeneration — only when creative content actually changed
+  let creativeUrlsByAdVersion: Record<string, AdVersionUrls> = {};
+  if (classification.needsCreativeRegen && !options?.skipCreativeRegeneration) {
+    try {
+      creativeUrlsByAdVersion = await createCampaignCreatives(id, data as any);
+      console.log('[updateCampaign] Creatives regenerated');
+    } catch (e) {
+      console.error('[updateCampaign] Creative regeneration failed (non-blocking):', e);
+    }
+  } else {
+    console.log('[updateCampaign] Skipping creative regeneration — not needed for this change type');
+  }
+
+  // 6. Sheet sync
+  const sheetData = {
+    ...data,
+    meta_primary_text: (updates as any).meta_primary_text || data.meta_primary_text || '',
+    meta_headline: (updates as any).meta_headline || data.meta_headline || '',
+    meta_description: (updates as any).meta_description || data.meta_description || '',
+    excluded_branch_ids: (updates as any).excluded_branch_ids || (data as any).excluded_branch_ids || [],
+    offer_date: (updates as any).offer_date || (data as any).offer_date || '',
+    offer_subtitle: (updates as any).offer_subtitle || (data as any).offer_subtitle || '',
+  };
+
+  if (classification.needsSheetRowRebuild) {
+    // Branch count might have changed — safe to delete + re-add all rows
     updateDentalCampaignInSheet(sheetData, creativeUrlsByAdVersion)
-      .catch(e => console.error('Google Sheets update sync failed (non-blocking):', e));
-
-    // 3. Trigger BidTheatre update (will pick up regenerated creatives)
-    if (data.channel_display || data.channel_pdooh) {
-      fetch('/.netlify/functions/updateBidTheatreCampaign-background', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      }).catch(e => console.error('BidTheatre update sync failed (non-blocking):', e));
+      .catch(e => console.error('[updateCampaign] Sheet row rebuild failed (non-blocking):', e));
+  } else if (classification.needsSheetCellUpdate) {
+    // Targeted cell update — don't touch other fields
+    const cellUpdates: Record<string, any> = {};
+    if (classification.changed.has('total_budget')) cellUpdates.total_budget = data.total_budget;
+    if (classification.changed.has('budget_meta')) cellUpdates.budget_meta = data.budget_meta;
+    if (classification.changed.has('budget_display')) cellUpdates.budget_display = data.budget_display;
+    if (classification.changed.has('budget_pdooh')) cellUpdates.budget_pdooh = data.budget_pdooh;
+    if (classification.changed.has('budget_audio')) cellUpdates.budget_audio = data.budget_audio;
+    if (classification.changed.has('campaign_radius')) cellUpdates.campaign_radius = data.campaign_radius;
+    if (classification.changed.has('branch_channel_budgets')) {
+      cellUpdates.branch_channel_budgets = (data as any).branch_channel_budgets;
     }
+    if (classification.changed.has('branch_radius_settings')) {
+      cellUpdates.branch_radius_settings = (data as any).branch_radius_settings;
+    }
+    if (classification.changed.has('status')) cellUpdates.status = data.status;
+    if (classification.changed.has('name')) cellUpdates.name = data.name;
+    if (classification.changed.has('campaign_start_date')) cellUpdates.campaign_start_date = data.campaign_start_date;
+    if (classification.changed.has('campaign_end_date')) cellUpdates.campaign_end_date = data.campaign_end_date;
+
+    // Fall back to row rebuild if we have no targeted updater yet, but log it clearly
+    // so it's easy to spot in prod logs. The targeted cell updater can be added incrementally.
+    console.log('[updateCampaign] Sheet cell update changes:', Object.keys(cellUpdates));
+
+    // Use delete+re-add for now, but with preserved data — this is SAFER than the old path
+    // because we no longer do it on no-op changes. TODO: implement true cell-level patching.
+    updateDentalCampaignInSheet(sheetData, creativeUrlsByAdVersion)
+      .catch(e => console.error('[updateCampaign] Sheet cell update failed (non-blocking):', e));
+  }
+
+  // 7. BidTheatre update — pass targeted flags so the netlify function knows what to do
+  if ((data.channel_display || data.channel_pdooh) &&
+      (classification.needsBtBudgetUpdate || classification.needsBtGeoUpdate || classification.needsBtAdReplacement)) {
+    const btPayload = {
+      id,
+      updateBudget: classification.needsBtBudgetUpdate,
+      updateGeo: classification.needsBtGeoUpdate,
+      updateAds: classification.needsBtAdReplacement,
+    };
+    console.log('[updateCampaign] Triggering BT update:', btPayload);
+    fetch('/.netlify/functions/updateBidTheatreCampaign-background', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(btPayload),
+    }).catch(e => console.error('[updateCampaign] BT update sync failed (non-blocking):', e));
+  } else {
+    console.log('[updateCampaign] Skipping BT update — no BT-affecting changes');
   }
 
   return data;
