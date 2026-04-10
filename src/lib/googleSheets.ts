@@ -811,8 +811,10 @@ export async function addDentalCampaignToSheet(
   }
 }
 
-// Function to update a dental campaign in Google Sheet (delete existing rows + re-add)
-// For multi-location campaigns, this ensures row count changes are handled correctly
+// Function to update a dental campaign in Google Sheet
+// ATOMIC SEMANTICS: builds new rows first, APPENDS them, verifies success, THEN deletes the old rows.
+// If anything fails in the middle, the old rows stay intact. This prevents the "rows wiped on
+// transient failure" disaster of April 2026.
 export async function updateDentalCampaignInSheet(
   campaign: DentalCampaign,
   creativeUrlsByAdVersion?: Record<string, AdVersionUrls>
@@ -824,16 +826,299 @@ export async function updateDentalCampaignInSheet(
       return true;
     }
 
-    // Find and delete existing rows for this campaign
+    // 1. Find existing rows for this campaign BEFORE touching anything
     const existingRows = await findCampaignRows(campaign.id);
-    if (existingRows.length > 0) {
-      await deleteCampaignFromSheet(campaign.id);
+
+    // 2. APPEND new rows first — this is the risky write, let it fail fast if it's going to fail
+    const addSucceeded = await addDentalCampaignToSheet(campaign, creativeUrlsByAdVersion);
+
+    if (!addSucceeded) {
+      console.error(`[updateDentalCampaignInSheet] Append failed for campaign ${campaign.id} — NOT deleting old rows (${existingRows.length} preserved)`);
+      return false;
     }
 
-    // Re-add with current data (handles multi-location automatically)
-    return await addDentalCampaignToSheet(campaign, creativeUrlsByAdVersion);
+    // 3. Only AFTER the new rows are safely in the sheet, delete the old ones
+    // Note: findCampaignRows is called again inside deleteCampaignFromSheet, but we pass
+    // the PRE-APPEND row indices via a filter so we don't accidentally delete the rows
+    // we just appended.
+    if (existingRows.length > 0) {
+      const oldRowIndices = new Set(existingRows.map(r => r.rowIndex));
+      await deleteCampaignRowsAtIndices(campaign.id, oldRowIndices);
+    }
+
+    return true;
   } catch (error) {
     console.error('Error updating dental campaign in sheet:', error instanceof Error ? error.message : 'Unknown error');
+    return false;
+  }
+}
+
+// Delete specific row indices for a campaign (used by atomic update).
+// Only deletes rows that BOTH match the campaign_id AND are in the allowed set —
+// prevents accidentally deleting rows we just appended.
+async function deleteCampaignRowsAtIndices(
+  campaignId: string,
+  allowedRowIndices: Set<number>
+): Promise<void> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) return;
+
+    // Refresh the row list (row indices shift as we delete)
+    // Filter: only keep rows that are BOTH in allowedRowIndices AND still match the campaign
+    const currentRows = await findCampaignRows(campaignId);
+    const toDelete = currentRows.filter(r => allowedRowIndices.has(r.rowIndex));
+
+    if (toDelete.length === 0) return;
+
+    // Fetch sheet metadata
+    const meta = await axios.get(`${SHEETS_API_ENDPOINT}/${SHEET_ID}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const liveSheet = (meta.data.sheets || []).find((s: any) => s.properties.title === SHEET_NAME);
+    if (!liveSheet) {
+      console.error(`Could not find ${SHEET_NAME} sheet`);
+      return;
+    }
+    const sheetId = liveSheet.properties.sheetId;
+
+    // Sort descending to avoid index shift issues
+    const rowIndices = toDelete.map(r => r.rowIndex).sort((a, b) => b - a);
+
+    for (const rowIndex of rowIndices) {
+      await axios.post(
+        `${SHEETS_API_ENDPOINT}/${SHEET_ID}:batchUpdate`,
+        {
+          requests: [{
+            deleteDimension: {
+              range: { sheetId, dimension: 'ROWS', startIndex: rowIndex - 1, endIndex: rowIndex },
+            },
+          }],
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`[deleteCampaignRowsAtIndices] Deleted ${rowIndices.length} old rows for campaign ${campaignId}`);
+  } catch (e) {
+    console.error('[deleteCampaignRowsAtIndices] failed:', e instanceof Error ? e.message : e);
+  }
+}
+
+// ============================================================================
+// TARGETED CELL UPDATES — used by updateCampaign for non-creative edits
+// (budget, radius, dates, status, name). Updates specific cells in place
+// WITHOUT deleting or re-adding rows, so a transient failure cannot lose data.
+// ============================================================================
+
+type CellFieldUpdates = {
+  // Scalars (all rows get the same value)
+  total_budget?: number;
+  name?: string;
+  status?: string;
+  campaign_start_date?: string;
+  campaign_end_date?: string;
+  is_ongoing?: boolean;
+  // Per-branch maps (each row gets its own value from these)
+  branch_channel_budgets?: Record<string, { meta?: number; display?: number; pdooh?: number; audio?: number }>;
+  branch_radius_settings?: Record<string, { radius: number; enabled?: boolean }>;
+  // Global fallbacks (used when per-branch maps are absent)
+  budget_meta?: number;
+  budget_display?: number;
+  budget_pdooh?: number;
+  budget_audio?: number;
+  campaign_radius?: number;
+};
+
+// Column letters in the FEED tab — matches formatDentalCampaignRow()
+const FEED_COLUMNS = {
+  campaign_name: 'B',       // column B
+  status: 'D',               // column D
+  target_radius: 'T',        // column T
+  start_date: 'W',           // column W
+  end_date: 'X',             // column X
+  is_ongoing: 'Y',           // column Y
+  total_budget: 'AD',        // column AD
+  budget_meta: 'AE',         // column AE
+  budget_display: 'AF',      // column AF
+  budget_pdooh: 'AG',        // column AG
+  budget_audio: 'AH',        // column AH
+  daily_meta: 'AI',          // column AI
+  daily_display: 'AJ',       // column AJ
+  daily_pdooh: 'AK',         // column AK
+  daily_audio: 'AL',         // column AL
+  smartly_daily: 'BJ',       // column BJ (duplicate of daily_meta)
+} as const;
+
+/**
+ * Update specific fields on existing sheet rows without deleting them.
+ * Safe for budget/radius/date/status/name edits — no risk of data loss on partial failure.
+ *
+ * For multi-branch campaigns, each row gets its own values from the per-branch maps.
+ * Rows are matched by campaign_id (column A) and branch_id is derived from column K (branch_name).
+ */
+export async function updateDentalCampaignCellsInSheet(
+  campaignId: string,
+  cellUpdates: CellFieldUpdates,
+  // Optional: pass existing campaign data so we can compute per-row values
+  campaignContext?: {
+    branches?: Array<{ id: string; name: string }>;
+    total_days?: number;
+    service_count?: number;
+  }
+): Promise<boolean> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      console.debug('Google Sheets cell-update skipped — no access token');
+      return true;
+    }
+
+    // Fetch all rows for this campaign (columns A:CI) so we can read the existing values
+    // and compute new ones per-row.
+    const response = await axios.get(
+      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values/${SHEET_RANGE}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const allRows: string[][] = response.data.values || [];
+    const matchingRows: { rowIndex: number; data: string[] }[] = [];
+    for (let i = 0; i < allRows.length; i++) {
+      if (allRows[i] && allRows[i][0] === campaignId) {
+        matchingRows.push({ rowIndex: i + 1, data: allRows[i] });
+      }
+    }
+
+    if (matchingRows.length === 0) {
+      console.warn(`[updateDentalCampaignCellsInSheet] No rows found for campaign ${campaignId} — nothing to update`);
+      return true;
+    }
+
+    const days = campaignContext?.total_days ?? 30; // fallback to monthly
+    const svcCount = campaignContext?.service_count ?? 1;
+    const branchNameToId = new Map<string, string>();
+    (campaignContext?.branches || []).forEach(b => branchNameToId.set(b.name, b.id));
+
+    // Build batch update requests
+    const batchUpdates: Array<{ range: string; values: string[][] }> = [];
+
+    for (const row of matchingRows) {
+      const rowIdx = row.rowIndex;
+      const branchName = row.data[10] || ''; // column K = branch_name
+      const branchId = branchNameToId.get(branchName);
+
+      // Determine per-row budgets (per-branch if map provided, else scalar)
+      let metaB = 0, dispB = 0, pdoohB = 0, audioB = 0, totalB = 0;
+      if (branchId && cellUpdates.branch_channel_budgets?.[branchId]) {
+        const bb = cellUpdates.branch_channel_budgets[branchId];
+        metaB = (bb.meta ?? 0) / svcCount;
+        dispB = (bb.display ?? 0) / svcCount;
+        pdoohB = (bb.pdooh ?? 0) / svcCount;
+        audioB = (bb.audio ?? 0) / svcCount;
+        totalB = metaB + dispB + pdoohB + audioB;
+      } else {
+        metaB = cellUpdates.budget_meta ?? parseFloat(row.data[30] || '0');
+        dispB = cellUpdates.budget_display ?? parseFloat(row.data[31] || '0');
+        pdoohB = cellUpdates.budget_pdooh ?? parseFloat(row.data[32] || '0');
+        audioB = cellUpdates.budget_audio ?? parseFloat(row.data[33] || '0');
+        totalB = cellUpdates.total_budget ?? (metaB + dispB + pdoohB + audioB);
+      }
+
+      // Determine per-row radius
+      let radius: number | undefined;
+      if (branchId && cellUpdates.branch_radius_settings?.[branchId]) {
+        radius = cellUpdates.branch_radius_settings[branchId].radius;
+      } else if (cellUpdates.campaign_radius !== undefined) {
+        radius = cellUpdates.campaign_radius;
+      }
+
+      // Build updates for this row
+      if (cellUpdates.name !== undefined) {
+        batchUpdates.push({
+          range: `${SHEET_NAME}!${FEED_COLUMNS.campaign_name}${rowIdx}`,
+          values: [[cellUpdates.name]],
+        });
+      }
+      if (cellUpdates.status !== undefined) {
+        batchUpdates.push({
+          range: `${SHEET_NAME}!${FEED_COLUMNS.status}${rowIdx}`,
+          values: [[cellUpdates.status]],
+        });
+      }
+      if (radius !== undefined) {
+        batchUpdates.push({
+          range: `${SHEET_NAME}!${FEED_COLUMNS.target_radius}${rowIdx}`,
+          values: [[String(radius)]],
+        });
+      }
+      if (cellUpdates.campaign_start_date !== undefined) {
+        batchUpdates.push({
+          range: `${SHEET_NAME}!${FEED_COLUMNS.start_date}${rowIdx}`,
+          values: [[safeFormatDate(cellUpdates.campaign_start_date)]],
+        });
+      }
+      if (cellUpdates.campaign_end_date !== undefined) {
+        batchUpdates.push({
+          range: `${SHEET_NAME}!${FEED_COLUMNS.end_date}${rowIdx}`,
+          values: [[
+            cellUpdates.is_ongoing || cellUpdates.campaign_end_date?.toUpperCase() === 'ONGOING'
+              ? 'Ongoing'
+              : safeFormatDate(cellUpdates.campaign_end_date),
+          ]],
+        });
+      }
+      if (cellUpdates.is_ongoing !== undefined) {
+        batchUpdates.push({
+          range: `${SHEET_NAME}!${FEED_COLUMNS.is_ongoing}${rowIdx}`,
+          values: [[cellUpdates.is_ongoing ? 'Yes' : 'No']],
+        });
+      }
+
+      // Budget columns — always recompute if ANY budget field changed, because
+      // daily budgets depend on total budgets
+      const budgetChanged =
+        cellUpdates.total_budget !== undefined ||
+        cellUpdates.budget_meta !== undefined ||
+        cellUpdates.budget_display !== undefined ||
+        cellUpdates.budget_pdooh !== undefined ||
+        cellUpdates.budget_audio !== undefined ||
+        cellUpdates.branch_channel_budgets !== undefined;
+
+      if (budgetChanged) {
+        batchUpdates.push(
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.total_budget}${rowIdx}`, values: [[totalB.toString()]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.budget_meta}${rowIdx}`, values: [[metaB.toString()]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.budget_display}${rowIdx}`, values: [[dispB.toString()]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.budget_pdooh}${rowIdx}`, values: [[pdoohB.toString()]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.budget_audio}${rowIdx}`, values: [[audioB.toString()]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.daily_meta}${rowIdx}`, values: [[(metaB / days).toFixed(2)]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.daily_display}${rowIdx}`, values: [[(dispB / days).toFixed(2)]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.daily_pdooh}${rowIdx}`, values: [[(pdoohB / days).toFixed(2)]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.daily_audio}${rowIdx}`, values: [[(audioB / days).toFixed(2)]] },
+          { range: `${SHEET_NAME}!${FEED_COLUMNS.smartly_daily}${rowIdx}`, values: [[(metaB / days).toFixed(2)]] },
+        );
+      }
+    }
+
+    if (batchUpdates.length === 0) {
+      console.debug(`[updateDentalCampaignCellsInSheet] No cell updates to apply for campaign ${campaignId}`);
+      return true;
+    }
+
+    // Use values:batchUpdate — atomic, all-or-nothing on the Google side
+    await axios.post(
+      `${SHEETS_API_ENDPOINT}/${SHEET_ID}/values:batchUpdate`,
+      {
+        valueInputOption: 'USER_ENTERED',
+        data: batchUpdates,
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+
+    console.log(`[updateDentalCampaignCellsInSheet] Updated ${batchUpdates.length} cells across ${matchingRows.length} rows for campaign ${campaignId}`);
+    await updateSheetSyncTracking(campaignId);
+    return true;
+  } catch (error) {
+    console.error('[updateDentalCampaignCellsInSheet] failed:', error instanceof Error ? error.message : error);
     return false;
   }
 }

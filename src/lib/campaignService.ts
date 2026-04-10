@@ -9,6 +9,7 @@ import { updateBranchUsedBudget } from './branchService';
 import {
   addDentalCampaignToSheet,
   updateDentalCampaignInSheet,
+  updateDentalCampaignCellsInSheet,
   updateDentalCampaignStatusInSheet,
   deleteCampaignFromSheet,
 } from './googleSheets';
@@ -1183,37 +1184,71 @@ export async function updateCampaign(
   };
 
   if (classification.needsSheetRowRebuild) {
-    // Branch count might have changed — safe to delete + re-add all rows
+    // Branch count might have changed — needs full rebuild.
+    // updateDentalCampaignInSheet is now ATOMIC (append-then-delete, not delete-then-append)
+    // so a transient failure cannot lose data.
     updateDentalCampaignInSheet(sheetData, creativeUrlsByAdVersion)
       .catch(e => console.error('[updateCampaign] Sheet row rebuild failed (non-blocking):', e));
   } else if (classification.needsSheetCellUpdate) {
-    // Targeted cell update — don't touch other fields
-    const cellUpdates: Record<string, any> = {};
-    if (classification.changed.has('total_budget')) cellUpdates.total_budget = data.total_budget;
-    if (classification.changed.has('budget_meta')) cellUpdates.budget_meta = data.budget_meta;
-    if (classification.changed.has('budget_display')) cellUpdates.budget_display = data.budget_display;
-    if (classification.changed.has('budget_pdooh')) cellUpdates.budget_pdooh = data.budget_pdooh;
-    if (classification.changed.has('budget_audio')) cellUpdates.budget_audio = data.budget_audio;
-    if (classification.changed.has('campaign_radius')) cellUpdates.campaign_radius = data.campaign_radius;
+    // Targeted cell update — only touches changed fields, leaves everything else intact.
+    // This is the safest path: no row deletion, atomic batch update on Google's side.
+    const cellUpdates: Parameters<typeof updateDentalCampaignCellsInSheet>[1] = {};
+    if (classification.changed.has('total_budget')) cellUpdates.total_budget = data.total_budget ?? undefined;
+    if (classification.changed.has('budget_meta')) cellUpdates.budget_meta = data.budget_meta ?? undefined;
+    if (classification.changed.has('budget_display')) cellUpdates.budget_display = data.budget_display ?? undefined;
+    if (classification.changed.has('budget_pdooh')) cellUpdates.budget_pdooh = data.budget_pdooh ?? undefined;
+    if (classification.changed.has('budget_audio')) cellUpdates.budget_audio = data.budget_audio ?? undefined;
+    if (classification.changed.has('campaign_radius')) cellUpdates.campaign_radius = data.campaign_radius ?? undefined;
     if (classification.changed.has('branch_channel_budgets')) {
       cellUpdates.branch_channel_budgets = (data as any).branch_channel_budgets;
     }
     if (classification.changed.has('branch_radius_settings')) {
       cellUpdates.branch_radius_settings = (data as any).branch_radius_settings;
     }
-    if (classification.changed.has('status')) cellUpdates.status = data.status;
-    if (classification.changed.has('name')) cellUpdates.name = data.name;
-    if (classification.changed.has('campaign_start_date')) cellUpdates.campaign_start_date = data.campaign_start_date;
-    if (classification.changed.has('campaign_end_date')) cellUpdates.campaign_end_date = data.campaign_end_date;
+    if (classification.changed.has('status')) cellUpdates.status = data.status ?? undefined;
+    if (classification.changed.has('name')) cellUpdates.name = data.name ?? undefined;
+    if (classification.changed.has('campaign_start_date')) cellUpdates.campaign_start_date = data.campaign_start_date ?? undefined;
+    if (classification.changed.has('campaign_end_date')) cellUpdates.campaign_end_date = data.campaign_end_date ?? undefined;
+    if (classification.changed.has('is_ongoing')) cellUpdates.is_ongoing = data.is_ongoing ?? undefined;
 
-    // Fall back to row rebuild if we have no targeted updater yet, but log it clearly
-    // so it's easy to spot in prod logs. The targeted cell updater can be added incrementally.
-    console.log('[updateCampaign] Sheet cell update changes:', Object.keys(cellUpdates));
+    // Compute total_days for daily budget recalculation
+    let total_days = 30;
+    try {
+      const start = data.campaign_start_date || (data as any).start_date;
+      const end = data.campaign_end_date || (data as any).end_date;
+      if (start && end && !data.is_ongoing) {
+        const s = new Date(start);
+        const e = new Date(end);
+        const diff = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+        if (diff > 0) total_days = diff;
+      }
+    } catch {}
 
-    // Use delete+re-add for now, but with preserved data — this is SAFER than the old path
-    // because we no longer do it on no-op changes. TODO: implement true cell-level patching.
-    updateDentalCampaignInSheet(sheetData, creativeUrlsByAdVersion)
-      .catch(e => console.error('[updateCampaign] Sheet cell update failed (non-blocking):', e));
+    // Fetch branches for per-row targeting
+    let branches: Array<{ id: string; name: string }> = [];
+    try {
+      const rawIds = (data as any).branch_ids || [];
+      const branchIds: string[] = Array.isArray(rawIds) ? rawIds : JSON.parse(String(rawIds || '[]'));
+      if (branchIds.length > 0) {
+        const { data: brs } = await supabase
+          .from('branches')
+          .select('id, name')
+          .in('id', branchIds);
+        branches = brs || [];
+      }
+    } catch (e) {
+      console.warn('[updateCampaign] Failed to fetch branches for cell update:', e);
+    }
+
+    const serviceIds: string[] = (data as any).service_ids || [(data as any).service_id].filter(Boolean);
+
+    console.log('[updateCampaign] Sheet cell-level update changes:', Object.keys(cellUpdates));
+
+    updateDentalCampaignCellsInSheet(id, cellUpdates, {
+      branches,
+      total_days,
+      service_count: serviceIds.length || 1,
+    }).catch(e => console.error('[updateCampaign] Sheet cell update failed (non-blocking):', e));
   }
 
   // 7. BidTheatre update — pass targeted flags so the netlify function knows what to do
