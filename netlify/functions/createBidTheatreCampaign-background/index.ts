@@ -807,7 +807,6 @@ async function createBtCampaignForBranch(
         } catch (adError: any) {
           console.error(`Ad creation failed for ${size}: ${adError.response?.data?.message || adError.message}`);
         }
-      }
     }
   }
 
