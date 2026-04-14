@@ -159,6 +159,18 @@ function getCreativeServiceSlug(creative: any, fallbackSlug: string): string {
   return fallbackSlug;
 }
 
+/**
+ * Normalize media URLs before sending to BidTheatre.
+ *
+ * Some legacy creatives were stored with double-encoded spaces (%2520),
+ * which BidTheatre then receives as an invalid path segment. We normalize
+ * those to single-encoded spaces (%20).
+ */
+function normalizeMediaUrl(url: string): string {
+  if (!url) return url;
+  return url.replace(/%2520/g, '%20');
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -397,6 +409,18 @@ async function fetchCreativesForBranch(
   return branchCreatives;
 }
 
+function pickLatestCreativeForSize(creatives: any[], size: string, config: { width: number; height: number }) {
+  const matches = creatives.filter(c =>
+    c.size === size || (c.width === config.width && c.height === config.height)
+  );
+  if (matches.length === 0) return null;
+  return [...matches].sort((a, b) => {
+    const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
+    const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
+    return bTime - aTime;
+  })[0];
+}
+
 /**
  * Fetches the HTML content from a public Supabase storage URL.
  */
@@ -464,7 +488,8 @@ function buildIframeWrapper(creativeUrl: string, width: number, height: number, 
   // Route through serve-creative proxy so HTML is served with correct Content-Type
   // (Supabase Storage serves .html files as plain text/download for XSS protection)
   const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
-  const proxyUrl = `${siteUrl}/.netlify/functions/serve-creative?url=${encodeURIComponent(creativeUrl)}`;
+  const normalizedCreativeUrl = normalizeMediaUrl(creativeUrl);
+  const proxyUrl = `${siteUrl}/.netlify/functions/serve-creative?url=${encodeURIComponent(normalizedCreativeUrl)}`;
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <script>var clickTag="${clickTagValue}";</script>
@@ -689,19 +714,19 @@ async function createBtCampaignForBranch(
       const config = AD_DIMENSIONS[size];
       if (!config) continue;
 
-      // Find matching creatives by size
-      const sizeCreatives = creatives.filter(c =>
-        c.size === size || (c.width === config.width && c.height === config.height)
-      );
+      const creative = pickLatestCreativeForSize(creatives, size, config);
+      if (!creative) {
+        console.warn(`No creative found for ${branchName} / ${size}, skipping`);
+        continue;
+      }
 
-      for (const creative of sizeCreatives) {
-        // Check if this creative+size was already uploaded (e.g. 300x600 in both Desktop and Mobile)
-        const dedupKey = `${creative.id}::${size}`;
-        if (createdAdsByCreativeSize[dedupKey]) {
-          adIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
-          console.log(`Reused ads for ${size} (${creative.name}) in "${group.name}"`);
-          continue;
-        }
+      // Check if this creative+size was already uploaded (e.g. 300x600 in both Desktop and Mobile)
+      const dedupKey = `${creative.id}::${size}`;
+      if (createdAdsByCreativeSize[dedupKey]) {
+        adIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
+        console.log(`Reused ads for ${size} (${creative.name}) in "${group.name}"`);
+        continue;
+      }
 
         // Get the public URL for the hosted creative
         const creativeUrl = creative.image_url || creative.preview_url;
@@ -725,11 +750,12 @@ async function createBtCampaignForBranch(
             // The image_url points to an HTML file; we need the actual image inside it.
             // Creative naming: "Branch - Service - WxH" → image stored alongside HTML
             // Use the image_url but replace .html extension with .jpg/.png if it's an HTML wrapper
-            let imageUrl = creativeUrl;
+            let imageUrl = creative.jpg_url || creativeUrl;
             if (imageUrl.endsWith('.html')) {
               // Try .jpg first (most common for PDOOH creatives), fallback to original
               imageUrl = imageUrl.replace(/\.html$/, '.jpg');
             }
+            imageUrl = normalizeMediaUrl(imageUrl);
 
             adResp = await retryWithBackoff(() =>
               bidTheatreApi.post(`/${networkId}/ad`, {

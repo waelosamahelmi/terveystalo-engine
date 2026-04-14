@@ -141,6 +141,18 @@ function getCreativeServiceSlug(creative: any, fallbackSlug: string): string {
   return fallbackSlug;
 }
 
+/**
+ * Normalize media URLs before sending to BidTheatre.
+ *
+ * Some legacy creatives were stored with double-encoded spaces (%2520),
+ * which BidTheatre then receives as an invalid path segment. We normalize
+ * those to single-encoded spaces (%20).
+ */
+function normalizeMediaUrl(url: string): string {
+  if (!url) return url;
+  return url.replace(/%2520/g, '%20');
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -217,7 +229,8 @@ function buildIframeWrapper(creativeUrl: string, width: number, height: number, 
   // Route through serve-creative proxy so HTML is served with correct Content-Type
   // (Supabase Storage serves .html files as plain text/download for XSS protection)
   const siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
-  const proxyUrl = `${siteUrl}/.netlify/functions/serve-creative?url=${encodeURIComponent(creativeUrl)}`;
+  const normalizedCreativeUrl = normalizeMediaUrl(creativeUrl);
+  const proxyUrl = `${siteUrl}/.netlify/functions/serve-creative?url=${encodeURIComponent(normalizedCreativeUrl)}`;
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <script>var clickTag="${clickTagValue}";</script>
@@ -312,6 +325,18 @@ async function fetchCreativesForBranch(
     console.warn(`No creatives matched branch "${searchLabel}" — skipping this branch`);
   }
   return branchCreatives;
+}
+
+function pickLatestCreativeForSize(creatives: any[], size: string, config: { width: number; height: number }) {
+  const matches = creatives.filter(c =>
+    c.size === size || (c.width === config.width && c.height === config.height)
+  );
+  if (matches.length === 0) return null;
+  return [...matches].sort((a, b) => {
+    const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
+    const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
+    return bTime - aTime;
+  })[0];
 }
 
 // ============================================================================
@@ -508,6 +533,24 @@ async function updateBtCampaign(
   const adGroupIds = btRecord.ad_group_ids || {};
   const existingAdIds = btRecord.ad_ids || {};
 
+  // Validate branch + creatives BEFORE touching live ads.
+  const branchLabel = branchData?.short_name || branchData?.name || branchData?.city || '';
+  console.log(`Branch data for ${btRecord.branch_id}: short_name="${branchData?.short_name}", name="${branchData?.name}", city="${branchData?.city}"`);
+  if (!branchLabel) {
+    throw new Error(`No branch name/city found for ${btRecord.branch_id} — refusing to replace ads`);
+  }
+
+  const creatives = await fetchCreativesForBranch(
+    campaign.id,
+    channelType.toLowerCase() as 'display' | 'pdooh',
+    branchLabel,
+    campaign.nationwide_address_mode
+  );
+
+  if (!creatives || creatives.length === 0) {
+    throw new Error(`No ready creatives matched branch "${branchLabel}" for ${channelType} — refusing to replace ads`);
+  }
+
   // Deactivate old ads first
   // IMPORTANT: We query BT for ALL active ads on this campaign, not just the ones in
   // btRecord.ad_ids — because previous updates may have created ads that were saved to
@@ -569,20 +612,6 @@ async function updateBtCampaign(
     }
   }
 
-  // Fetch fresh creatives using the same logic as create function
-  const branchLabel = branchData?.short_name || branchData?.name || branchData?.city || '';
-  console.log(`Branch data for ${btRecord.branch_id}: short_name="${branchData?.short_name}", name="${branchData?.name}", city="${branchData?.city}"`);
-  if (!branchLabel) {
-    console.warn(`No branch name/city found for ${btRecord.branch_id} — skipping ad creation`);
-    return { btCampaignId, success: true };
-  }
-  const creatives = await fetchCreativesForBranch(
-    campaign.id,
-    channelType.toLowerCase() as 'display' | 'pdooh',
-    branchLabel,
-    campaign.nationwide_address_mode
-  );
-
   // Use the same ad group definitions as the create function
   const adGroups = channelType === 'DISPLAY' ? DISPLAY_AD_GROUPS : PDOOH_AD_GROUPS;
 
@@ -606,90 +635,92 @@ async function updateBtCampaign(
         const config = AD_DIMENSIONS[size];
         if (!config) continue;
 
-        const sizeCreatives = creatives.filter(c =>
-          c.size === size || (c.width === config.width && c.height === config.height)
-        );
+        const creative = pickLatestCreativeForSize(creatives, size, config);
+        if (!creative) {
+          console.warn(`No creative found for ${branchLabel} / ${size}, skipping`);
+          continue;
+        }
 
-        for (const creative of sizeCreatives) {
-          // Dedup: reuse ad if same creative+size already created for another group
-          const dedupKey = `${creative.id}::${size}`;
-          if (createdAdsByCreativeSize[dedupKey]) {
-            if (!newAdIds[group.name]) newAdIds[group.name] = [];
-            newAdIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
-            continue;
-          }
+        // Dedup: reuse ad if same creative+size already created for another group
+        const dedupKey = `${creative.id}::${size}`;
+        if (createdAdsByCreativeSize[dedupKey]) {
+          if (!newAdIds[group.name]) newAdIds[group.name] = [];
+          newAdIds[group.name].push(createdAdsByCreativeSize[dedupKey]);
+          continue;
+        }
 
-          const creativeUrl = creative.image_url || creative.preview_url;
-          if (!creativeUrl) {
-            console.warn(`No public URL for creative ${creative.id}, skipping`);
-            continue;
-          }
+        const creativeUrl = creative.image_url || creative.preview_url;
+        if (!creativeUrl) {
+          console.warn(`No public URL for creative ${creative.id}, skipping`);
+          continue;
+        }
 
-          // Build per-creative landing URL with service-specific UTM parameters
-          const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
-          const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
-          const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
-          const isPDOOH = channelType === 'PDOOH';
+        // Build per-creative landing URL with service-specific UTM parameters
+        const baseLanding = campaign.landing_url || 'https://terveystalo.com/suunterveystalo';
+        const creativeServiceSlug = getCreativeServiceSlug(creative, serviceSlug);
+        const landingUrl = buildLandingUrlWithUtm(baseLanding, channelLower, creativeServiceSlug);
+        const isPDOOH = channelType === 'PDOOH';
 
-          try {
-            let adResp;
+        try {
+          let adResp;
 
-            if (isPDOOH) {
-              // --- PDOOH: Image banner ad (direct image URL, accepted by all DOOH suppliers) ---
-              let imageUrl = creativeUrl;
-              if (imageUrl.endsWith('.html')) {
-                imageUrl = imageUrl.replace(/\.html$/, '.jpg');
-              }
-
-              adResp = await retryWithBackoff(() =>
-                bidTheatreApi.post(`/${networkId}/ad`, {
-                  campaign: btCampaignId,
-                  name: creative.name || `${branchLabel} - ${size}`,
-                  adType: 'Image banner',
-                  adStatus: 'Active',
-                  contentURL: imageUrl,
-                  targetURL: landingUrl,
-                  dimension: config.dimension,
-                  isExpandable: false,
-                  isInSync: true,
-                  isSecure: true,
-                }, {
-                  headers: { Authorization: `Bearer ${btToken}` },
-                })
-              );
-              console.log(`Created Image banner ad ${adResp.data.ad.id} for PDOOH ${size} (${creative.name}), URL: ${imageUrl}`);
-            } else {
-              // --- DISPLAY: HTML banner ad (uses lightweight iframe wrapper) ---
-              const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
-              console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
-
-              adResp = await retryWithBackoff(() =>
-                bidTheatreApi.post(`/${networkId}/ad`, {
-                  campaign: btCampaignId,
-                  name: creative.name || `${branchLabel} - ${size}`,
-                  adType: 'HTML banner',
-                  adStatus: 'Active',
-                  html,
-                  targetURL: landingUrl,
-                  clickThroughURL: landingUrl,
-                  dimension: config.dimension,
-                  isExpandable: false,
-                  isInSync: true,
-                  isSecure: true,
-                }, {
-                  headers: { Authorization: `Bearer ${btToken}` },
-                })
-              );
-              console.log(`Created HTML banner ad ${adResp.data.ad.id} for DISPLAY ${size} (${creative.name})`);
+          if (isPDOOH) {
+            // --- PDOOH: Image banner ad (direct image URL, accepted by all DOOH suppliers) ---
+            let imageUrl = creative.jpg_url || creativeUrl;
+            if (imageUrl.endsWith('.html')) {
+              imageUrl = imageUrl.replace(/\.html$/, '.jpg');
             }
+            imageUrl = normalizeMediaUrl(imageUrl);
 
-            const adId = adResp.data.ad.id;
-            if (!newAdIds[groupName]) newAdIds[groupName] = [];
-            newAdIds[groupName].push(adId);
-            await sleep(300);
-          } catch (adErr: any) {
-            console.error(`Ad creation failed for ${size}: ${adErr.response?.data?.message || adErr.message}`);
+            adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchLabel} - ${size}`,
+                adType: 'Image banner',
+                adStatus: 'Active',
+                contentURL: imageUrl,
+                targetURL: landingUrl,
+                dimension: config.dimension,
+                isExpandable: false,
+                isInSync: true,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            console.log(`Created Image banner ad ${adResp.data.ad.id} for PDOOH ${size} (${creative.name}), URL: ${imageUrl}`);
+          } else {
+            // --- DISPLAY: HTML banner ad (uses lightweight iframe wrapper) ---
+            const html = buildIframeWrapper(creativeUrl, config.width, config.height, landingUrl);
+            console.log(`Built iframe wrapper for ${creative.name} (${html.length} bytes)`);
+
+            adResp = await retryWithBackoff(() =>
+              bidTheatreApi.post(`/${networkId}/ad`, {
+                campaign: btCampaignId,
+                name: creative.name || `${branchLabel} - ${size}`,
+                adType: 'HTML banner',
+                adStatus: 'Active',
+                html,
+                targetURL: landingUrl,
+                clickThroughURL: landingUrl,
+                dimension: config.dimension,
+                isExpandable: false,
+                isInSync: true,
+                isSecure: true,
+              }, {
+                headers: { Authorization: `Bearer ${btToken}` },
+              })
+            );
+            console.log(`Created HTML banner ad ${adResp.data.ad.id} for DISPLAY ${size} (${creative.name})`);
           }
+
+          const adId = adResp.data.ad.id;
+          if (!newAdIds[group.name]) newAdIds[group.name] = [];
+          newAdIds[group.name].push(adId);
+          createdAdsByCreativeSize[dedupKey] = adId;
+          await sleep(300);
+        } catch (adErr: any) {
+          console.error(`Ad creation failed for ${size}: ${adErr.response?.data?.message || adErr.message}`);
         }
       }
 
@@ -752,7 +783,7 @@ export async function handler(event: any) {
     updateAds: payload.updateAds !== false,
     updateName: payload.updateName !== false,
   };
-  console.log(`Update flags for campaign ${campaignId}:`, flags);
+  console.log(`Update flags for campaign ${campaignId}:`, flags, 'channel=', payload.channel || 'ALL');
 
   try {
     // Fetch full campaign data
@@ -767,15 +798,19 @@ export async function handler(event: any) {
     }
 
     // Fetch all BT campaign records for this campaign
-    const { data: btRecords, error: btError } = await supabase
+    const { data: allBtRecords, error: btError } = await supabase
       .from('bidtheatre_campaigns')
       .select('*')
       .eq('campaign_id', campaignId);
 
     if (btError) throw new Error(`Failed to fetch BT records: ${btError.message}`);
 
+    const channelFilter = typeof payload.channel === 'string' ? payload.channel.toUpperCase() : null;
+    const btRecords = (allBtRecords || []).filter((record: any) => !channelFilter || (record.channel || '').toUpperCase() === channelFilter);
+
     if (!btRecords || btRecords.length === 0) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'No BidTheatre campaigns found — launch first' }) };
+      const suffix = channelFilter ? ` for channel ${channelFilter}` : '';
+      return { statusCode: 400, body: JSON.stringify({ error: `No BidTheatre campaigns found${suffix} — launch first` }) };
     }
 
     const btToken = await getBidTheatreToken();

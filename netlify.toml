@@ -21,3 +21,7 @@ schedule = "0 3 * * *"
 
 # Historical media costs sync (manual trigger)
 [functions."sync-historical-media-costs-background"]
+
+# Meta Ads sync - runs daily at 06:20 UTC (09:20 Finland in summer)
+[functions."meta-ads"]
+schedule = "20 6 * * *"
