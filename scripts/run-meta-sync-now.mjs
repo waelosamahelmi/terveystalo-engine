@@ -42,13 +42,18 @@ if (typeof handler !== 'function') {
   process.exit(1);
 }
 
-console.log('Invoking meta-ads handler with action=sync ...');
+const action = process.argv[2] || 'sync';
+const campaignId = process.argv[3] || undefined;
+const queryStringParameters = { action };
+if (campaignId) queryStringParameters.campaign_id = campaignId;
+
+console.log(`Invoking meta-ads handler with action=${action}${campaignId ? ` campaign_id=${campaignId}` : ''} ...`);
 const result = await handler(
   {
     httpMethod: 'GET',
-    queryStringParameters: { action: 'sync' },
+    queryStringParameters,
     headers: {},
-    rawUrl: 'http://localhost/.netlify/functions/meta-ads?action=sync',
+    rawUrl: `http://localhost/.netlify/functions/meta-ads?action=${encodeURIComponent(action)}`,
   },
   {}
 );

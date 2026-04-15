@@ -20,6 +20,32 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+function parseSettingString(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  let out = String(value).trim();
+  if (!out) return '';
+
+  // Some app_settings values are saved as JSON string literals, e.g. "\"act_123\""
+  try {
+    const parsed = JSON.parse(out);
+    if (typeof parsed === 'string') out = parsed.trim();
+    else if (parsed != null) out = String(parsed).trim();
+  } catch {
+    // keep as-is
+  }
+
+  if (
+    (out.startsWith('"') && out.endsWith('"')) ||
+    (out.startsWith("'") && out.endsWith("'"))
+  ) {
+    out = out.slice(1, -1).trim();
+  }
+
+  return out;
+}
+
 function num(value: unknown): number {
   if (value == null) return 0;
   const n = Number(value);
@@ -163,8 +189,8 @@ function matchBranchFromAdSetName(adSetName: string, branchesWithAliases: Array<
 
 export async function listMetaCampaignsFromSettings(): Promise<any[]> {
   const settings = await getAppSettingsMap(['meta_ad_account_id', 'meta_access_token']);
-  const adAccountId = String(settings.meta_ad_account_id || '').trim();
-  const accessToken = String(settings.meta_access_token || '').trim();
+  const adAccountId = parseSettingString(settings.meta_ad_account_id);
+  const accessToken = parseSettingString(settings.meta_access_token);
 
   if (!adAccountId || !accessToken) {
     throw new Error('Meta settings missing: meta_ad_account_id / meta_access_token');
@@ -179,8 +205,8 @@ export async function listMetaCampaignsFromSettings(): Promise<any[]> {
 
 export async function listMetaAdSetInsights(campaignId?: string): Promise<any[]> {
   const settings = await getAppSettingsMap(['meta_ad_account_id', 'meta_access_token']);
-  const adAccountId = String(settings.meta_ad_account_id || '').trim();
-  const accessToken = String(settings.meta_access_token || '').trim();
+  const adAccountId = parseSettingString(settings.meta_ad_account_id);
+  const accessToken = parseSettingString(settings.meta_access_token);
 
   if (!adAccountId || !accessToken) {
     throw new Error('Meta settings missing: meta_ad_account_id / meta_access_token');
@@ -259,8 +285,8 @@ export async function syncMetaAnalyticsData(options: { campaignId?: string } = {
     'meta_sync_enabled',
   ]);
 
-  const adAccountId = String(settings.meta_ad_account_id || '').trim();
-  const accessToken = String(settings.meta_access_token || '').trim();
+  const adAccountId = parseSettingString(settings.meta_ad_account_id);
+  const accessToken = parseSettingString(settings.meta_access_token);
 
   if (!adAccountId || !accessToken) {
     throw new Error('Meta settings missing: meta_ad_account_id / meta_access_token');
